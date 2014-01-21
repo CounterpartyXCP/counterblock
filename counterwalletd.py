@@ -15,14 +15,14 @@ import argparse
 import json
 import logging
 import appdirs
-import configparser
+import ConfigParser
 import time
 from datetime import datetime
 
 import pymongo
 import cube
-from socketio import SocketIOServer
-from gevent_zeromq import zmq
+from socketio import server as socketio_server
+import zmq.green as zmq
 
 from lib import (config, api,)
 
@@ -35,8 +35,8 @@ def zmq_server(zmq_context):
     any messages sent to queue_socketio, socket.ioapp will get and send off to listening socket.io clients
       (i.e. counterwallet clients so they get a realtime event feed)
     """
-    sock_incoming = context.socket(zmq.SUB)
-    sock_outgoing_socketio = context.socket(zmq.PUB)
+    sock_incoming = zmq_context.socket(zmq.SUB)
+    sock_outgoing_socketio = zmq_context.socket(zmq.PUB)
     sock_incoming.bind('tcp://%s:%s' % (config.ZEROMQ_HOST, config.ZEROMQ_PORT))
     sock_outgoing_socketio.bind('inproc://queue_socketio')
     sock_incoming.setsockopt(zmq.SUBSCRIBE, "")
@@ -115,10 +115,10 @@ if __name__ == '__main__':
     if not os.path.isdir(config.data_dir): os.mkdir(config.data_dir)
 
     #Read config file
-    configfile = configparser.ConfigParser()
+    configfile = ConfigParser.ConfigParser()
     config_path = os.path.join(config.data_dir, 'counterwalletd.conf')
     configfile.read(config_path)
-    has_config = 'Default' in configfile
+    has_config = configfile.has_section('Default')
 
     ##############
     # STUFF WE CONNECT TO
@@ -126,16 +126,16 @@ if __name__ == '__main__':
     # counterpartyd RPC host
     if args.counterpartyd_rpc_connect:
         config.COUNTERPARTYD_RPC_CONNECT = args.counterpartyd_rpc_connect
-    elif has_config and 'counterpartyd-rpc-connect' in configfile['Default']:
-        config.COUNTERPARTYD_RPC_CONNECT = configfile['Default']['counterpartyd-rpc-connect']
+    elif has_config and configfile.has_option('Default', 'counterpartyd-rpc-connect'):
+        config.COUNTERPARTYD_RPC_CONNECT = configfile.get('Default', 'counterpartyd-rpc-connect')
     else:
         config.COUNTERPARTYD_RPC_CONNECT = 'localhost'
 
     # counterpartyd RPC port
     if args.counterpartyd_rpc_port:
         config.COUNTERPARTYD_RPC_PORT = args.counterpartyd_rpc_port
-    elif has_config and 'counterpartyd-rpc-port' in configfile['Default']:
-        config.COUNTERPARTYD_RPC_PORT = configfile['Default']['counterpartyd-rpc-port']
+    elif has_config and configfile.has_option('Default', 'counterpartyd-rpc-port') and configfile.get('Default', 'counterpartyd-rpc-port'):
+        config.COUNTERPARTYD_RPC_PORT = configfile.get('Default', 'counterpartyd-rpc-port')
     else:
         config.COUNTERPARTYD_RPC_PORT = '4000'
     try:
@@ -147,16 +147,16 @@ if __name__ == '__main__':
     # counterpartyd RPC user
     if args.counterpartyd_rpc_user:
         config.COUNTERPARTYD_RPC_USER = args.counterpartyd_rpc_user
-    elif has_config and 'counterpartyd-rpc-user' in configfile['Default']:
-        config.COUNTERPARTYD_RPC_USER = configfile['Default']['counterpartyd-rpc-user']
+    elif has_config and configfile.has_option('Default', 'counterpartyd-rpc-user'):
+        config.COUNTERPARTYD_RPC_USER = configfile.get('Default', 'counterpartyd-rpc-user')
     else:
         config.COUNTERPARTYD_RPC_USER = 'rpcuser'
 
     # counterpartyd RPC password
     if args.counterpartyd_rpc_password:
         config.COUNTERPARTYD_RPC_PASSWORD = args.counterpartyd_rpc_password
-    elif has_config and 'counterpartyd-rpc-password' in configfile['Default']:
-        config.COUNTERPARTYD_RPC_PASSWORD = configfile['Default']['counterpartyd-rpc-password']
+    elif has_config and configfile.has_option('Default', 'counterpartyd-rpc-password'):
+        config.COUNTERPARTYD_RPC_PASSWORD = configfile.get('Default', 'counterpartyd-rpc-password')
     else:
         config.COUNTERPARTYD_RPC_PASSWORD = 'rpcpassword'
 
@@ -165,16 +165,16 @@ if __name__ == '__main__':
     # mongodb host
     if args.mongodb_connect:
         config.MONGODB_CONNECT = args.mongodb_connect
-    elif has_config and 'mongodb-connect' in configfile['Default']:
-        config.MONGODB_CONNECT = configfile['Default']['mongodb-connect']
+    elif has_config and configfile.has_option('Default', 'mongodb-connect'):
+        config.MONGODB_CONNECT = configfile.get('Default', 'mongodb-connect')
     else:
         config.MONGODB_CONNECT = 'localhost'
 
     # mongodb port
     if args.mongodb_port:
         config.MONGODB_PORT = args.mongodb_port
-    elif has_config and 'mongodb-port' in configfile['Default']:
-        config.MONGODB_PORT = configfile['Default']['mongodb-port']
+    elif has_config and configfile.has_option('Default', 'mongodb-port') and configfile.get('Default', 'mongodb-port'):
+        config.MONGODB_PORT = configfile.get('Default', 'mongodb-port')
     else:
         config.MONGODB_PORT = '27017'
     try:
@@ -186,40 +186,40 @@ if __name__ == '__main__':
     # mongodb database
     if args.mongodb_database:
         config.MONGODB_DATABASE = args.mongodb_database
-    elif has_config and 'mongodb-database' in configfile['Default']:
-        config.MONGODB_DATABASE = configfile['Default']['mongodb-database']
+    elif has_config and configfile.has_option('Default', 'mongodb-database'):
+        config.MONGODB_DATABASE = configfile.get('Default', 'mongodb-database')
     else:
         config.MONGODB_DATABASE = 'counterwalletd'
 
     # mongodb user
     if args.mongodb_user:
         config.MONGODB_USER = args.mongodb_user
-    elif has_config and 'mongodb-user' in configfile['Default']:
-        config.MONGODB_USER = configfile['Default']['mongodb-user']
+    elif has_config and configfile.has_option('Default', 'mongodb-user'):
+        config.MONGODB_USER = configfile.get('Default', 'mongodb-user')
     else:
         config.MONGODB_USER = None
 
     # mongodb password
     if args.mongodb_password:
         config.MONGODB_PASSWORD = args.mongodb_password
-    elif has_config and 'mongodb-password' in configfile['Default']:
-        config.MONGODB_PASSWORD = configfile['Default']['mongodb-password']
+    elif has_config and configfile.has_option('Default', 'mongodb-password'):
+        config.MONGODB_PASSWORD = configfile.get('Default', 'mongodb-password')
     else:
         config.MONGODB_PASSWORD = None
 
     # cube host
     if args.cube_connect:
         config.CUBE_CONNECT = args.cube_connect
-    elif has_config and 'cube-connect' in configfile['Default']:
-        config.CUBE_CONNECT = configfile['Default']['cube-connect']
+    elif has_config and configfile.has_option('Default', 'cube-connect'):
+        config.CUBE_CONNECT = configfile.get('Default', 'cube-connect')
     else:
         config.CUBE_CONNECT = 'localhost'
 
     # cube collector port
     if args.cube_collector_port:
         config.CUBE_COLLECTOR_PORT = args.cube_collector_port
-    elif has_config and 'cube-collector-port' in configfile['Default']:
-        config.CUBE_COLLECTOR_PORT = configfile['Default']['cube-collector-port']
+    elif has_config and configfile.has_option('Default', 'cube-collector-port') and configfile.get('Default', 'cube-collector-port'):
+        config.CUBE_COLLECTOR_PORT = configfile.get('Default', 'cube-collector-port')
     else:
         config.CUBE_COLLECTOR_PORT = '1080'
     try:
@@ -231,8 +231,8 @@ if __name__ == '__main__':
     # cube evaluator port
     if args.cube_evaluator_port:
         config.CUBE_EVALUATOR_PORT = args.cube_evaluator_port
-    elif has_config and 'cube-evaluator-port' in configfile['Default']:
-        config.CUBE_EVALUATOR_PORT = configfile['Default']['cube-evaluator-port']
+    elif has_config and configfile.has_option('Default', 'cube-evaluator-port') and configfile.get('Default', 'cube-evaluator-port'):
+        config.CUBE_EVALUATOR_PORT = configfile.get('Default', 'cube-evaluator-port')
     else:
         config.CUBE_EVALUATOR_PORT = '1081'
     try:
@@ -247,16 +247,16 @@ if __name__ == '__main__':
     # RPC host
     if args.rpc_host:
         config.RPC_HOST = args.rpc_host
-    elif has_config and 'rpc-host' in configfile['Default']:
-        config.RPC_HOST = configfile['Default']['rpc-host']
+    elif has_config and configfile.has_option('Default', 'rpc-host'):
+        config.RPC_HOST = configfile.get('Default', 'rpc-host')
     else:
         config.RPC_HOST = 'localhost'
 
     # RPC port
     if args.rpc_port:
         config.RPC_PORT = args.rpc_port
-    elif has_config and 'rpc-port' in configfile['Default']:
-        config.RPC_PORT = configfile['Default']['rpc-port']
+    elif has_config and configfile.has_option('Default', 'rpc-port') and configfile.get('Default', 'rpc-port'):
+        config.RPC_PORT = configfile.get('Default', 'rpc-port')
     else:
         config.RPC_PORT = '4001'
     try:
@@ -268,16 +268,16 @@ if __name__ == '__main__':
     # socket.io host
     if args.socketio_host:
         config.SOCKETIO_HOST = args.socketio_host
-    elif has_config and 'socketio-host' in configfile['Default']:
-        config.SOCKETIO_HOST = configfile['Default']['socketio-host']
+    elif has_config and configfile.has_option('Default', 'socketio-host'):
+        config.SOCKETIO_HOST = configfile.get('Default', 'socketio-host')
     else:
         config.SOCKETIO_HOST = 'localhost'
 
     # socket.io port
     if args.socketio_port:
         config.SOCKETIO_PORT = args.socketio_port
-    elif has_config and 'socketio-port' in configfile['Default']:
-        config.SOCKETIO_PORT = configfile['Default']['socketio-port']
+    elif has_config and configfile.has_option('Default', 'socketio-port') and configfile.get('Default', 'socketio-port'):
+        config.SOCKETIO_PORT = configfile.get('Default', 'socketio-port')
     else:
         config.SOCKETIO_PORT = '4002'
     try:
@@ -289,18 +289,20 @@ if __name__ == '__main__':
     # zeromq host
     if args.zeromq_host:
         config.ZEROMQ_HOST = args.zeromq_host
-    elif has_config and 'zeromq-host' in configfile['Default']:
-        config.ZEROMQ_HOST = configfile['Default']['zeromq-host']
+    elif has_config and configfile.has_option('Default', 'zeromq-host'):
+        config.ZEROMQ_HOST = configfile.get('Default', 'zeromq-host')
     else:
-        config.ZEROMQ_HOST = 'localhost'
+        config.ZEROMQ_HOST = '127.0.0.1'
+    if config.ZEROMQ_HOST.lower() == 'localhost':
+        config.ZEROMQ_HOST = '127.0.0.1' #zeromq doesn't like "localhost"
 
     # zeromq port
     if args.zeromq_port:
         config.ZEROMQ_PORT = args.zeromq_port
-    elif has_config and 'zeromq-port' in configfile['Default']:
-        config.ZEROMQ_PORT = configfile['Default']['zeromq-port']
+    elif has_config and configfile.has_option('Default', 'zeromq-port') and configfile.get('Default', 'zeromq-port'):
+        config.ZEROMQ_PORT = configfile.get('Default', 'zeromq-port')
     else:
-        config.ZEROMQ_PORT = '4001'
+        config.ZEROMQ_PORT = '4003'
     try:
         int(config.ZEROMQ_PORT)
         assert int(config.ZEROMQ_PORT) > 1 and int(config.ZEROMQ_PORT) < 65535
@@ -310,8 +312,8 @@ if __name__ == '__main__':
     # Log
     if args.log_file:
         config.LOG = args.log_file
-    elif has_config and 'logfile' in configfile['Default']:
-        config.LOG = configfile['Default']['logfile']
+    elif has_config and configfile.has_option('Default', 'logfile'):
+        config.LOG = configfile.get('Default', 'logfile')
     else:
         config.LOG = os.path.join(config.data_dir, 'counterwalletd.log')
     if args.verbose:
@@ -333,7 +335,7 @@ if __name__ == '__main__':
     requests_log.setLevel(logging.DEBUG if args.verbose else logging.WARNING)
 
     #Connect to mongodb
-    mongo_client = MongoClient(config.MONGODB_HOST, config.MONGODB_PORT)
+    mongo_client = pymongo.MongoClient(config.MONGODB_CONNECT, int(config.MONGODB_PORT))
     try:
         db = mongo_client[config.MONGODB_DATABASE]
     except:
@@ -348,25 +350,17 @@ if __name__ == '__main__':
     cube_db = cube.Cube(hostname=config.CUBE_CONNECT,
         collector_port=config.CUBE_COLLECTOR_PORT, evaluator_port=config.CUBE_EVALUATOR_PORT)
     
-    if args.action == None: args.action = 'server'
+    logging.info("Starting up ZeroMQ server...")
+    zmq_context = zmq.Context()
+    gevent.spawn(zmq_server, zmq_context)
+    
+    logging.info("Starting up socket.io server...")
+    sio_server = socketio_server.SocketIOServer(
+        (config.SOCKETIO_HOST, int(config.SOCKETIO_PORT)),
+        SocketIOApp(zmq_context), resource="socket.io")        
+    sio_server.start() #start the socket.io server greenlets
 
-    if args.action == 'help':
-        parser.print_help()
-
-    elif args.action == 'server':
-        logging.info("Starting up ZeroMQ server...")
-        zmq_context = zmq.Context()
-        gevent.spawn(zmq_server, zmq_context)
-        
-        logging.info("Starting up socket.io server...")
-        sio_server = SocketIOServer(
-            (config.SOCKETIO_HOST, config.SOCKETIO_PORT),
-            SocketIOApp(zmq_context), resource="socket.io")        
-        sio_server.start() #start the socket.io server greenlets
-
-        logging.info("Starting up RPC API handler...")
-        api.serve_api(db)
-    else:
-        parser.print_help()
+    logging.info("Starting up RPC API handler...")
+    api.serve_api(db)
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

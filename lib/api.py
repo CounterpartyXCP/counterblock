@@ -1,8 +1,11 @@
 #import before importing other modules
+import os
 import gevent
 from gevent import monkey; monkey.patch_all()
 
 import json
+import logging
+from logging import handlers as logging_handlers
 
 import cherrypy 
 from jsonrpc import JSONRPCResponseManager, dispatcher
@@ -15,7 +18,7 @@ REQUIRED_PREFERENCES_FIELDS = ('num_addresses_used', 'address_aliases')
 def serve_api(db):
     @dispatcher.add_method
     def get_preferences(wallet_id):
-        return db.preferences.find_one({"wallet_id": wallet_id})
+        return db.preferences.find_one({"wallet_id": wallet_id}) or {}
 
     @dispatcher.add_method
     def store_preferences(wallet_id, preferences):

@@ -51,7 +51,7 @@ get_preferences
    Gets the preferences for a given wallet ID.
 
    :param string wallet_id: The wallet ID to retrieve the preferences for.
-   :return: A :ref:`wallet preferences object <wallet-preferences-object>` if the wallet ID had stored preferences, otherwise ``null``.
+   :return: A :ref:`wallet preferences object <wallet-preferences-object>` if the wallet ID had stored preferences, otherwise ``{}`` (empty object).
 
 
 
