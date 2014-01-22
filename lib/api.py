@@ -1,19 +1,29 @@
 #import before importing other modules
 import os
-import gevent
-from gevent import monkey; monkey.patch_all()
-
 import json
 import logging
 from logging import handlers as logging_handlers
-
-import cherrypy 
+import requests
+import cherrypy
 from jsonrpc import JSONRPCResponseManager, dispatcher
 from gevent import wsgi
 
 from . import (config,)
 
 REQUIRED_PREFERENCES_FIELDS = ('num_addresses_used', 'address_aliases')
+
+def call_jsonrpc_api(method, params, endpoint=None, auth=None):
+    if not endpoint: endpoint = config.COUNTERPARTYD_RPC
+    if not auth: auth = config.COUNTERPARTYD_AUTH
+    payload = {
+      "method": method,
+      "params": params,
+        "jsonrpc": "2.0",
+        "id": 0,
+    }
+    response = requests.post(
+        endpoint, data=json.dumps(payload), headers={'content-type': 'application/json'}, auth=auth).json()
+    return response
 
 def serve_api(db):
     @dispatcher.add_method

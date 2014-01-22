@@ -21,34 +21,53 @@ from datetime import datetime
 
 import pymongo
 import cube
+from requests.auth import HTTPBasicAuth
 from socketio import server as socketio_server
 import zmq.green as zmq
 
 from lib import (config, api,)
 
 
-def zmq_server(zmq_context):
+def zmq_subscriber(zmq_context):
     """
-    start and run zeromq server, proxying from an inbound TCP connection to either cube or socket.io server
-    (via a queue_socketio queue which the socket.io server hangs off of).
+    start and run zeromq subscriber, connecting to the counterpartyd zeromq publisher and proxying from this
+    to either cube or socket.io server (via a queue_socketio queue which the socket.io server hangs off of).
     
     any messages sent to queue_socketio, socket.ioapp will get and send off to listening socket.io clients
       (i.e. counterwallet clients so they get a realtime event feed)
     """
-    sock_incoming = zmq_context.socket(zmq.SUB)
-    sock_outgoing_socketio = zmq_context.socket(zmq.PUB)
-    sock_incoming.bind('tcp://%s:%s' % (config.ZEROMQ_HOST, config.ZEROMQ_PORT))
-    sock_outgoing_socketio.bind('inproc://queue_socketio')
-    sock_incoming.setsockopt(zmq.SUBSCRIBE, "")
+    #listen on our socketio queue
+    publisher_socketio = zmq_context.socket(zmq.PUB)
+    publisher_socketio.bind('inproc://queue_socketio')
+
+    def recv_or_timeout(subscriber, timeout_ms):
+        poller = zmq.Poller()
+        poller.register(subscriber, zmq.POLLIN)
+        while True:
+            socket = dict(poller.poll(timeout_ms))
+            if socket.get(subscriber) == zmq.POLLIN:
+                msg = subscriber.recv_json()
+                logging.info("Event feed received message: %s" % msg['_TYPE'])
+                #store some data in cube from this???
+                #determine if socket.io gets the message
+                #TODO: massage message data
+                #send data to socketio
+                publisher_socketio.send(json.dumps(msg))
+            else:
+                return # Timeout!
+            
     while True:
-        msg = sock_incoming.recv()
+        #connect to counterpartyd's zeromq publisher
+        subscriber = zmq_context.socket(zmq.SUB)
+        url = 'tcp://%s:%s' % (config.ZEROMQ_CONNECT, config.ZEROMQ_PORT)
+        logging.info("Connecting to counterpartyd realtime (ZeroMQ) event feed @ %s" % url)
+        subscriber.connect(url)
+        logging.info("Connected to counterpartyd realtime (ZeroMQ) event feed")
+        subscriber.setsockopt(zmq.SUBSCRIBE, "") #clear filter
         
-        #store some data in cube from this???
-        
-        #determine if socket.io gets the message
-        #TODO: massage message data
-        #send data to socketio
-        sock_outgoing_socketio.send(msg)
+        recv_or_timeout(subscriber, None) #this will block until timeout of some sort (timeout disabled currently)
+        subscriber.close()        
+        logging.warning("counterpartyd realtime event feed connection broken/timeout. Reconnecting...")
 
 
 class SocketIOApp(object):
@@ -82,6 +101,11 @@ if __name__ == '__main__':
     parser.add_argument('--log-file', help='the location of the log file')
 
     #STUFF WE CONNECT TO
+    parser.add_argument('--bitcoind-rpc-connect', help='the hostname of the Bitcoind JSON-RPC server')
+    parser.add_argument('--bitcoind-rpc-port', type=int, help='the port used to communicate with Bitcoind over JSON-RPC')
+    parser.add_argument('--bitcoind-rpc-user', help='the username used to communicate with Bitcoind over JSON-RPC')
+    parser.add_argument('--bitcoind-rpc-password', help='the password used to communicate with Bitcoind over JSON-RPC')
+
     parser.add_argument('--counterpartyd-rpc-connect', help='the hostname of the counterpartyd JSON-RPC server')
     parser.add_argument('--counterpartyd-rpc-port', type=int, help='the port used to communicate with counterpartyd over JSON-RPC')
     parser.add_argument('--counterpartyd-rpc-user', help='the username used to communicate with counterpartyd over JSON-RPC')
@@ -93,6 +117,9 @@ if __name__ == '__main__':
     parser.add_argument('--mongodb-user', help='the optional username used to communicate with mongodb')
     parser.add_argument('--mongodb-password', help='the optional password used to communicate with mongodb')
 
+    parser.add_argument('--zeromq-connect', help='the hostname of the counterpartyd server hosting zeromq')
+    parser.add_argument('--zeromq-port', type=int, help='the port used to connect to the counterpartyd server hosting zeromq')
+
     parser.add_argument('--cube-connect', help='the hostname of the Square Cube collector + evaluator')
     parser.add_argument('--cube-collector-port', type=int, help='the port used to communicate with the Square Cube collector')
     parser.add_argument('--cube-evaluator-port', type=int, help='the port used to communicate with the Square Cube evaluator')
@@ -102,8 +129,6 @@ if __name__ == '__main__':
     parser.add_argument('--rpc-port', type=int, help='port on which to provide the counterwalletd JSON-RPC API')
     parser.add_argument('--socketio-host', help='the host to provide the counterwalletd socket.io API')
     parser.add_argument('--socketio-port', type=int, help='port on which to provide the counterwalletd socket.io API')
-    parser.add_argument('--zeromq-host', help='the host to provide the counterwalletd zeroMQ broker')
-    parser.add_argument('--zeromq-port', type=int, help='port on which to provide the counterwalletd zeroMQ broker')
 
     args = parser.parse_args()
 
@@ -122,6 +147,46 @@ if __name__ == '__main__':
 
     ##############
     # STUFF WE CONNECT TO
+
+    # Bitcoind RPC host
+    if args.bitcoind_rpc_connect:
+        config.BITCOIND_RPC_CONNECT = args.bitcoind_rpc_connect
+    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-connect'):
+        config.BITCOIND_RPC_CONNECT = configfile.get('Default', 'bitcoind-rpc-connect')
+    else:
+        config.BITCOIND_RPC_CONNECT = 'localhost'
+
+    # Bitcoind RPC port
+    if args.bitcoind_rpc_port:
+        config.BITCOIND_RPC_PORT = args.bitcoind_rpc_port
+    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-port') and configfile.get('Default', 'bitcoind-rpc-port'):
+        config.BITCOIND_RPC_PORT = configfile.get('Default', 'bitcoind-rpc-port')
+    else:
+        config.BITCOIND_RPC_PORT = '8332'
+    try:
+        int(config.BITCOIND_RPC_PORT)
+        assert int(config.BITCOIND_RPC_PORT) > 1 and int(config.BITCOIND_RPC_PORT) < 65535
+    except:
+        raise Exception("Please specific a valid port number bitcoind-rpc-port configuration parameter")
+            
+    # Bitcoind RPC user
+    if args.bitcoind_rpc_user:
+        config.BITCOIND_RPC_USER = args.bitcoind_rpc_user
+    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-user'):
+        config.BITCOIND_RPC_USER = configfile.get('Default', 'bitcoind-rpc-user')
+    else:
+        config.BITCOIND_RPC_USER = 'bitcoinrpc'
+
+    # Bitcoind RPC password
+    if args.bitcoind_rpc_password:
+        config.BITCOIND_RPC_PASSWORD = args.bitcoind_rpc_password
+    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-password'):
+        config.BITCOIND_RPC_PASSWORD = configfile.get('Default', 'bitcoind-rpc-password')
+    else:
+        raise Exception('bitcoind RPC password not set. (Use configuration file or --bitcoind-rpc-password=PASSWORD)')
+
+    config.BITCOIND_RPC = 'http://' + config.BITCOIND_RPC_CONNECT + ':' + str(config.BITCOIND_RPC_PORT)
+    config.BITCOIND_AUTH = HTTPBasicAuth(config.BITCOIND_RPC_USER, config.BITCOIND_RPC_PASSWORD) if (config.BITCOIND_RPC_USER and config.BITCOIND_RPC_PASSWORD) else None
 
     # counterpartyd RPC host
     if args.counterpartyd_rpc_connect:
@@ -160,7 +225,8 @@ if __name__ == '__main__':
     else:
         config.COUNTERPARTYD_RPC_PASSWORD = 'rpcpassword'
 
-    config.COUNTERPARTYD_RPC = 'http://' + config.COUNTERPARTYD_RPC_USER + ':' + config.COUNTERPARTYD_RPC_PASSWORD + '@' + config.COUNTERPARTYD_RPC_CONNECT + ':' + str(config.COUNTERPARTYD_RPC_PORT)
+    config.COUNTERPARTYD_RPC = 'http://' + config.COUNTERPARTYD_RPC_CONNECT + ':' + str(config.COUNTERPARTYD_RPC_PORT)
+    config.COUNTERPARTYD_AUTH = HTTPBasicAuth(config.COUNTERPARTYD_RPC_USER, config.COUNTERPARTYD_RPC_PASSWORD) if (config.COUNTERPARTYD_RPC_USER and config.COUNTERPARTYD_RPC_PASSWORD) else None
 
     # mongodb host
     if args.mongodb_connect:
@@ -206,6 +272,27 @@ if __name__ == '__main__':
         config.MONGODB_PASSWORD = configfile.get('Default', 'mongodb-password')
     else:
         config.MONGODB_PASSWORD = None
+
+    # zeromq host
+    if args.zeromq_connect:
+        config.ZEROMQ_CONNECT = args.zeromq_connect
+    elif has_config and configfile.has_option('Default', 'zeromq-connect'):
+        config.ZEROMQ_CONNECT = configfile.get('Default', 'zeromq-connect')
+    else:
+        config.ZEROMQ_CONNECT = '127.0.0.1'
+
+    # zeromq port
+    if args.zeromq_port:
+        config.ZEROMQ_PORT = args.zeromq_port
+    elif has_config and configfile.has_option('Default', 'zeromq-port') and configfile.get('Default', 'zeromq-port'):
+        config.ZEROMQ_PORT = configfile.get('Default', 'zeromq-port')
+    else:
+        config.ZEROMQ_PORT = '4001'
+    try:
+        int(config.ZEROMQ_PORT)
+        assert int(config.ZEROMQ_PORT) > 1 and int(config.ZEROMQ_PORT) < 65535
+    except:
+        raise Exception("Please specific a valid port number zeromq-port configuration parameter")
 
     # cube host
     if args.cube_connect:
@@ -258,7 +345,7 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'rpc-port') and configfile.get('Default', 'rpc-port'):
         config.RPC_PORT = configfile.get('Default', 'rpc-port')
     else:
-        config.RPC_PORT = '4001'
+        config.RPC_PORT = '4100'
     try:
         int(config.RPC_PORT)
         assert int(config.RPC_PORT) > 1 and int(config.RPC_PORT) < 65535
@@ -279,36 +366,13 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'socketio-port') and configfile.get('Default', 'socketio-port'):
         config.SOCKETIO_PORT = configfile.get('Default', 'socketio-port')
     else:
-        config.SOCKETIO_PORT = '4002'
+        config.SOCKETIO_PORT = '4101'
     try:
         int(config.SOCKETIO_PORT)
         assert int(config.SOCKETIO_PORT) > 1 and int(config.SOCKETIO_PORT) < 65535
     except:
         raise Exception("Please specific a valid port number socketio-port configuration parameter")
 
-    # zeromq host
-    if args.zeromq_host:
-        config.ZEROMQ_HOST = args.zeromq_host
-    elif has_config and configfile.has_option('Default', 'zeromq-host'):
-        config.ZEROMQ_HOST = configfile.get('Default', 'zeromq-host')
-    else:
-        config.ZEROMQ_HOST = '127.0.0.1'
-    if config.ZEROMQ_HOST.lower() == 'localhost':
-        config.ZEROMQ_HOST = '127.0.0.1' #zeromq doesn't like "localhost"
-
-    # zeromq port
-    if args.zeromq_port:
-        config.ZEROMQ_PORT = args.zeromq_port
-    elif has_config and configfile.has_option('Default', 'zeromq-port') and configfile.get('Default', 'zeromq-port'):
-        config.ZEROMQ_PORT = configfile.get('Default', 'zeromq-port')
-    else:
-        config.ZEROMQ_PORT = '4003'
-    try:
-        int(config.ZEROMQ_PORT)
-        assert int(config.ZEROMQ_PORT) > 1 and int(config.ZEROMQ_PORT) < 65535
-    except:
-        raise Exception("Please specific a valid port number zeromq-port configuration parameter")
-  
     # Log
     if args.log_file:
         config.LOG = args.log_file
@@ -350,9 +414,9 @@ if __name__ == '__main__':
     cube_db = cube.Cube(hostname=config.CUBE_CONNECT,
         collector_port=config.CUBE_COLLECTOR_PORT, evaluator_port=config.CUBE_EVALUATOR_PORT)
     
-    logging.info("Starting up ZeroMQ server...")
+    logging.info("Starting up ZeroMQ subscriber...")
     zmq_context = zmq.Context()
-    gevent.spawn(zmq_server, zmq_context)
+    gevent.spawn(zmq_subscriber, zmq_context)
     
     logging.info("Starting up socket.io server...")
     sio_server = socketio_server.SocketIOServer(

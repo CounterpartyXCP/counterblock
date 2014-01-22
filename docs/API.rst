@@ -33,7 +33,7 @@ An individual Counterwallet user needs a way to identify themselves to ``counter
 and retrieving their wallet preferences data, and more.
 
 For this purpose, we define the concept of a wallet ID, which is simply the user's Counterwallet 12-word password,
-hashed with SHA1, and the resulting hash hashed again with SHA1.
+double-hashed with SHA256 and converted to base 64.
 
 
 .. _read_api:
@@ -88,7 +88,6 @@ Wallet Preferences Object
 
 An object that stores the Counterwallet preferences for the given wallet ID.
 
-* **wallet_id** (*string*): The wallet user's :ref:`wallet ID <walletid>`.
 * **num_addresses_used** (*integer*): The number of addresses utilized in the user's wallet (this
   determines how many addresses we will deterministally generate when the user logs in).
 * **address_aliases** (*list*): A list of zero or objects, with each object having an ``address`` string property,
