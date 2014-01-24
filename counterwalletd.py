@@ -39,7 +39,7 @@ def zmq_subscriber(zmq_context):
     #listen on our socketio queue
     publisher_socketio = zmq_context.socket(zmq.PUB)
     publisher_socketio.bind('inproc://queue_socketio')
-
+    
     def recv_or_timeout(subscriber, timeout_ms):
         poller = zmq.Poller()
         poller.register(subscriber, zmq.POLLIN)
@@ -48,11 +48,13 @@ def zmq_subscriber(zmq_context):
             if socket.get(subscriber) == zmq.POLLIN:
                 msg = subscriber.recv_json()
                 logging.info("Event feed received message: %s" % msg['_TYPE'])
+                
                 #store some data in cube from this???
-                #determine if socket.io gets the message
-                #TODO: massage message data
-                #send data to socketio
-                publisher_socketio.send(json.dumps(msg))
+                #TODO!!
+                
+                #send the message to the socket.io processor for it to process/massage and forward on to
+                # web clients as necessary
+                publisher_socketio.send_json(msg)
             else:
                 return # Timeout!
             
@@ -86,8 +88,18 @@ class SocketIOApp(object):
         sock.setsockopt(zmq.SUBSCRIBE, "")
         sock.connect('inproc://queue_socketio')
         while True:
-            msg = sock.recv()
-            socketio.send(msg)
+            msg = sock.recv_json()
+            
+            #TODO: logic here to process and massage the data before sending on to clients
+            if msg['_TYPE'] in ['debit', 'credit']:
+                #forward over as-is
+                forwarded_msg = msg
+            else:
+                #ignore for now
+                forwarded_msg = None
+            
+            if forwarded_msg:
+                socketio.send(forwarded_msg, json=True)
 
 
 if __name__ == '__main__':
