@@ -79,6 +79,13 @@ class SocketIOApp(object):
     def __init__(self, context):
         self.context = context
         
+    def create_sio_packet(self, msg_type, msg):
+        return {
+            "type": "event",
+            "name": msg_type,
+            "args": msg
+        }
+        
     def __call__(self, environ, start_response):
         if not environ['PATH_INFO'].startswith('/socket.io'):
             start_response('401 UNAUTHORIZED', [])
@@ -89,17 +96,17 @@ class SocketIOApp(object):
         sock.connect('inproc://queue_socketio')
         while True:
             msg = sock.recv_json()
-            
-            #TODO: logic here to process and massage the data before sending on to clients
-            if msg['_TYPE'] in ['debit', 'credit']:
+            msg_type = msg.pop('_TYPE')
+            #process and massage the data as necessary before sending on to socket.io clients
+            if msg_type in ['debit', 'credit']:
                 #forward over as-is
-                forwarded_msg = msg
+                forwarded_msg = self.create_sio_packet(msg_type, msg)
             else:
                 #ignore for now
                 forwarded_msg = None
             
             if forwarded_msg:
-                socketio.send(forwarded_msg, json=True)
+                socketio.send_packet(forwarded_msg)
 
 
 if __name__ == '__main__':
@@ -420,7 +427,7 @@ if __name__ == '__main__':
         if not db.authenticate(config.MONGODB_USER, config.MONGODB_PASSWORD):
             raise Exception("Could not authenticate to mongodb with the supplied username and password.")
     #insert mongo indexes if need-be (i.e. for newly created database)
-    db.preferences.ensure_index('wallet_id_hash', unique=True)
+    db.preferences.ensure_index('wallet_id', unique=True)
     
     #Connect to cube
     cube_db = cube.Cube(hostname=config.CUBE_CONNECT,

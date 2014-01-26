@@ -7,6 +7,7 @@ import requests
 import cherrypy
 from jsonrpc import JSONRPCResponseManager, dispatcher
 from gevent import wsgi
+from bson import json_util
 
 from . import (config,)
 
@@ -28,15 +29,14 @@ def serve_api(db):
     # the server side, this makes it easier for 3rd party wallets (i.e. not counterwallet) to fully be able to
     # use counterwalletd to not only pull useful data, but also load and store their own preferences, containing
     # whatever data they need
-    
+
     @dispatcher.add_method
     def get_preferences(wallet_id):
-        result =  db.preferences.find_one({"wallet_id": wallet_id}) or {}
-        return result
+        result =  db.preferences.find_one({"wallet_id": wallet_id})
+        return json.loads(result['preferences']) if result else {}
 
     @dispatcher.add_method
     def store_preferences(wallet_id, preferences):
-        print "preferences", preferences
         if not isinstance(preferences, dict):
             raise Exception("Invalid preferences object")
         try:
@@ -44,32 +44,17 @@ def serve_api(db):
         except:
             raise Exception("Cannot dump preferences to JSON")
         
-        #store/update this in the db
-        db.preferences.update({'wallet_id': wallet_id},
-            {"$set": {'wallet_id': wallet_id, 'preferences': preferences_json}},
-            upsert=True)
+        db.preferences.update(
+            {'wallet_id': wallet_id},
+            {"$set": {'wallet_id': wallet_id, 'preferences': preferences_json}}, upsert=True)
         return True
     
     @dispatcher.add_method
-    def get_asset_owner(asset):
-        #gets the current owner for the given asset
-        response = call_jsonrpc_api(method,
-            {
-                'filters': {'field': 'asset', 'op': '==', 'value': asset},
-                'order_by': 'block_index',
-                'order_dir': 'desc'
-            }
-        )
-        
-        #get the last issurance message for this asset, which should reflect the current owner
-        if 'result' in response and len(response['result']):
-            return response['result'][0]['issuer']
-        else: #error, or asset doesn't exist
-            return None
-    
-    @dispatcher.add_method
-    def proxy_to_counterpartyd(method, params):
-        return call_jsonrpc_api(method, params)
+    def proxy_to_counterpartyd(method='', params=[]):
+        result = json.loads(call_jsonrpc_api(method, params))
+        if 'error' in result:
+            raise Exception(result['error']['data'].get('message', result['error']['message']))
+        return result['result']
     
     class Root(object):
         @cherrypy.expose
@@ -94,8 +79,8 @@ def serve_api(db):
             except ValueError:
                 raise cherrypy.HTTPError(400, 'Invalid JSON document')
             response = JSONRPCResponseManager.handle(data, dispatcher)
-            logging.debug("JSON RPC Server Response: ", response.json)
             return response.json
+                
     
     cherrypy.config.update({
         'log.screen': False,
