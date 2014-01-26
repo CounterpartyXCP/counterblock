@@ -170,7 +170,7 @@ if __name__ == '__main__':
     # Bitcoind RPC host
     if args.bitcoind_rpc_connect:
         config.BITCOIND_RPC_CONNECT = args.bitcoind_rpc_connect
-    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-connect'):
+    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-connect') and configfile.get('Default', 'bitcoind-rpc-connect'):
         config.BITCOIND_RPC_CONNECT = configfile.get('Default', 'bitcoind-rpc-connect')
     else:
         config.BITCOIND_RPC_CONNECT = 'localhost'
@@ -191,7 +191,7 @@ if __name__ == '__main__':
     # Bitcoind RPC user
     if args.bitcoind_rpc_user:
         config.BITCOIND_RPC_USER = args.bitcoind_rpc_user
-    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-user'):
+    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-user') and configfile.get('Default', 'bitcoind-rpc-user'):
         config.BITCOIND_RPC_USER = configfile.get('Default', 'bitcoind-rpc-user')
     else:
         config.BITCOIND_RPC_USER = 'bitcoinrpc'
@@ -199,7 +199,7 @@ if __name__ == '__main__':
     # Bitcoind RPC password
     if args.bitcoind_rpc_password:
         config.BITCOIND_RPC_PASSWORD = args.bitcoind_rpc_password
-    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-password'):
+    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-password') and configfile.get('Default', 'bitcoind-rpc-password'):
         config.BITCOIND_RPC_PASSWORD = configfile.get('Default', 'bitcoind-rpc-password')
     else:
         raise Exception('bitcoind RPC password not set. (Use configuration file or --bitcoind-rpc-password=PASSWORD)')
@@ -210,7 +210,7 @@ if __name__ == '__main__':
     # counterpartyd RPC host
     if args.counterpartyd_rpc_connect:
         config.COUNTERPARTYD_RPC_CONNECT = args.counterpartyd_rpc_connect
-    elif has_config and configfile.has_option('Default', 'counterpartyd-rpc-connect'):
+    elif has_config and configfile.has_option('Default', 'counterpartyd-rpc-connect') and configfile.get('Default', 'counterpartyd-rpc-connect'):
         config.COUNTERPARTYD_RPC_CONNECT = configfile.get('Default', 'counterpartyd-rpc-connect')
     else:
         config.COUNTERPARTYD_RPC_CONNECT = 'localhost'
@@ -231,7 +231,7 @@ if __name__ == '__main__':
     # counterpartyd RPC user
     if args.counterpartyd_rpc_user:
         config.COUNTERPARTYD_RPC_USER = args.counterpartyd_rpc_user
-    elif has_config and configfile.has_option('Default', 'counterpartyd-rpc-user'):
+    elif has_config and configfile.has_option('Default', 'counterpartyd-rpc-user') and configfile.get('Default', 'counterpartyd-rpc-user'):
         config.COUNTERPARTYD_RPC_USER = configfile.get('Default', 'counterpartyd-rpc-user')
     else:
         config.COUNTERPARTYD_RPC_USER = 'rpcuser'
@@ -239,7 +239,7 @@ if __name__ == '__main__':
     # counterpartyd RPC password
     if args.counterpartyd_rpc_password:
         config.COUNTERPARTYD_RPC_PASSWORD = args.counterpartyd_rpc_password
-    elif has_config and configfile.has_option('Default', 'counterpartyd-rpc-password'):
+    elif has_config and configfile.has_option('Default', 'counterpartyd-rpc-password') and configfile.get('Default', 'counterpartyd-rpc-password'):
         config.COUNTERPARTYD_RPC_PASSWORD = configfile.get('Default', 'counterpartyd-rpc-password')
     else:
         config.COUNTERPARTYD_RPC_PASSWORD = 'rpcpassword'
@@ -250,7 +250,7 @@ if __name__ == '__main__':
     # mongodb host
     if args.mongodb_connect:
         config.MONGODB_CONNECT = args.mongodb_connect
-    elif has_config and configfile.has_option('Default', 'mongodb-connect'):
+    elif has_config and configfile.has_option('Default', 'mongodb-connect') and configfile.get('Default', 'mongodb-connect'):
         config.MONGODB_CONNECT = configfile.get('Default', 'mongodb-connect')
     else:
         config.MONGODB_CONNECT = 'localhost'
@@ -271,7 +271,7 @@ if __name__ == '__main__':
     # mongodb database
     if args.mongodb_database:
         config.MONGODB_DATABASE = args.mongodb_database
-    elif has_config and configfile.has_option('Default', 'mongodb-database'):
+    elif has_config and configfile.has_option('Default', 'mongodb-database') and configfile.get('Default', 'mongodb-database'):
         config.MONGODB_DATABASE = configfile.get('Default', 'mongodb-database')
     else:
         config.MONGODB_DATABASE = 'counterwalletd'
@@ -279,7 +279,7 @@ if __name__ == '__main__':
     # mongodb user
     if args.mongodb_user:
         config.MONGODB_USER = args.mongodb_user
-    elif has_config and configfile.has_option('Default', 'mongodb-user'):
+    elif has_config and configfile.has_option('Default', 'mongodb-user') and configfile.get('Default', 'mongodb-user'):
         config.MONGODB_USER = configfile.get('Default', 'mongodb-user')
     else:
         config.MONGODB_USER = None
@@ -287,7 +287,7 @@ if __name__ == '__main__':
     # mongodb password
     if args.mongodb_password:
         config.MONGODB_PASSWORD = args.mongodb_password
-    elif has_config and configfile.has_option('Default', 'mongodb-password'):
+    elif has_config and configfile.has_option('Default', 'mongodb-password') and configfile.get('Default', 'mongodb-password'):
         config.MONGODB_PASSWORD = configfile.get('Default', 'mongodb-password')
     else:
         config.MONGODB_PASSWORD = None
@@ -295,7 +295,7 @@ if __name__ == '__main__':
     # zeromq host
     if args.zeromq_connect:
         config.ZEROMQ_CONNECT = args.zeromq_connect
-    elif has_config and configfile.has_option('Default', 'zeromq-connect'):
+    elif has_config and configfile.has_option('Default', 'zeromq-connect') and configfile.get('Default', 'zeromq-connect'):
         config.ZEROMQ_CONNECT = configfile.get('Default', 'zeromq-connect')
     else:
         config.ZEROMQ_CONNECT = '127.0.0.1'
@@ -316,7 +316,7 @@ if __name__ == '__main__':
     # cube host
     if args.cube_connect:
         config.CUBE_CONNECT = args.cube_connect
-    elif has_config and configfile.has_option('Default', 'cube-connect'):
+    elif has_config and configfile.has_option('Default', 'cube-connect') and configfile.get('Default', 'cube-connect'):
         config.CUBE_CONNECT = configfile.get('Default', 'cube-connect')
     else:
         config.CUBE_CONNECT = 'localhost'
@@ -353,7 +353,7 @@ if __name__ == '__main__':
     # RPC host
     if args.rpc_host:
         config.RPC_HOST = args.rpc_host
-    elif has_config and configfile.has_option('Default', 'rpc-host'):
+    elif has_config and configfile.has_option('Default', 'rpc-host') and configfile.get('Default', 'rpc-host'):
         config.RPC_HOST = configfile.get('Default', 'rpc-host')
     else:
         config.RPC_HOST = 'localhost'
@@ -374,7 +374,7 @@ if __name__ == '__main__':
     # socket.io host
     if args.socketio_host:
         config.SOCKETIO_HOST = args.socketio_host
-    elif has_config and configfile.has_option('Default', 'socketio-host'):
+    elif has_config and configfile.has_option('Default', 'socketio-host') and configfile.get('Default', 'socketio-host'):
         config.SOCKETIO_HOST = configfile.get('Default', 'socketio-host')
     else:
         config.SOCKETIO_HOST = 'localhost'
