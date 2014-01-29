@@ -8,6 +8,7 @@ import cherrypy
 from jsonrpc import JSONRPCResponseManager, dispatcher
 from gevent import wsgi
 from bson import json_util
+from boto.dynamodb import exceptions as dynamodb_exceptions
 
 from . import (config,)
 
@@ -20,11 +21,13 @@ def call_jsonrpc_api(method, params, endpoint=None, auth=None):
         "jsonrpc": "2.0",
         "id": 0,
     }
-    response = requests.post(
-        endpoint, data=json.dumps(payload), headers={'content-type': 'application/json'}, auth=auth).json()
-    return response
+    r = requests.post(
+        endpoint, data=json.dumps(payload), headers={'content-type': 'application/json'}, auth=auth)
+    if r.status_code != 200:
+        raise Exception("Bad status code returned from counterwalletd: %s. payload: %s" % (r.status_code, r.text))
+    return r.json()
 
-def serve_api(db):
+def serve_api(db, dynamo_preferences_table):
     # Preferneces are just JSON objects... since we don't force a specific form to the wallet on
     # the server side, this makes it easier for 3rd party wallets (i.e. not counterwallet) to fully be able to
     # use counterwalletd to not only pull useful data, but also load and store their own preferences, containing
@@ -32,8 +35,15 @@ def serve_api(db):
 
     @dispatcher.add_method
     def get_preferences(wallet_id):
-        result =  db.preferences.find_one({"wallet_id": wallet_id})
-        return json.loads(result['preferences']) if result else {}
+        if dynamo_preferences_table: #dynamodb storage enabled
+            try:
+                result = dynamo_preferences_table.get_item(hash_key=wallet_id)
+                return json.loads(result['preferences'])
+            except dynamodb_exceptions.DynamoDBKeyNotFoundError:
+                return {}
+        else: #mongodb-based storage
+            result =  db.preferences.find_one({"wallet_id": wallet_id})
+            return json.loads(result['preferences']) if result else {}
 
     @dispatcher.add_method
     def store_preferences(wallet_id, preferences):
@@ -44,14 +54,26 @@ def serve_api(db):
         except:
             raise Exception("Cannot dump preferences to JSON")
         
-        db.preferences.update(
-            {'wallet_id': wallet_id},
-            {"$set": {'wallet_id': wallet_id, 'preferences': preferences_json}}, upsert=True)
+        if dynamo_preferences_table: #dynamodb storage enabled
+            try:
+                prefs = dynamo_preferences_table.get_item(hash_key=wallet_id)
+                prefs['preferences'] = preferences_json
+                prefs.put() #update
+            except dynamodb_exceptions.DynamoDBKeyNotFoundError: #insert new
+                prefs = dynamo_preferences_table.new_item(hash_key=wallet_id,
+                    attrs={'preferences': preferences_json})
+                prefs.put()
+        else: #mongodb-based storage
+            db.preferences.update(
+                {'wallet_id': wallet_id},
+                {"$set": {'wallet_id': wallet_id, 'preferences': preferences_json}}, upsert=True)
         return True
     
     @dispatcher.add_method
     def proxy_to_counterpartyd(method='', params=[]):
-        result = json.loads(call_jsonrpc_api(method, params))
+        raw_result = call_jsonrpc_api(method, params)
+        print("raw result: ", raw_result)
+        result = json.loads(raw_result)
         if 'error' in result:
             raise Exception(result['error']['data'].get('message', result['error']['message']))
         return result['result']
@@ -60,7 +82,6 @@ def serve_api(db):
         @cherrypy.expose
         def index(self):
             return ''
-        
 
     class API(object):
         @cherrypy.expose

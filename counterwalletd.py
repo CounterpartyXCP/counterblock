@@ -13,22 +13,30 @@ from gevent import monkey; monkey.patch_all()
 import os
 import argparse
 import json
+import copy
 import logging
+import datetime
 import appdirs
 import ConfigParser
 import time
-from datetime import datetime
 
 import pymongo
 import cube
+import boto.dynamodb
 from requests.auth import HTTPBasicAuth
 from socketio import server as socketio_server
 import zmq.green as zmq
 
 from lib import (config, api,)
 
+def parse_raw_msg(raw_msg):
+    msg = copy.copy(raw_msg)
+    event = msg.pop('_EVENT')
+    block_time = msg.pop('_BLOCKTIME') if '_BLOCKTIME' in msg else None
+    block_time_str = datetime.datetime.utcfromtimestamp(block_time).strftime("%Y-%m-%dT%H:%M:%S.%fZ") if block_time else ''
+    return {'event': event, 'block_time': block_time, 'block_time_str': block_time_str, 'msg': msg}
 
-def zmq_subscriber(zmq_context):
+def zmq_subscriber(zmq_context, mongo_client, cube_client):
     """
     start and run zeromq subscriber, connecting to the counterpartyd zeromq publisher and proxying from this
     to either cube or socket.io server (via a queue_socketio queue which the socket.io server hangs off of).
@@ -40,21 +48,41 @@ def zmq_subscriber(zmq_context):
     publisher_socketio = zmq_context.socket(zmq.PUB)
     publisher_socketio.bind('inproc://queue_socketio')
     
+    def cube_digest(msg):
+        #for now, just throw each new event in cube as-is so that we can do easy time-series analysis
+        if msg['event'] in ['balance', 'new_db_init']:
+            return #not processed
+
+        assert msg['block_time']
+        data = copy.copy(msg) 
+        data['time'] = msg['block_time_str']
+        cube_client.put(msg['event'], data)
+    
     def recv_or_timeout(subscriber, timeout_ms):
         poller = zmq.Poller()
         poller.register(subscriber, zmq.POLLIN)
         while True:
             socket = dict(poller.poll(timeout_ms))
             if socket.get(subscriber) == zmq.POLLIN:
-                msg = subscriber.recv_json()
-                logging.info("Event feed received message: %s" % msg['_TYPE'])
+                raw_msg = subscriber.recv_json()
+                msg = parse_raw_msg(raw_msg)
                 
-                #store some data in cube from this???
-                #TODO!!
-                
+                logging.info("Event feed received message: %s (TS: %s, %s)" % (msg['event'], msg['block_time_str'], msg))
+
+                if msg['event'] == 'new_db_init': #counterpartyd has reinitialized its DB
+                    logging.warn("Received 'new_db_init' message from counterpartyd: DROPPING OUR CUBE DATABASE IN RESPONSE")
+                    #clear out cube (mongo-backed)
+                    if config.CUBE_DATABASE in mongo_client.database_names():
+                        mongo_client.drop_database(config.CUBE_DATABASE)
+                    else:
+                        logging.warn("No cube database with name '%s' exists" % config.CUBE_DATABASE )
+                    #propagate message to socket.io clients as well (they may choose to log the user out, for instance)...
+
+                cube_digest(msg) #store in cube if need be, for future analysis
+                    
                 #send the message to the socket.io processor for it to process/massage and forward on to
                 # web clients as necessary
-                publisher_socketio.send_json(msg)
+                publisher_socketio.send_json(raw_msg)
             else:
                 return # Timeout!
             
@@ -66,8 +94,9 @@ def zmq_subscriber(zmq_context):
         subscriber.connect(url)
         logging.info("Connected to counterpartyd realtime (ZeroMQ) event feed")
         subscriber.setsockopt(zmq.SUBSCRIBE, "") #clear filter
-        
+
         recv_or_timeout(subscriber, None) #this will block until timeout of some sort (timeout disabled currently)
+        
         subscriber.close()        
         logging.warning("counterpartyd realtime event feed connection broken/timeout. Reconnecting...")
 
@@ -95,18 +124,11 @@ class SocketIOApp(object):
         sock.setsockopt(zmq.SUBSCRIBE, "")
         sock.connect('inproc://queue_socketio')
         while True:
-            msg = sock.recv_json()
-            msg_type = msg.pop('_TYPE')
-            #process and massage the data as necessary before sending on to socket.io clients
-            if msg_type in ['debit', 'credit']:
-                #forward over as-is
-                forwarded_msg = self.create_sio_packet(msg_type, msg)
-            else:
-                #ignore for now
-                forwarded_msg = None
-            
-            if forwarded_msg:
-                socketio.send_packet(forwarded_msg)
+            raw_msg = sock.recv_json()
+            msg = parse_raw_msg(raw_msg)
+            forwarded_msg = self.create_sio_packet(msg['event'], msg) #forward over as-is
+            logging.debug("socket.io: Sending %s" % forwarded_msg)
+            socketio.send_packet(forwarded_msg)
 
 
 if __name__ == '__main__':
@@ -136,12 +158,18 @@ if __name__ == '__main__':
     parser.add_argument('--mongodb-user', help='the optional username used to communicate with mongodb')
     parser.add_argument('--mongodb-password', help='the optional password used to communicate with mongodb')
 
+    parser.add_argument('--dynamodb-enable', action='store_true', default=True, help='set to false to use mongodb instead of DynamoDB for wallet preferences storage')
+    parser.add_argument('--dynamodb-aws-region', help='the Amazon Web Services region to use for DynamoDB connection (preferences storage)')
+    parser.add_argument('--dynamodb-aws-key', help='the Amazon Web Services key to use for DynamoDB connection (preferences storage)')
+    parser.add_argument('--dynamodb-aws-secret', type=int, help='the Amazon Web Services secret to use for DynamoDB connection (preferences storage)')
+
     parser.add_argument('--zeromq-connect', help='the hostname of the counterpartyd server hosting zeromq')
     parser.add_argument('--zeromq-port', type=int, help='the port used to connect to the counterpartyd server hosting zeromq')
 
     parser.add_argument('--cube-connect', help='the hostname of the Square Cube collector + evaluator')
     parser.add_argument('--cube-collector-port', type=int, help='the port used to communicate with the Square Cube collector')
     parser.add_argument('--cube-evaluator-port', type=int, help='the port used to communicate with the Square Cube evaluator')
+    parser.add_argument('--cube-database', help='the name of the mongo database cube stores its data within')
 
     #STUFF WE HOST
     parser.add_argument('--rpc-host', help='the host to provide the counterwalletd JSON-RPC API')
@@ -292,6 +320,42 @@ if __name__ == '__main__':
     else:
         config.MONGODB_PASSWORD = None
 
+
+    # dynamodb-enable
+    if args.dynamodb_enable:
+        config.DYNAMODB_ENABLE = args.dynamodb_enable
+    elif has_config and configfile.has_option('Default', 'dynamodb-enable') and configfile.get('Default', 'dynamodb-enable'):
+        config.DYNAMODB_ENABLE = configfile['Default'].getboolean('dynamodb-enable')
+    else:
+        config.DYNAMODB_ENABLE = True
+    
+    #dynamodb-aws-region
+    if args.dynamodb_aws_region:
+        config.DYNAMODB_AWS_REGION = args.dynamodb_aws_region
+    elif has_config and configfile.has_option('Default', 'dynamodb-aws-region') and configfile.get('Default', 'dynamodb-aws-region'):
+        config.DYNAMODB_AWS_REGION = configfile.get('Default', 'dynamodb-aws-region')
+    else:
+        config.DYNAMODB_AWS_REGION = 'eu-west-1' #Ireland
+
+    #dynamodb-aws-key
+    if args.dynamodb_aws_key:
+        config.DYNAMODB_AWS_KEY = args.dynamodb_aws_key
+    elif has_config and configfile.has_option('Default', 'dynamodb-aws-key') and configfile.get('Default', 'dynamodb-aws-key'):
+        config.DYNAMODB_AWS_KEY = configfile.get('Default', 'dynamodb-aws-key')
+    else:
+        config.DYNAMODB_AWS_KEY = None
+
+    #dynamodb-aws-secret
+    if args.dynamodb_aws_secret:
+        config.DYNAMODB_AWS_SECRET = args.dynamodb_aws_secret
+    elif has_config and configfile.has_option('Default', 'dynamodb-aws-secret') and configfile.get('Default', 'dynamodb-aws-secret'):
+        config.DYNAMODB_AWS_SECRET = configfile.get('Default', 'dynamodb-aws-secret')
+    else:
+        config.DYNAMODB_AWS_SECRET = None
+    
+    if config.DYNAMODB_ENABLE and (not config.DYNAMODB_AWS_KEY or not config.DYNAMODB_AWS_SECRET):
+        raise Exception("If 'dynamodb-enable' is set to True, you must specify values for both 'dynamodb-aws-key' and 'dynamodb-aws-secret'")
+
     # zeromq host
     if args.zeromq_connect:
         config.ZEROMQ_CONNECT = args.zeromq_connect
@@ -346,6 +410,15 @@ if __name__ == '__main__':
         assert int(config.CUBE_EVALUATOR_PORT) > 1 and int(config.CUBE_EVALUATOR_PORT) < 65535
     except:
         raise Exception("Please specific a valid port number cube-evaluator-port configuration parameter")
+
+    # cube database
+    if args.cube_database:
+        config.CUBE_DATABASE = args.cube_database
+    elif has_config and configfile.has_option('Default', 'cube-database') and configfile.get('Default', 'cube-database'):
+        config.CUBE_DATABASE = configfile.get('Default', 'cube-database')
+    else:
+        config.CUBE_DATABASE = 'cube_development'
+
 
     ##############
     # STUFF WE SERVE
@@ -419,10 +492,7 @@ if __name__ == '__main__':
 
     #Connect to mongodb
     mongo_client = pymongo.MongoClient(config.MONGODB_CONNECT, int(config.MONGODB_PORT))
-    try:
-        db = mongo_client[config.MONGODB_DATABASE]
-    except:
-        raise Exception("Specified mongo database (%s) doesn't seem to exist or be accessable" % config.MONGODB_DATABASE)
+    db = mongo_client[config.MONGODB_DATABASE] #will create if it doesn't exist
     if config.MONGODB_USER and config.MONGODB_PASSWORD:
         if not db.authenticate(config.MONGODB_USER, config.MONGODB_PASSWORD):
             raise Exception("Could not authenticate to mongodb with the supplied username and password.")
@@ -430,12 +500,36 @@ if __name__ == '__main__':
     db.preferences.ensure_index('wallet_id', unique=True)
     
     #Connect to cube
-    cube_db = cube.Cube(hostname=config.CUBE_CONNECT,
+    cube_client = cube.Cube(hostname=config.CUBE_CONNECT,
         collector_port=config.CUBE_COLLECTOR_PORT, evaluator_port=config.CUBE_EVALUATOR_PORT)
+    
+    #Optionally connect to dynamodb (for wallet prefs storage)
+    if config.DYNAMODB_ENABLE:
+        dynamodb_client = boto.dynamodb.connect_to_region(
+            config.DYNAMODB_AWS_REGION,
+            aws_access_key_id=config.DYNAMODB_AWS_KEY,
+            aws_secret_access_key=config.DYNAMODB_AWS_SECRET)        
+        
+        #make sure preferences domain exists
+        if 'preferences' not in dynamodb_client.list_tables():
+            logging.info("Creating 'preferences' domain in DynamoDB as it doesn't exist...")
+            preferences_table_schema = dynamodb_client.create_schema(
+                hash_key_name='wallet_id',
+                hash_key_proto_value=str
+            )
+            dynamodb_client.create_table(
+                name='preferences',
+                schema=preferences_table_schema,
+                read_units=10, write_units=5)
+            #^ Amazon free tier is 5 units write, 10 units read (should be fine for prefs storage)
+        dynamo_preferences_table = dynamodb_client.get_table('preferences')
+    else:
+        dynamodb_client = None
+        dynamo_preferences_table = None
     
     logging.info("Starting up ZeroMQ subscriber...")
     zmq_context = zmq.Context()
-    gevent.spawn(zmq_subscriber, zmq_context)
+    gevent.spawn(zmq_subscriber, zmq_context, mongo_client, cube_client)
     
     logging.info("Starting up socket.io server...")
     sio_server = socketio_server.SocketIOServer(
@@ -444,6 +538,6 @@ if __name__ == '__main__':
     sio_server.start() #start the socket.io server greenlets
 
     logging.info("Starting up RPC API handler...")
-    api.serve_api(db)
+    api.serve_api(db, dynamo_preferences_table)
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
