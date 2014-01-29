@@ -1,12 +1,14 @@
 #import before importing other modules
 import os
 import json
+import base64
 import logging
 from logging import handlers as logging_handlers
 import requests
-import cherrypy
-from jsonrpc import JSONRPCResponseManager, dispatcher
 from gevent import wsgi
+import cherrypy
+from cherrypy.process import plugins
+from jsonrpc import JSONRPCResponseManager, dispatcher
 from bson import json_util
 from boto.dynamodb import exceptions as dynamodb_exceptions
 
@@ -16,10 +18,10 @@ def call_jsonrpc_api(method, params, endpoint=None, auth=None):
     if not endpoint: endpoint = config.COUNTERPARTYD_RPC
     if not auth: auth = config.COUNTERPARTYD_AUTH
     payload = {
+      "id": 0,
+      "jsonrpc": "2.0",
       "method": method,
       "params": params,
-        "jsonrpc": "2.0",
-        "id": 0,
     }
     r = requests.post(
         endpoint, data=json.dumps(payload), headers={'content-type': 'application/json'}, auth=auth)
@@ -27,11 +29,13 @@ def call_jsonrpc_api(method, params, endpoint=None, auth=None):
         raise Exception("Bad status code returned from counterwalletd: %s. payload: %s" % (r.status_code, r.text))
     return r.json()
 
-def serve_api(db, dynamo_preferences_table):
+def serve_api(mongo_db, dynamo_preferences_table, redis_client):
     # Preferneces are just JSON objects... since we don't force a specific form to the wallet on
     # the server side, this makes it easier for 3rd party wallets (i.e. not counterwallet) to fully be able to
     # use counterwalletd to not only pull useful data, but also load and store their own preferences, containing
     # whatever data they need
+    
+    DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD = 60 #in seconds
 
     @dispatcher.add_method
     def get_preferences(wallet_id):
@@ -42,7 +46,7 @@ def serve_api(db, dynamo_preferences_table):
             except dynamodb_exceptions.DynamoDBKeyNotFoundError:
                 return {}
         else: #mongodb-based storage
-            result =  db.preferences.find_one({"wallet_id": wallet_id})
+            result =  mongo_db.preferences.find_one({"wallet_id": wallet_id})
             return json.loads(result['preferences']) if result else {}
 
     @dispatcher.add_method
@@ -64,15 +68,28 @@ def serve_api(db, dynamo_preferences_table):
                     attrs={'preferences': preferences_json})
                 prefs.put()
         else: #mongodb-based storage
-            db.preferences.update(
+            mongo_db.preferences.update(
                 {'wallet_id': wallet_id},
                 {"$set": {'wallet_id': wallet_id, 'preferences': preferences_json}}, upsert=True)
         return True
     
     @dispatcher.add_method
     def proxy_to_counterpartyd(method='', params=[]):
-        raw_result = call_jsonrpc_api(method, params)
-        print("raw result: ", raw_result)
+        raw_result = None
+        cache_key = None
+
+        if redis_client: #check for a precached result and send that back instead
+            cache_key = method + '||' + base64.b64encode(json.dumps(params).encode()).decode()
+            #^ must use encoding (e.g. base64) since redis doesn't allow spaces in its key names
+            # (also shortens the hashing key for better performance)
+            raw_result = redis_client.get(cache_key)
+        
+        if raw_result is None: #cache miss or cache disabled
+            raw_result = call_jsonrpc_api(method, params)
+            if redis_client: #cache miss
+                redis_client.setex(cache_key, DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD, raw_result)
+                #^TODO: we may want to have different cache periods for different types of data
+        
         result = json.loads(raw_result)
         if 'error' in result:
             raise Exception(result['error']['data'].get('message', result['error']['message']))
@@ -113,9 +130,11 @@ def serve_api(db, dynamo_preferences_table):
     rootApplication = cherrypy.Application(Root(), script_name="/")
     apiApplication = cherrypy.Application(API(), script_name="/jsonrpc/")
     cherrypy.tree.mount(rootApplication, '/',
-        {'/': { 'tools.trailing_slash.on': False, 'request.dispatch': cherrypy.dispatch.Dispatcher()}})    
+        {'/': { 'tools.trailing_slash.on': False,
+                'request.dispatch': cherrypy.dispatch.Dispatcher()}})    
     cherrypy.tree.mount(apiApplication, '/jsonrpc/',
-        {'/': { 'tools.trailing_slash.on': False, 'request.dispatch': cherrypy.dispatch.Dispatcher()}})    
+        {'/': { 'tools.trailing_slash.on': False,
+                'request.dispatch': cherrypy.dispatch.Dispatcher()}})
     
     #disable logging of the access and error logs to the screen
     rootApplication.log.access_log.propagate = False

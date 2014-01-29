@@ -23,6 +23,11 @@ import time
 import pymongo
 import cube
 import boto.dynamodb
+
+import redis
+import redis.connection
+redis.connection.socket = gevent.socket #make redis play well with gevent
+
 from requests.auth import HTTPBasicAuth
 from socketio import server as socketio_server
 import zmq.green as zmq
@@ -158,10 +163,15 @@ if __name__ == '__main__':
     parser.add_argument('--mongodb-user', help='the optional username used to communicate with mongodb')
     parser.add_argument('--mongodb-password', help='the optional password used to communicate with mongodb')
 
-    parser.add_argument('--dynamodb-enable', action='store_true', default=True, help='set to false to use mongodb instead of DynamoDB for wallet preferences storage')
+    parser.add_argument('--dynamodb-enable', action='store_true', default=True, help='set to false to use MongoDB instead of DynamoDB for wallet preferences storage')
     parser.add_argument('--dynamodb-aws-region', help='the Amazon Web Services region to use for DynamoDB connection (preferences storage)')
     parser.add_argument('--dynamodb-aws-key', help='the Amazon Web Services key to use for DynamoDB connection (preferences storage)')
     parser.add_argument('--dynamodb-aws-secret', type=int, help='the Amazon Web Services secret to use for DynamoDB connection (preferences storage)')
+
+    parser.add_argument('--redis-enable-apicache', action='store_true', default=False, help='set to true to enable caching of API requests')
+    parser.add_argument('--redis-connect', help='the hostname of the redis server to use for caching (if enabled')
+    parser.add_argument('--redis-port', type=int, help='the port used to connect to the redis server for caching (if enabled)')
+    parser.add_argument('--redis-database', type=int, help='the redis database ID (int) used to connect to the redis server for caching (if enabled)')
 
     parser.add_argument('--zeromq-connect', help='the hostname of the counterpartyd server hosting zeromq')
     parser.add_argument('--zeromq-port', type=int, help='the port used to connect to the counterpartyd server hosting zeromq')
@@ -209,7 +219,7 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'bitcoind-rpc-port') and configfile.get('Default', 'bitcoind-rpc-port'):
         config.BITCOIND_RPC_PORT = configfile.get('Default', 'bitcoind-rpc-port')
     else:
-        config.BITCOIND_RPC_PORT = '8332'
+        config.BITCOIND_RPC_PORT = 8332
     try:
         int(config.BITCOIND_RPC_PORT)
         assert int(config.BITCOIND_RPC_PORT) > 1 and int(config.BITCOIND_RPC_PORT) < 65535
@@ -249,7 +259,7 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'counterpartyd-rpc-port') and configfile.get('Default', 'counterpartyd-rpc-port'):
         config.COUNTERPARTYD_RPC_PORT = configfile.get('Default', 'counterpartyd-rpc-port')
     else:
-        config.COUNTERPARTYD_RPC_PORT = '4000'
+        config.COUNTERPARTYD_RPC_PORT = 4000
     try:
         int(config.COUNTERPARTYD_RPC_PORT)
         assert int(config.COUNTERPARTYD_RPC_PORT) > 1 and int(config.COUNTERPARTYD_RPC_PORT) < 65535
@@ -289,7 +299,7 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'mongodb-port') and configfile.get('Default', 'mongodb-port'):
         config.MONGODB_PORT = configfile.get('Default', 'mongodb-port')
     else:
-        config.MONGODB_PORT = '27017'
+        config.MONGODB_PORT = 27017
     try:
         int(config.MONGODB_PORT)
         assert int(config.MONGODB_PORT) > 1 and int(config.MONGODB_PORT) < 65535
@@ -325,7 +335,7 @@ if __name__ == '__main__':
     if args.dynamodb_enable:
         config.DYNAMODB_ENABLE = args.dynamodb_enable
     elif has_config and configfile.has_option('Default', 'dynamodb-enable') and configfile.get('Default', 'dynamodb-enable'):
-        config.DYNAMODB_ENABLE = configfile['Default'].getboolean('dynamodb-enable')
+        config.DYNAMODB_ENABLE = configfile.getboolean('Default', 'dynamodb-enable')
     else:
         config.DYNAMODB_ENABLE = True
     
@@ -356,7 +366,49 @@ if __name__ == '__main__':
     if config.DYNAMODB_ENABLE and (not config.DYNAMODB_AWS_KEY or not config.DYNAMODB_AWS_SECRET):
         raise Exception("If 'dynamodb-enable' is set to True, you must specify values for both 'dynamodb-aws-key' and 'dynamodb-aws-secret'")
 
-    # zeromq host
+    # redis-enable-apicache
+    if args.redis_enable_apicache:
+        config.REDIS_ENABLE_APICACHE = args.redis_enable_apicache
+    elif has_config and configfile.has_option('Default', 'redis-enable-apicache') and configfile.get('Default', 'redis-enable-apicache'):
+        config.REDIS_ENABLE_APICACHE = configfile.getboolean('Default', 'redis-enable-apicache')
+    else:
+        config.REDIS_ENABLE_APICACHE = False
+
+    # redis connect
+    if args.redis_connect:
+        config.REDIS_CONNECT = args.redis_connect
+    elif has_config and configfile.has_option('Default', 'redis-connect') and configfile.get('Default', 'redis-connect'):
+        config.REDIS_CONNECT = configfile.get('Default', 'redis-connect')
+    else:
+        config.REDIS_CONNECT = '127.0.0.1'
+
+    # redis port
+    if args.redis_port:
+        config.REDIS_PORT = args.redis_port
+    elif has_config and configfile.has_option('Default', 'redis-port') and configfile.get('Default', 'redis-port'):
+        config.REDIS_PORT = configfile.get('Default', 'redis-port')
+    else:
+        config.REDIS_PORT = 6379
+    try:
+        int(config.REDIS_PORT)
+        assert int(config.REDIS_PORT) > 1 and int(config.REDIS_PORT) < 65535
+    except:
+        raise Exception("Please specific a valid port number redis-port configuration parameter")
+
+    # redis database
+    if args.redis_database:
+        config.REDIS_DATABASE = args.redis_database
+    elif has_config and configfile.has_option('Default', 'redis-database') and configfile.get('Default', 'redis-database'):
+        config.REDIS_DATABASE = configfile.get('Default', 'redis-database')
+    else:
+        config.REDIS_DATABASE = 0
+    try:
+        int(config.REDIS_DATABASE)
+        assert int(config.REDIS_DATABASE) >= 0 and int(config.REDIS_DATABASE) <= 16
+    except:
+        raise Exception("Please specific a valid redis-database configuration parameter (between 0 and 16 inclusive)")
+
+    # zeromq connect
     if args.zeromq_connect:
         config.ZEROMQ_CONNECT = args.zeromq_connect
     elif has_config and configfile.has_option('Default', 'zeromq-connect') and configfile.get('Default', 'zeromq-connect'):
@@ -370,7 +422,7 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'zeromq-port') and configfile.get('Default', 'zeromq-port'):
         config.ZEROMQ_PORT = configfile.get('Default', 'zeromq-port')
     else:
-        config.ZEROMQ_PORT = '4001'
+        config.ZEROMQ_PORT = 4001
     try:
         int(config.ZEROMQ_PORT)
         assert int(config.ZEROMQ_PORT) > 1 and int(config.ZEROMQ_PORT) < 65535
@@ -391,7 +443,7 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'cube-collector-port') and configfile.get('Default', 'cube-collector-port'):
         config.CUBE_COLLECTOR_PORT = configfile.get('Default', 'cube-collector-port')
     else:
-        config.CUBE_COLLECTOR_PORT = '1080'
+        config.CUBE_COLLECTOR_PORT = 1080
     try:
         int(config.CUBE_COLLECTOR_PORT)
         assert int(config.CUBE_COLLECTOR_PORT) > 1 and int(config.CUBE_COLLECTOR_PORT) < 65535
@@ -404,7 +456,7 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'cube-evaluator-port') and configfile.get('Default', 'cube-evaluator-port'):
         config.CUBE_EVALUATOR_PORT = configfile.get('Default', 'cube-evaluator-port')
     else:
-        config.CUBE_EVALUATOR_PORT = '1081'
+        config.CUBE_EVALUATOR_PORT = 1081
     try:
         int(config.CUBE_EVALUATOR_PORT)
         assert int(config.CUBE_EVALUATOR_PORT) > 1 and int(config.CUBE_EVALUATOR_PORT) < 65535
@@ -437,7 +489,7 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'rpc-port') and configfile.get('Default', 'rpc-port'):
         config.RPC_PORT = configfile.get('Default', 'rpc-port')
     else:
-        config.RPC_PORT = '4100'
+        config.RPC_PORT = 4100
     try:
         int(config.RPC_PORT)
         assert int(config.RPC_PORT) > 1 and int(config.RPC_PORT) < 65535
@@ -458,7 +510,7 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'socketio-port') and configfile.get('Default', 'socketio-port'):
         config.SOCKETIO_PORT = configfile.get('Default', 'socketio-port')
     else:
-        config.SOCKETIO_PORT = '4101'
+        config.SOCKETIO_PORT = 4101
     try:
         int(config.SOCKETIO_PORT)
         assert int(config.SOCKETIO_PORT) > 1 and int(config.SOCKETIO_PORT) < 65535
@@ -491,17 +543,24 @@ if __name__ == '__main__':
     requests_log.setLevel(logging.DEBUG if args.verbose else logging.WARNING)
 
     #Connect to mongodb
-    mongo_client = pymongo.MongoClient(config.MONGODB_CONNECT, int(config.MONGODB_PORT))
-    db = mongo_client[config.MONGODB_DATABASE] #will create if it doesn't exist
+    mongo_client = pymongo.MongoClient(config.MONGODB_CONNECT, config.MONGODB_PORT)
+    mongo_db = mongo_client[config.MONGODB_DATABASE] #will create if it doesn't exist
     if config.MONGODB_USER and config.MONGODB_PASSWORD:
-        if not db.authenticate(config.MONGODB_USER, config.MONGODB_PASSWORD):
+        if not mongo_db.authenticate(config.MONGODB_USER, config.MONGODB_PASSWORD):
             raise Exception("Could not authenticate to mongodb with the supplied username and password.")
     #insert mongo indexes if need-be (i.e. for newly created database)
-    db.preferences.ensure_index('wallet_id', unique=True)
+    mongo_db.preferences.ensure_index('wallet_id', unique=True)
     
     #Connect to cube
     cube_client = cube.Cube(hostname=config.CUBE_CONNECT,
         collector_port=config.CUBE_COLLECTOR_PORT, evaluator_port=config.CUBE_EVALUATOR_PORT)
+    
+    #Connect to redis
+    if config.REDIS_ENABLE_APICACHE:
+        logging.info("Enabling redis read API caching... (%s:%s)" % (config.REDIS_CONNECT, config.REDIS_PORT))
+        redis_client = redis.StrictRedis(host=config.REDIS_CONNECT, port=config.REDIS_PORT, db=config.REDIS_DATABASE)
+    else:
+        redis_client = None
     
     #Optionally connect to dynamodb (for wallet prefs storage)
     if config.DYNAMODB_ENABLE:
@@ -533,11 +592,11 @@ if __name__ == '__main__':
     
     logging.info("Starting up socket.io server...")
     sio_server = socketio_server.SocketIOServer(
-        (config.SOCKETIO_HOST, int(config.SOCKETIO_PORT)),
+        (config.SOCKETIO_HOST, config.SOCKETIO_PORT),
         SocketIOApp(zmq_context), resource="socket.io")        
     sio_server.start() #start the socket.io server greenlets
 
     logging.info("Starting up RPC API handler...")
-    api.serve_api(db, dynamo_preferences_table)
+    api.serve_api(mongo_db, dynamo_preferences_table, redis_client)
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
