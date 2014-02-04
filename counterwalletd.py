@@ -28,112 +28,86 @@ import redis
 import redis.connection
 redis.connection.socket = gevent.socket #make redis play well with gevent
 
-from requests.auth import HTTPBasicAuth
 from socketio import server as socketio_server
-import zmq.green as zmq
+from requests.auth import HTTPBasicAuth
 
-from lib import (config, api,)
+from lib import (config, api, siofeeds, util)
 
-def parse_raw_msg(raw_msg):
-    msg = copy.copy(raw_msg)
-    event = msg.pop('_EVENT')
-    block_time = msg.pop('_BLOCKTIME') if '_BLOCKTIME' in msg else None
-    block_time_str = datetime.datetime.utcfromtimestamp(block_time).strftime("%Y-%m-%dT%H:%M:%S.%fZ") if block_time else ''
-    return {'event': event, 'block_time': block_time, 'block_time_str': block_time_str, 'msg': msg}
+CUBE_ENTITIES = ['credit', 'debit', 'burn', 'cancel', 'issuance', 'order', 'send']
 
-def zmq_subscriber(zmq_context, mongo_client, cube_client):
-    """
-    start and run zeromq subscriber, connecting to the counterpartyd zeromq publisher and proxying from this
-    to either cube or socket.io server (via a queue_socketio queue which the socket.io server hangs off of).
+def poll_counterpartyd(mongo_db, mongo_cube_db, cube_client, to_socketio_queue):
+    def prune_my_stale_blocks(max_block_index, max_block_time):
+        """called if there are any records for blocks higher than this in the database? If so, they were impartially created
+           and we should get rid of them"""
+        for entity in CUBE_ENTITIES:
+            #delete the cube events
+            mongo_db[entity+'_events'].remove({"block_index": {"$gt": max_block_index}})
+            #invaliate the cube metrics by setting metric.i to True for any metrics with a time >= last block time
+            mongo_db[entity+'_metrics'].update({"_id.t": {"$gte": max_block_time}}, {"$set": {"i": True}})
+            #^ TODO: not 100% sure this will work, needs more testing :)
+
+    #get the last processed block out of mongo
+    my_latest_block = mongo_db.processed_blocks.find_one(sort=[("block_index", -1)])
+    if not my_latest_block:
+        my_latest_block = {'block_index': 0, 'block_time': datetime.datetime.utcfromtimestamp(0), 'block_hash': None}
     
-    any messages sent to queue_socketio, socket.ioapp will get and send off to listening socket.io clients
-      (i.e. counterwallet clients so they get a realtime event feed)
-    """
-    #listen on our socketio queue
-    publisher_socketio = zmq_context.socket(zmq.PUB)
-    publisher_socketio.bind('inproc://queue_socketio')
+    #remove any data we have for blocks higher than this (would happen if counterwalletd, cube, or mongo died
+    # or erroed out while processing a block)
+    prune_my_stale_blocks(my_latest_block['block_index'], my_latest_block['block_time'])
     
-    def cube_digest(msg):
-        #for now, just throw each new event in cube as-is so that we can do easy time-series analysis
-        if msg['event'] in ['balance', 'new_db_init']:
-            return #not processed
-
-        assert msg['block_time']
-        data = copy.copy(msg) 
-        data['time'] = msg['block_time_str']
-        cube_client.put(msg['event'], data)
-    
-    def recv_or_timeout(subscriber, timeout_ms):
-        poller = zmq.Poller()
-        poller.register(subscriber, zmq.POLLIN)
-        while True:
-            socket = dict(poller.poll(timeout_ms))
-            if socket.get(subscriber) == zmq.POLLIN:
-                raw_msg = subscriber.recv_json()
-                msg = parse_raw_msg(raw_msg)
-                
-                logging.info("Event feed received message: %s (TS: %s, %s)" % (msg['event'], msg['block_time_str'], msg))
-
-                if msg['event'] == 'new_db_init': #counterpartyd has reinitialized its DB
-                    logging.warn("Received 'new_db_init' message from counterpartyd: DROPPING OUR CUBE DATABASE IN RESPONSE")
-                    #clear out cube (mongo-backed)
-                    if config.CUBE_DATABASE in mongo_client.database_names():
-                        mongo_client.drop_database(config.CUBE_DATABASE)
-                    else:
-                        logging.warn("No cube database with name '%s' exists" % config.CUBE_DATABASE )
-                    #propagate message to socket.io clients as well (they may choose to log the user out, for instance)...
-
-                cube_digest(msg) #store in cube if need be, for future analysis
-                    
-                #send the message to the socket.io processor for it to process/massage and forward on to
-                # web clients as necessary
-                publisher_socketio.send_json(raw_msg)
-            else:
-                return # Timeout!
-            
+    #start polling counterpartyd for new blocks    
     while True:
-        #connect to counterpartyd's zeromq publisher
-        subscriber = zmq_context.socket(zmq.SUB)
-        url = 'tcp://%s:%s' % (config.ZEROMQ_CONNECT, config.ZEROMQ_PORT)
-        logging.info("Connecting to counterpartyd realtime (ZeroMQ) event feed @ %s" % url)
-        subscriber.connect(url)
-        logging.info("Connected to counterpartyd realtime (ZeroMQ) event feed")
-        subscriber.setsockopt(zmq.SUBSCRIBE, "") #clear filter
-
-        recv_or_timeout(subscriber, None) #this will block until timeout of some sort (timeout disabled currently)
+        try:
+            result = util.call_jsonrpc_api("get_last_processed_block", abort_on_error=True)
+            #^ REMEMBER: last_processed_block['block_time'] is an int, not a datetime object
+        except Exception, e:
+            logging.warn(str(e) + " Waiting 5 seconds before trying again...")
+            time.sleep(5)
+            continue
         
-        subscriber.close()        
-        logging.warning("counterpartyd realtime event feed connection broken/timeout. Reconnecting...")
+        #new block - get the various different entities that could exist under that block
+        if my_latest_block['block_index'] < last_processed_block['block_index']:
+            #need to catch up
+            try:
+                block_data = util.call_jsonrpc_api("get_data_for_block",
+                    [my_latest_block['block_index'] + 1], abort_on_error=True)
+            except Exception, e:
+                logging.warn(str(e) + " Waiting 5 seconds before trying again...")
+                time.sleep(5)
+                continue
+            
+            #add relevant data into cube
+            block_time_str = my_latest_block['block_time'].strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+            for entity in CUBE_ENTITIES:
+                raise NotImplementedError("TODO: determine how the data from get_data_for_block comes back")
+                #assert entity in block_data #should be a list (even if empty)
 
-
-class SocketIOApp(object):
-    """
-    Funnel messages coming from an inproc zmq socket to the socket.io
-    """
-    def __init__(self, context):
-        self.context = context
-        
-    def create_sio_packet(self, msg_type, msg):
-        return {
-            "type": "event",
-            "name": msg_type,
-            "args": msg
-        }
-        
-    def __call__(self, environ, start_response):
-        if not environ['PATH_INFO'].startswith('/socket.io'):
-            start_response('401 UNAUTHORIZED', [])
-            return ''
-        socketio = environ['socketio']
-        sock = self.context.socket(zmq.SUB)
-        sock.setsockopt(zmq.SUBSCRIBE, "")
-        sock.connect('inproc://queue_socketio')
-        while True:
-            raw_msg = sock.recv_json()
-            msg = parse_raw_msg(raw_msg)
-            forwarded_msg = self.create_sio_packet(msg['event'], msg) #forward over as-is
-            logging.debug("socket.io: Sending %s" % forwarded_msg)
-            socketio.send_packet(forwarded_msg)
+                #cube_client.put(entity, data)
+                
+                #data = WHATEVER
+                
+                #for each new entity, send out a message via socket.io
+                event = {
+                    'event': entity,
+                    'block_time': time.mktime(my_latest_block['block_time'].timetuple()),
+                    'block_time_str': block_time_str,
+                    'msg': data
+                }
+                to_socketio_queue.put(event)
+            
+            #block successfully processed, add into our DB
+            new_block = {
+                'block_index': block_data['block_index'],
+                'block_time': datetime.datetime.fromutctimestamp(block_data['block_time']),
+                'block_hash': block_data['block_hash'],
+            }
+            mongo_db.processed_blocks.insert(new_block)
+            
+        elif my_latest_block['block_index'] > last_processed_block['block_index']:
+            #we have stale blocks (i.e. a reorg happened in counterpartyd)
+            prune_my_stale_blocks(last_processed_block['block_index'], last_processed_block['block_time'])
+            
+        time.sleep(2) #wait a bit to query again for the latest block
 
 
 if __name__ == '__main__':
@@ -163,7 +137,7 @@ if __name__ == '__main__':
     parser.add_argument('--mongodb-user', help='the optional username used to communicate with mongodb')
     parser.add_argument('--mongodb-password', help='the optional password used to communicate with mongodb')
 
-    parser.add_argument('--dynamodb-enable', action='store_true', default=True, help='set to false to use MongoDB instead of DynamoDB for wallet preferences storage')
+    parser.add_argument('--dynamodb-enable', action='store_true', default=True, help='set to false to use MongoDB instead of DynamoDB for wallet preferences and chat handle storage')
     parser.add_argument('--dynamodb-aws-region', help='the Amazon Web Services region to use for DynamoDB connection (preferences storage)')
     parser.add_argument('--dynamodb-aws-key', help='the Amazon Web Services key to use for DynamoDB connection (preferences storage)')
     parser.add_argument('--dynamodb-aws-secret', type=int, help='the Amazon Web Services secret to use for DynamoDB connection (preferences storage)')
@@ -173,19 +147,18 @@ if __name__ == '__main__':
     parser.add_argument('--redis-port', type=int, help='the port used to connect to the redis server for caching (if enabled)')
     parser.add_argument('--redis-database', type=int, help='the redis database ID (int) used to connect to the redis server for caching (if enabled)')
 
-    parser.add_argument('--zeromq-connect', help='the hostname of the counterpartyd server hosting zeromq')
-    parser.add_argument('--zeromq-port', type=int, help='the port used to connect to the counterpartyd server hosting zeromq')
-
     parser.add_argument('--cube-connect', help='the hostname of the Square Cube collector + evaluator')
     parser.add_argument('--cube-collector-port', type=int, help='the port used to communicate with the Square Cube collector')
     parser.add_argument('--cube-evaluator-port', type=int, help='the port used to communicate with the Square Cube evaluator')
     parser.add_argument('--cube-database', help='the name of the mongo database cube stores its data within')
 
     #STUFF WE HOST
-    parser.add_argument('--rpc-host', help='the host to provide the counterwalletd JSON-RPC API')
+    parser.add_argument('--rpc-host', help='the interface on which to host the counterwalletd JSON-RPC API')
     parser.add_argument('--rpc-port', type=int, help='port on which to provide the counterwalletd JSON-RPC API')
-    parser.add_argument('--socketio-host', help='the host to provide the counterwalletd socket.io API')
+    parser.add_argument('--socketio-host', help='the interface on which to host the counterwalletd socket.io API')
     parser.add_argument('--socketio-port', type=int, help='port on which to provide the counterwalletd socket.io API')
+    parser.add_argument('--socketio-chat-host', help='the interface on which to host the counterwalletd socket.io chat API')
+    parser.add_argument('--socketio-chat-port', type=int, help='port on which to provide the counterwalletd socket.io chat API')
 
     args = parser.parse_args()
 
@@ -408,27 +381,6 @@ if __name__ == '__main__':
     except:
         raise Exception("Please specific a valid redis-database configuration parameter (between 0 and 16 inclusive)")
 
-    # zeromq connect
-    if args.zeromq_connect:
-        config.ZEROMQ_CONNECT = args.zeromq_connect
-    elif has_config and configfile.has_option('Default', 'zeromq-connect') and configfile.get('Default', 'zeromq-connect'):
-        config.ZEROMQ_CONNECT = configfile.get('Default', 'zeromq-connect')
-    else:
-        config.ZEROMQ_CONNECT = '127.0.0.1'
-
-    # zeromq port
-    if args.zeromq_port:
-        config.ZEROMQ_PORT = args.zeromq_port
-    elif has_config and configfile.has_option('Default', 'zeromq-port') and configfile.get('Default', 'zeromq-port'):
-        config.ZEROMQ_PORT = configfile.get('Default', 'zeromq-port')
-    else:
-        config.ZEROMQ_PORT = 4001
-    try:
-        int(config.ZEROMQ_PORT)
-        assert int(config.ZEROMQ_PORT) > 1 and int(config.ZEROMQ_PORT) < 65535
-    except:
-        raise Exception("Please specific a valid port number zeromq-port configuration parameter")
-
     # cube host
     if args.cube_connect:
         config.CUBE_CONNECT = args.cube_connect
@@ -517,6 +469,27 @@ if __name__ == '__main__':
     except:
         raise Exception("Please specific a valid port number socketio-port configuration parameter")
 
+    # socket.io chat host
+    if args.socketio_chat_host:
+        config.SOCKETIO_CHAT_HOST = args.socketio_chat_host
+    elif has_config and configfile.has_option('Default', 'socketio-chat-host') and configfile.get('Default', 'socketio-chat-host'):
+        config.SOCKETIO_CHAT_HOST = configfile.get('Default', 'socketio-chat-host')
+    else:
+        config.SOCKETIO_CHAT_HOST = 'localhost'
+
+    # socket.io chat port
+    if args.socketio_chat_port:
+        config.SOCKETIO_CHAT_PORT = args.socketio_chat_port
+    elif has_config and configfile.has_option('Default', 'socketio-chat-port') and configfile.get('Default', 'socketio-chat-port'):
+        config.SOCKETIO_CHAT_PORT = configfile.get('Default', 'socketio-chat-port')
+    else:
+        config.SOCKETIO_CHAT_PORT = 4102
+    try:
+        int(config.SOCKETIO_CHAT_PORT)
+        assert int(config.SOCKETIO_CHAT_PORT) > 1 and int(config.SOCKETIO_CHAT_PORT) < 65535
+    except:
+        raise Exception("Please specific a valid port number socketio-chat-port configuration parameter")
+
     # Log
     if args.log_file:
         config.LOG = args.log_file
@@ -549,11 +522,18 @@ if __name__ == '__main__':
         if not mongo_db.authenticate(config.MONGODB_USER, config.MONGODB_PASSWORD):
             raise Exception("Could not authenticate to mongodb with the supplied username and password.")
     #insert mongo indexes if need-be (i.e. for newly created database)
-    mongo_db.preferences.ensure_index('wallet_id', unique=True)
+    mongo_db.processed_blocks.ensure_index('block_index')
+    for entity in CUBE_ENTITIES: #ensure indexing for cube data
+        mongo_db[entity+'_events'].ensure_index([("block_index", pymongo.DESCENDING), ("t", pymongo.ASCENDING)])
+    if not config.DYNAMODB_ENABLE: #if using mongo for prefs and chat handle storage
+        mongo_db.preferences.ensure_index('wallet_id', unique=True)
+        mongo_db.chat_handles.ensure_index('wallet_id', unique=True)
+        mongo_db.chat_handles.ensure_index('handle', unique=True)
     
     #Connect to cube
     cube_client = cube.Cube(hostname=config.CUBE_CONNECT,
         collector_port=config.CUBE_COLLECTOR_PORT, evaluator_port=config.CUBE_EVALUATOR_PORT)
+    mongo_cube_db = mongo_client[config.CUBE_DATABASE] 
     
     #Connect to redis
     if config.REDIS_ENABLE_APICACHE:
@@ -564,39 +544,74 @@ if __name__ == '__main__':
     
     #Optionally connect to dynamodb (for wallet prefs storage)
     if config.DYNAMODB_ENABLE:
-        dynamodb_client = boto.dynamodb.connect_to_region(
+        #import boto
+        #boto.set_stream_logger('boto')
+        from boto.dynamodb2.fields import HashKey, GlobalAllIndex
+        from boto.dynamodb2.table import Table
+        from boto.dynamodb2.types import STRING
+
+        from boto import dynamodb2
+        dynamodb_client = dynamodb2.connect_to_region(
             config.DYNAMODB_AWS_REGION,
-            aws_access_key_id=config.DYNAMODB_AWS_KEY,
-            aws_secret_access_key=config.DYNAMODB_AWS_SECRET)        
+            aws_access_key_id=str.encode(config.DYNAMODB_AWS_KEY),
+            aws_secret_access_key=str.encode(config.DYNAMODB_AWS_SECRET))
+        tables = dynamodb_client.list_tables()['TableNames']
         
         #make sure preferences domain exists
-        if 'preferences' not in dynamodb_client.list_tables():
+        if 'preferences' not in tables:
             logging.info("Creating 'preferences' domain in DynamoDB as it doesn't exist...")
-            preferences_table_schema = dynamodb_client.create_schema(
-                hash_key_name='wallet_id',
-                hash_key_proto_value=str
-            )
-            dynamodb_client.create_table(
-                name='preferences',
-                schema=preferences_table_schema,
-                read_units=10, write_units=5)
+            dynamo_preferences_table = Table.create('preferences', schema=[
+                HashKey('wallet_id')
+            ], throughput={
+                'read':10,
+                'write': 5,
+            }, connection=dynamodb_client)
             #^ Amazon free tier is 5 units write, 10 units read (should be fine for prefs storage)
-        dynamo_preferences_table = dynamodb_client.get_table('preferences')
+        else:
+            dynamo_preferences_table = Table('preferences')
+
+        if 'chat_handles' not in tables:
+            dynamo_chat_handles_table = Table.create('chat_handles', schema=[
+                HashKey('wallet_id')
+            ], throughput={
+                'read':10,
+                'write': 5,
+            }, global_indexes=[
+                GlobalAllIndex('WalletsByHandle', parts=[
+                    HashKey('handle')
+                ],
+                throughput={
+                  'read':10,
+                  'write':5,
+                }),
+            ], connection=dynamodb_client)
+        else:
+            dynamo_chat_handles_table = Table('chat_handles')
     else:
         dynamodb_client = None
         dynamo_preferences_table = None
+        dynamo_chat_handles_table = None
     
-    logging.info("Starting up ZeroMQ subscriber...")
-    zmq_context = zmq.Context()
-    gevent.spawn(zmq_subscriber, zmq_context, mongo_client, cube_client)
+    to_socketio_queue = gevent.queue.Queue()
     
-    logging.info("Starting up socket.io server...")
+    logging.info("Starting up socket.io server (counterpartyd event feed)...")
     sio_server = socketio_server.SocketIOServer(
         (config.SOCKETIO_HOST, config.SOCKETIO_PORT),
-        SocketIOApp(zmq_context), resource="socket.io")        
+        siofeeds.SocketIOEventServer(to_socketio_queue),
+        resource="socket.io", policy_server=False)
     sio_server.start() #start the socket.io server greenlets
 
+    logging.info("Starting up socket.io server (counterwallet chat)...")
+    sio_server = socketio_server.SocketIOServer(
+        (config.SOCKETIO_CHAT_HOST, config.SOCKETIO_CHAT_PORT),
+        siofeeds.SocketIOChatServer(mongo_db, dynamo_chat_handles_table),
+        resource="socket.io", policy_server=False)
+    sio_server.start() #start the socket.io server greenlets
+
+    logging.info("DISABLED FOR NOW: Starting up counterpartyd block poller...")
+    #gevent.spawn(poll_counterpartyd, mongo_db, mongo_cube_db, cube_client, to_socketio_queue)
+
     logging.info("Starting up RPC API handler...")
-    api.serve_api(mongo_db, dynamo_preferences_table, redis_client)
+    api.serve_api(mongo_db, dynamo_preferences_table, dynamo_chat_handles_table, redis_client)
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

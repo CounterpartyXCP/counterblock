@@ -1,4 +1,3 @@
-#import before importing other modules
 import os
 import json
 import base64
@@ -10,26 +9,11 @@ import cherrypy
 from cherrypy.process import plugins
 from jsonrpc import JSONRPCResponseManager, dispatcher
 from bson import json_util
-from boto.dynamodb import exceptions as dynamodb_exceptions
+from boto.dynamodb2 import exceptions as dynamodb_exceptions
 
-from . import (config,)
+from . import (config, util)
 
-def call_jsonrpc_api(method, params, endpoint=None, auth=None):
-    if not endpoint: endpoint = config.COUNTERPARTYD_RPC
-    if not auth: auth = config.COUNTERPARTYD_AUTH
-    payload = {
-      "id": 0,
-      "jsonrpc": "2.0",
-      "method": method,
-      "params": params,
-    }
-    r = requests.post(
-        endpoint, data=json.dumps(payload), headers={'content-type': 'application/json'}, auth=auth)
-    if r.status_code != 200:
-        raise Exception("Bad status code returned from counterwalletd: %s. payload: %s" % (r.status_code, r.text))
-    return r.json()
-
-def serve_api(mongo_db, dynamo_preferences_table, redis_client):
+def serve_api(mongo_db, dynamo_preferences_table, dynamo_chat_handles_table, redis_client):
     # Preferneces are just JSON objects... since we don't force a specific form to the wallet on
     # the server side, this makes it easier for 3rd party wallets (i.e. not counterwallet) to fully be able to
     # use counterwalletd to not only pull useful data, but also load and store their own preferences, containing
@@ -38,12 +22,56 @@ def serve_api(mongo_db, dynamo_preferences_table, redis_client):
     DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD = 60 #in seconds
 
     @dispatcher.add_method
+    def get_chat_handle(wallet_id):
+        if dynamo_chat_handles_table: #dynamodb storage enabled
+            try:
+                result = dynamo_chat_handles_table.get_item(wallet_id=wallet_id)
+                return result['handle']
+            except dynamodb_exceptions.ResourceNotFoundException:
+                return None
+        else: #mongodb-based storage
+            result = mongo_db.chat_handles.find_one({"wallet_id": wallet_id})
+            return result['handle'] if result else None
+
+    @dispatcher.add_method
+    def store_chat_handle(wallet_id, handle):
+        """Set or update a chat handle"""
+        if not isinstance(handle, str):
+            raise Exception("Invalid chat handle: bad data type")
+        if not re.match(r'[A-Za-z0-9_-]{4,12}', handle):
+            raise Exception("Invalid chat handle: bad syntax/length")
+        
+        if dynamo_chat_handles_table: #dynamodb storage enabled
+            #check if a handle with this name exists already (using our 'handle' global index)
+            try:
+                e = dynamo_chat_handles_table.get_item(handle=handle)
+                if e and e.wallet_id != wallet_id: #handle already exists for another user/wallet
+                    raise Exception("The handle '%s' already is in use by another wallet user. Please choose another" % handle)
+            except dynamodb_exceptions.ResourceNotFoundException:
+                pass
+
+            try:
+                handles = dynamo_chat_handles_table.get_item(wallet_id=wallet_id)
+                handles['handle'] = handle
+                handles.save() #update
+            except dynamodb_exceptions.ResourceNotFoundException: #insert new
+                handles = dynamo_chat_handles_table.put_item(data={
+                    'wallet_id': wallet_id,
+                    'handle': handle
+                })
+        else: #mongodb-based storage
+            mongo_db.chat_handles.update(
+                {'wallet_id': wallet_id},
+                {"$set": {'wallet_id': wallet_id, 'handle': handle}}, upsert=True)
+        return True
+
+    @dispatcher.add_method
     def get_preferences(wallet_id):
         if dynamo_preferences_table: #dynamodb storage enabled
             try:
-                result = dynamo_preferences_table.get_item(hash_key=wallet_id)
+                result = dynamo_preferences_table.get_item(wallet_id=wallet_id)
                 return json.loads(result['preferences'])
-            except dynamodb_exceptions.DynamoDBKeyNotFoundError:
+            except dynamodb_exceptions.ResourceNotFoundException:
                 return {}
         else: #mongodb-based storage
             result =  mongo_db.preferences.find_one({"wallet_id": wallet_id})
@@ -60,13 +88,14 @@ def serve_api(mongo_db, dynamo_preferences_table, redis_client):
         
         if dynamo_preferences_table: #dynamodb storage enabled
             try:
-                prefs = dynamo_preferences_table.get_item(hash_key=wallet_id)
+                prefs = dynamo_preferences_table.get_item(wallet_id=wallet_id)
                 prefs['preferences'] = preferences_json
-                prefs.put() #update
-            except dynamodb_exceptions.DynamoDBKeyNotFoundError: #insert new
-                prefs = dynamo_preferences_table.new_item(hash_key=wallet_id,
-                    attrs={'preferences': preferences_json})
-                prefs.put()
+                prefs.save() #update
+            except dynamodb_exceptions.ResourceNotFoundException: #insert new
+                prefs = dynamo_preferences_table.put_item(data={
+                    'wallet_id': wallet_id,
+                    'preferences': preferences_json
+                })
         else: #mongodb-based storage
             mongo_db.preferences.update(
                 {'wallet_id': wallet_id},
@@ -75,22 +104,27 @@ def serve_api(mongo_db, dynamo_preferences_table, redis_client):
     
     @dispatcher.add_method
     def proxy_to_counterpartyd(method='', params=[]):
-        raw_result = None
+        result = None
         cache_key = None
 
         if redis_client: #check for a precached result and send that back instead
             cache_key = method + '||' + base64.b64encode(json.dumps(params).encode()).decode()
             #^ must use encoding (e.g. base64) since redis doesn't allow spaces in its key names
             # (also shortens the hashing key for better performance)
-            raw_result = redis_client.get(cache_key)
+            result = redis_client.get(cache_key)
+            if result:
+                try:
+                    result = json.loads(result)
+                except Exception, e:
+                    logging.warn("Error loading JSON from cache: %s, cached data: '%s'" % (e, result))
+                    result = None #skip from reading from cache and just make the API call
         
-        if raw_result is None: #cache miss or cache disabled
-            raw_result = call_jsonrpc_api(method, params)
+        if result is None: #cache miss or cache disabled
+            result = util.call_jsonrpc_api(method, params)
             if redis_client: #cache miss
-                redis_client.setex(cache_key, DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD, raw_result)
+                redis_client.setex(cache_key, DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD, result)
                 #^TODO: we may want to have different cache periods for different types of data
         
-        result = json.loads(raw_result)
         if 'error' in result:
             raise Exception(result['error']['data'].get('message', result['error']['message']))
         return result['result']
@@ -102,7 +136,6 @@ def serve_api(mongo_db, dynamo_preferences_table, redis_client):
 
     class API(object):
         @cherrypy.expose
-        @cherrypy.tools.json_out()
         def index(self):
             cherrypy.response.headers["Content-Type"] = 'application/json' 
             cherrypy.response.headers["Access-Control-Allow-Origin"] = '*' 
@@ -117,7 +150,7 @@ def serve_api(mongo_db, dynamo_preferences_table, redis_client):
             except ValueError:
                 raise cherrypy.HTTPError(400, 'Invalid JSON document')
             response = JSONRPCResponseManager.handle(data, dispatcher)
-            return response.json
+            return response.json.encode()
                 
     
     cherrypy.config.update({
