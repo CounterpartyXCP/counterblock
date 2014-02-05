@@ -1,4 +1,7 @@
 import logging
+import datetime
+import time
+import collections
 from socketio import socketio_manage
 from socketio.mixins import BroadcastMixin
 from socketio.namespace import BaseNamespace
@@ -31,25 +34,21 @@ class SocketIOEventServer(object):
 
 class ChatServerNamespace(BaseNamespace, BroadcastMixin):
     MAX_TEXT_LEN = 500
-    TIME_BETWEEN_MESSAGES = 20 #in seconds
+    TIME_BETWEEN_MESSAGES = 10 #in seconds (auto-adjust this in the future based on chat speed/volume)
     
-    def __init__(self, mongo_db, dynamo_chat_handles_table):
-        self.mongo_db = mongo_db
-        self.dynamo_chat_handles_table = dynamo_chat_handles_table
-
     def on_set_walletid(self, wallet_id):
         """this must be the first message sent after connecting to the chat server. Based on the passed
         wallet ID, it will retrieve the chat handle the user initially registered with"""
         #set the wallet ID and derive the nickname from that
         #lookup the walletid and ensure that it has a nickname match for chat
-        if self.dynamo_chat_handles_table: #dynamodb storage enabled
+        if self.request['dynamo_chat_handles_table']: #dynamodb storage enabled
             try:
-                result = self.dynamo_chat_handles_table.get_item(wallet_id=wallet_id)
+                result = self.request['dynamo_chat_handles_table'].get_item(wallet_id=wallet_id)
                 handle = result['handle']
             except dynamodb_exceptions.ResourceNotFoundException:
                 handle = None
         else: #mongodb-based storage
-            result =  self.mongo_db.chat_handles.find_one({"wallet_id": wallet_id})
+            result =  self.request['mongo_db'].chat_handles.find_one({"wallet_id": wallet_id})
             handle = result['handle'] if result else None
             
         if not handle:
@@ -58,27 +57,32 @@ class ChatServerNamespace(BaseNamespace, BroadcastMixin):
         self.socket.session['wallet_id'] = wallet_id
         self.socket.session['handle'] = handle
         self.socket.session['last_action'] = None
+
+    def on_get_lastlines(self):
+        return list(self.request['last_chats'])
     
     def on_emote(self, text):
         if 'wallet_id' not in self.socket.session:
             return self.error('invalid_id', "No wallet ID set")
         
         #make sure this user is not spamming
-        last_message_ago = (((datetime.datetime.now() - self.socket.session['last_action']).days * 86400)
-                 + (datetime.datetime.now() - self.socket.session['last_action']).seconds)
+        if self.socket.session['last_action']:
+            last_message_ago = time.time() - self.socket.session['last_action']
+        else:
+            last_message_ago = None
         
-        if     self.socket.session['last_action'] \
-           and last_message_ago >= TIME_BETWEEN_MESSAGES:
+        if last_message_ago is None or last_message_ago >= self.TIME_BETWEEN_MESSAGES: #not spamming
             #clean up text
-            text = text[:MAX_TEXT_LEN]
+            text = text[:self.MAX_TEXT_LEN] #truncate to max allowed
+            #TODO: filter out other stuff?
             
-            self.broadcast_event_not_me('msg', self.socket.session['handle'], text)
+            self.broadcast_event_not_me('emote', self.socket.session['handle'], text)
+            self.socket.session['last_action'] = time.time()
+            self.request['last_chats'].append({'handle': self.socket.session['handle'],
+                'text': text, 'when': self.socket.session['last_action']})
         else: #spamming
             return self.error('too_fast', "Your last message was %i seconds ago (max 1 message every %i seconds)" % (
-                last_message_ago, TIME_BETWEEN_MESSAGES))
-
-    #def recv_message(self, message):
-    #    print "PING!!!", message
+                last_message_ago, self.TIME_BETWEEN_MESSAGES))
         
 
 class SocketIOChatServer(object):
@@ -86,8 +90,12 @@ class SocketIOChatServer(object):
     Funnel messages from counterparty.io client chats to other clients
     """
     def __init__(self, mongo_db, dynamo_chat_handles_table):
-        self.mongo_db = mongo_db
-        self.dynamo_chat_handles_table = dynamo_chat_handles_table
+        # Dummy request object to maintain state between Namespace initialization.
+        self.request = {
+            'mongo_db': mongo_db,
+            'dynamo_chat_handles_table': dynamo_chat_handles_table,
+            'last_chats': collections.deque(maxlen=100), 
+        }        
             
     def create_sio_packet(self, msg_type, msg):
         return {
@@ -100,4 +108,4 @@ class SocketIOChatServer(object):
         if not environ['PATH_INFO'].startswith('/socket.io'):
             start_response('401 UNAUTHORIZED', [])
             return ''
-        socketio_manage(environ, {'': ChatServerNamespace}, self.mongo_db, self.dynamo_chat_handles_table)
+        socketio_manage(environ, {'': ChatServerNamespace}, self.request)

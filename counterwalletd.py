@@ -544,49 +544,55 @@ if __name__ == '__main__':
     
     #Optionally connect to dynamodb (for wallet prefs storage)
     if config.DYNAMODB_ENABLE:
-        #import boto
-        #boto.set_stream_logger('boto')
+        from boto import dynamodb2
         from boto.dynamodb2.fields import HashKey, GlobalAllIndex
         from boto.dynamodb2.table import Table
         from boto.dynamodb2.types import STRING
+        #import boto
+        #boto.set_stream_logger('boto')
+        
+        #boto seems to have a bug where it doesn't like access creds passed into the constructor, so throw
+        # them in the environment instead
+        os.environ['AWS_ACCESS_KEY_ID'] = config.DYNAMODB_AWS_KEY
+        os.environ['AWS_SECRET_ACCESS_KEY'] = config.DYNAMODB_AWS_SECRET
 
-        from boto import dynamodb2
-        dynamodb_client = dynamodb2.connect_to_region(
-            config.DYNAMODB_AWS_REGION,
-            aws_access_key_id=str.encode(config.DYNAMODB_AWS_KEY),
-            aws_secret_access_key=str.encode(config.DYNAMODB_AWS_SECRET))
+        dynamodb_client = dynamodb2.connect_to_region(config.DYNAMODB_AWS_REGION)
         tables = dynamodb_client.list_tables()['TableNames']
         
         #make sure preferences domain exists
         if 'preferences' not in tables:
             logging.info("Creating 'preferences' domain in DynamoDB as it doesn't exist...")
             dynamo_preferences_table = Table.create('preferences', schema=[
-                HashKey('wallet_id')
+                HashKey('wallet_id', data_type=STRING)
             ], throughput={
-                'read':10,
-                'write': 5,
+                'read':20,
+                'write': 10,
             }, connection=dynamodb_client)
-            #^ Amazon free tier is 5 units write, 10 units read (should be fine for prefs storage)
         else:
-            dynamo_preferences_table = Table('preferences')
+            dynamo_preferences_table = Table('preferences',
+                schema=[HashKey('wallet_id', data_type=STRING)],
+                connection=dynamodb_client
+            )
 
         if 'chat_handles' not in tables:
             dynamo_chat_handles_table = Table.create('chat_handles', schema=[
-                HashKey('wallet_id')
+                HashKey('wallet_id', data_type=STRING)
             ], throughput={
-                'read':10,
-                'write': 5,
+                'read':16,
+                'write': 8,
             }, global_indexes=[
-                GlobalAllIndex('WalletsByHandle', parts=[
-                    HashKey('handle')
-                ],
+                GlobalAllIndex('WalletsByHandle', parts=[ HashKey('handle', data_type=STRING) ],
                 throughput={
-                  'read':10,
-                  'write':5,
+                  'read':4,
+                  'write':2,
                 }),
             ], connection=dynamodb_client)
         else:
-            dynamo_chat_handles_table = Table('chat_handles')
+            dynamo_chat_handles_table = Table('chat_handles',
+                schema=[HashKey('wallet_id', data_type=STRING)],
+                indexes=[GlobalAllIndex('WalletsByHandle', parts=[ HashKey('handle', data_type=STRING) ])],
+                connection=dynamodb_client
+            )
     else:
         dynamodb_client = None
         dynamo_preferences_table = None

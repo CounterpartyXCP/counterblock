@@ -23,5 +23,4 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
     result = r.json()
     if abort_on_error and 'error' in result:
         raise Exception("Got back error from server: %s" % result['error'])
-    
     return result

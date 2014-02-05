@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import base64
 import logging
 from logging import handlers as logging_handlers
@@ -20,42 +21,50 @@ def serve_api(mongo_db, dynamo_preferences_table, dynamo_chat_handles_table, red
     # whatever data they need
     
     DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD = 60 #in seconds
+    
+    #get the dynamo tables again:
+    #from boto.dynamodb2.table import Table
+    #dynamo_chat_handles_table = Table('chat_handles')
+    #dynamo_preferences_table = Table('preferences')
 
     @dispatcher.add_method
     def get_chat_handle(wallet_id):
         if dynamo_chat_handles_table: #dynamodb storage enabled
             try:
                 result = dynamo_chat_handles_table.get_item(wallet_id=wallet_id)
-                return result['handle']
-            except dynamodb_exceptions.ResourceNotFoundException:
-                return None
+                return result['handle'] if result['handle'] else '' 
+            #except dynamodb_exceptions.ResourceNotFoundException:
+            except Exception:
+                return ''
         else: #mongodb-based storage
             result = mongo_db.chat_handles.find_one({"wallet_id": wallet_id})
-            return result['handle'] if result else None
+            return result['handle'] if result else ''
 
     @dispatcher.add_method
     def store_chat_handle(wallet_id, handle):
         """Set or update a chat handle"""
-        if not isinstance(handle, str):
+        if not isinstance(handle, basestring):
             raise Exception("Invalid chat handle: bad data type")
         if not re.match(r'[A-Za-z0-9_-]{4,12}', handle):
             raise Exception("Invalid chat handle: bad syntax/length")
-        
+
         if dynamo_chat_handles_table: #dynamodb storage enabled
             #check if a handle with this name exists already (using our 'handle' global index)
             try:
                 e = dynamo_chat_handles_table.get_item(handle=handle)
                 if e and e.wallet_id != wallet_id: #handle already exists for another user/wallet
                     raise Exception("The handle '%s' already is in use by another wallet user. Please choose another" % handle)
-            except dynamodb_exceptions.ResourceNotFoundException:
+            #except dynamodb_exceptions.ResourceNotFoundException:
+            except Exception:
                 pass
 
             try:
                 handles = dynamo_chat_handles_table.get_item(wallet_id=wallet_id)
                 handles['handle'] = handle
                 handles.save() #update
-            except dynamodb_exceptions.ResourceNotFoundException: #insert new
-                handles = dynamo_chat_handles_table.put_item(data={
+            #except dynamodb_exceptions.ResourceNotFoundException: #insert new
+            except Exception:
+                dynamo_chat_handles_table.put_item({
                     'wallet_id': wallet_id,
                     'handle': handle
                 })
@@ -71,7 +80,8 @@ def serve_api(mongo_db, dynamo_preferences_table, dynamo_chat_handles_table, red
             try:
                 result = dynamo_preferences_table.get_item(wallet_id=wallet_id)
                 return json.loads(result['preferences'])
-            except dynamodb_exceptions.ResourceNotFoundException:
+            #except dynamodb_exceptions.ResourceNotFoundException:
+            except Exception:
                 return {}
         else: #mongodb-based storage
             result =  mongo_db.preferences.find_one({"wallet_id": wallet_id})
@@ -86,13 +96,19 @@ def serve_api(mongo_db, dynamo_preferences_table, dynamo_chat_handles_table, red
         except:
             raise Exception("Cannot dump preferences to JSON")
         
+        #from boto.dynamodb2.table import Table
+        #print "pre", dynamo_preferences_table
+        #dynamo_preferences_table = Table('preferences')
+        #print "pre2", dynamo_preferences_table
+        
         if dynamo_preferences_table: #dynamodb storage enabled
             try:
                 prefs = dynamo_preferences_table.get_item(wallet_id=wallet_id)
                 prefs['preferences'] = preferences_json
                 prefs.save() #update
-            except dynamodb_exceptions.ResourceNotFoundException: #insert new
-                prefs = dynamo_preferences_table.put_item(data={
+            #except dynamodb_exceptions.ResourceNotFoundException: #insert new
+            except Exception:
+                dynamo_preferences_table.put_item({
                     'wallet_id': wallet_id,
                     'preferences': preferences_json
                 })
@@ -122,7 +138,7 @@ def serve_api(mongo_db, dynamo_preferences_table, dynamo_chat_handles_table, red
         if result is None: #cache miss or cache disabled
             result = util.call_jsonrpc_api(method, params)
             if redis_client: #cache miss
-                redis_client.setex(cache_key, DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD, result)
+                redis_client.setex(cache_key, DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD, json.dumps(result))
                 #^TODO: we may want to have different cache periods for different types of data
         
         if 'error' in result:
