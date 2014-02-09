@@ -41,15 +41,8 @@ class ChatServerNamespace(BaseNamespace, BroadcastMixin):
         wallet ID, it will retrieve the chat handle the user initially registered with"""
         #set the wallet ID and derive the nickname from that
         #lookup the walletid and ensure that it has a nickname match for chat
-        if self.request['dynamo_chat_handles_table']: #dynamodb storage enabled
-            try:
-                result = self.request['dynamo_chat_handles_table'].get_item(wallet_id=wallet_id)
-                handle = result['handle']
-            except dynamodb_exceptions.ResourceNotFoundException:
-                handle = None
-        else: #mongodb-based storage
-            result =  self.request['mongo_db'].chat_handles.find_one({"wallet_id": wallet_id})
-            handle = result['handle'] if result else None
+        result =  self.request['mongo_db'].chat_handles.find_one({"wallet_id": wallet_id})
+        handle = result['handle'] if result else None
             
         if not handle:
             return self.error('invalid_id', "No handle is defined for wallet ID %s" % wallet_id)
@@ -67,7 +60,7 @@ class ChatServerNamespace(BaseNamespace, BroadcastMixin):
         
         #make sure this user is not spamming
         if self.socket.session['last_action']:
-            last_message_ago = time.time() - self.socket.session['last_action']
+            last_message_ago = time.mktime(time.gmtime()) - self.socket.session['last_action']
         else:
             last_message_ago = None
         
@@ -77,7 +70,7 @@ class ChatServerNamespace(BaseNamespace, BroadcastMixin):
             #TODO: filter out other stuff?
             
             self.broadcast_event_not_me('emote', self.socket.session['handle'], text)
-            self.socket.session['last_action'] = time.time()
+            self.socket.session['last_action'] = time.mktime(time.gmtime())
             self.request['last_chats'].append({'handle': self.socket.session['handle'],
                 'text': text, 'when': self.socket.session['last_action']})
         else: #spamming
@@ -89,11 +82,10 @@ class SocketIOChatServer(object):
     """
     Funnel messages from counterparty.io client chats to other clients
     """
-    def __init__(self, mongo_db, dynamo_chat_handles_table):
+    def __init__(self, mongo_db):
         # Dummy request object to maintain state between Namespace initialization.
         self.request = {
             'mongo_db': mongo_db,
-            'dynamo_chat_handles_table': dynamo_chat_handles_table,
             'last_chats': collections.deque(maxlen=100), 
         }        
             

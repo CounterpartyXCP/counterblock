@@ -1,6 +1,8 @@
 import os
 import json
 import re
+import time
+import datetime
 import base64
 import logging
 from logging import handlers as logging_handlers
@@ -10,11 +12,12 @@ import cherrypy
 from cherrypy.process import plugins
 from jsonrpc import JSONRPCResponseManager, dispatcher
 from bson import json_util
-from boto.dynamodb2 import exceptions as dynamodb_exceptions
 
 from . import (config, util)
 
-def serve_api(mongo_db, dynamo_preferences_table, dynamo_chat_handles_table, redis_client):
+PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
+
+def serve_api(mongo_db, redis_client):
     # Preferneces are just JSON objects... since we don't force a specific form to the wallet on
     # the server side, this makes it easier for 3rd party wallets (i.e. not counterwallet) to fully be able to
     # use counterwalletd to not only pull useful data, but also load and store their own preferences, containing
@@ -22,23 +25,13 @@ def serve_api(mongo_db, dynamo_preferences_table, dynamo_chat_handles_table, red
     
     DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD = 60 #in seconds
     
-    #get the dynamo tables again:
-    #from boto.dynamodb2.table import Table
-    #dynamo_chat_handles_table = Table('chat_handles')
-    #dynamo_preferences_table = Table('preferences')
-
     @dispatcher.add_method
     def get_chat_handle(wallet_id):
-        if dynamo_chat_handles_table: #dynamodb storage enabled
-            try:
-                result = dynamo_chat_handles_table.get_item(wallet_id=wallet_id)
-                return result['handle'] if result['handle'] else '' 
-            #except dynamodb_exceptions.ResourceNotFoundException:
-            except Exception:
-                return ''
-        else: #mongodb-based storage
-            result = mongo_db.chat_handles.find_one({"wallet_id": wallet_id})
-            return result['handle'] if result else ''
+        result = mongo_db.chat_handles.find_one({"wallet_id": wallet_id})
+        return {
+            'handle': result['handle'],
+            'last_updated': result.get('last_updated', None)
+            } if result else {}
 
     @dispatcher.add_method
     def store_chat_handle(wallet_id, handle):
@@ -48,44 +41,24 @@ def serve_api(mongo_db, dynamo_preferences_table, dynamo_chat_handles_table, red
         if not re.match(r'[A-Za-z0-9_-]{4,12}', handle):
             raise Exception("Invalid chat handle: bad syntax/length")
 
-        if dynamo_chat_handles_table: #dynamodb storage enabled
-            #check if a handle with this name exists already (using our 'handle' global index)
-            try:
-                e = dynamo_chat_handles_table.get_item(handle=handle)
-                if e and e.wallet_id != wallet_id: #handle already exists for another user/wallet
-                    raise Exception("The handle '%s' already is in use by another wallet user. Please choose another" % handle)
-            #except dynamodb_exceptions.ResourceNotFoundException:
-            except Exception:
-                pass
-
-            try:
-                handles = dynamo_chat_handles_table.get_item(wallet_id=wallet_id)
-                handles['handle'] = handle
-                handles.save() #update
-            #except dynamodb_exceptions.ResourceNotFoundException: #insert new
-            except Exception:
-                dynamo_chat_handles_table.put_item({
-                    'wallet_id': wallet_id,
-                    'handle': handle
-                })
-        else: #mongodb-based storage
-            mongo_db.chat_handles.update(
-                {'wallet_id': wallet_id},
-                {"$set": {'wallet_id': wallet_id, 'handle': handle}}, upsert=True)
+        mongo_db.chat_handles.update(
+            {'wallet_id': wallet_id},
+            {"$set": {
+                'wallet_id': wallet_id,
+                'handle': handle,
+                'last_updated': time.mktime(time.gmtime()) 
+                }
+            }, upsert=True)
+        #^ last_updated MUST be in GMT, as it will be compaired again other servers
         return True
 
     @dispatcher.add_method
     def get_preferences(wallet_id):
-        if dynamo_preferences_table: #dynamodb storage enabled
-            try:
-                result = dynamo_preferences_table.get_item(wallet_id=wallet_id)
-                return json.loads(result['preferences'])
-            #except dynamodb_exceptions.ResourceNotFoundException:
-            except Exception:
-                return {}
-        else: #mongodb-based storage
-            result =  mongo_db.preferences.find_one({"wallet_id": wallet_id})
-            return json.loads(result['preferences']) if result else {}
+        result =  mongo_db.preferences.find_one({"wallet_id": wallet_id})
+        return {
+            'preferences': json.loads(result['preferences']),
+            'last_updated': result.get('last_updated', None)
+            } if result else {'preferences': {}, 'last_updated': None}
 
     @dispatcher.add_method
     def store_preferences(wallet_id, preferences):
@@ -96,26 +69,19 @@ def serve_api(mongo_db, dynamo_preferences_table, dynamo_chat_handles_table, red
         except:
             raise Exception("Cannot dump preferences to JSON")
         
-        #from boto.dynamodb2.table import Table
-        #print "pre", dynamo_preferences_table
-        #dynamo_preferences_table = Table('preferences')
-        #print "pre2", dynamo_preferences_table
+        #sanity check around max size
+        if len(preferences_json) >= PREFERENCES_MAX_LENGTH:
+            raise Exception("Preferences object is too big.")
         
-        if dynamo_preferences_table: #dynamodb storage enabled
-            try:
-                prefs = dynamo_preferences_table.get_item(wallet_id=wallet_id)
-                prefs['preferences'] = preferences_json
-                prefs.save() #update
-            #except dynamodb_exceptions.ResourceNotFoundException: #insert new
-            except Exception:
-                dynamo_preferences_table.put_item({
-                    'wallet_id': wallet_id,
-                    'preferences': preferences_json
-                })
-        else: #mongodb-based storage
-            mongo_db.preferences.update(
-                {'wallet_id': wallet_id},
-                {"$set": {'wallet_id': wallet_id, 'preferences': preferences_json}}, upsert=True)
+        mongo_db.preferences.update(
+            {'wallet_id': wallet_id},
+            {"$set": {
+                'wallet_id': wallet_id,
+                'preferences': preferences_json,
+                'last_updated': time.mktime(time.gmtime())
+                }
+            }, upsert=True)
+        #^ last_updated MUST be in GMT, as it will be compaired again other servers
         return True
     
     @dispatcher.add_method

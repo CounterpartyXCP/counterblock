@@ -22,7 +22,6 @@ import time
 
 import pymongo
 import cube
-import boto.dynamodb
 
 import redis
 import redis.connection
@@ -136,11 +135,6 @@ if __name__ == '__main__':
     parser.add_argument('--mongodb-database', help='the mongodb database to connect to')
     parser.add_argument('--mongodb-user', help='the optional username used to communicate with mongodb')
     parser.add_argument('--mongodb-password', help='the optional password used to communicate with mongodb')
-
-    parser.add_argument('--dynamodb-enable', action='store_true', default=True, help='set to false to use MongoDB instead of DynamoDB for wallet preferences and chat handle storage')
-    parser.add_argument('--dynamodb-aws-region', help='the Amazon Web Services region to use for DynamoDB connection (preferences storage)')
-    parser.add_argument('--dynamodb-aws-key', help='the Amazon Web Services key to use for DynamoDB connection (preferences storage)')
-    parser.add_argument('--dynamodb-aws-secret', type=int, help='the Amazon Web Services secret to use for DynamoDB connection (preferences storage)')
 
     parser.add_argument('--redis-enable-apicache', action='store_true', default=False, help='set to true to enable caching of API requests')
     parser.add_argument('--redis-connect', help='the hostname of the redis server to use for caching (if enabled')
@@ -302,42 +296,6 @@ if __name__ == '__main__':
         config.MONGODB_PASSWORD = configfile.get('Default', 'mongodb-password')
     else:
         config.MONGODB_PASSWORD = None
-
-
-    # dynamodb-enable
-    if args.dynamodb_enable:
-        config.DYNAMODB_ENABLE = args.dynamodb_enable
-    elif has_config and configfile.has_option('Default', 'dynamodb-enable') and configfile.get('Default', 'dynamodb-enable'):
-        config.DYNAMODB_ENABLE = configfile.getboolean('Default', 'dynamodb-enable')
-    else:
-        config.DYNAMODB_ENABLE = True
-    
-    #dynamodb-aws-region
-    if args.dynamodb_aws_region:
-        config.DYNAMODB_AWS_REGION = args.dynamodb_aws_region
-    elif has_config and configfile.has_option('Default', 'dynamodb-aws-region') and configfile.get('Default', 'dynamodb-aws-region'):
-        config.DYNAMODB_AWS_REGION = configfile.get('Default', 'dynamodb-aws-region')
-    else:
-        config.DYNAMODB_AWS_REGION = 'eu-west-1' #Ireland
-
-    #dynamodb-aws-key
-    if args.dynamodb_aws_key:
-        config.DYNAMODB_AWS_KEY = args.dynamodb_aws_key
-    elif has_config and configfile.has_option('Default', 'dynamodb-aws-key') and configfile.get('Default', 'dynamodb-aws-key'):
-        config.DYNAMODB_AWS_KEY = configfile.get('Default', 'dynamodb-aws-key')
-    else:
-        config.DYNAMODB_AWS_KEY = None
-
-    #dynamodb-aws-secret
-    if args.dynamodb_aws_secret:
-        config.DYNAMODB_AWS_SECRET = args.dynamodb_aws_secret
-    elif has_config and configfile.has_option('Default', 'dynamodb-aws-secret') and configfile.get('Default', 'dynamodb-aws-secret'):
-        config.DYNAMODB_AWS_SECRET = configfile.get('Default', 'dynamodb-aws-secret')
-    else:
-        config.DYNAMODB_AWS_SECRET = None
-    
-    if config.DYNAMODB_ENABLE and (not config.DYNAMODB_AWS_KEY or not config.DYNAMODB_AWS_SECRET):
-        raise Exception("If 'dynamodb-enable' is set to True, you must specify values for both 'dynamodb-aws-key' and 'dynamodb-aws-secret'")
 
     # redis-enable-apicache
     if args.redis_enable_apicache:
@@ -525,10 +483,9 @@ if __name__ == '__main__':
     mongo_db.processed_blocks.ensure_index('block_index')
     for entity in CUBE_ENTITIES: #ensure indexing for cube data
         mongo_db[entity+'_events'].ensure_index([("block_index", pymongo.DESCENDING), ("t", pymongo.ASCENDING)])
-    if not config.DYNAMODB_ENABLE: #if using mongo for prefs and chat handle storage
-        mongo_db.preferences.ensure_index('wallet_id', unique=True)
-        mongo_db.chat_handles.ensure_index('wallet_id', unique=True)
-        mongo_db.chat_handles.ensure_index('handle', unique=True)
+    mongo_db.preferences.ensure_index('wallet_id', unique=True)
+    mongo_db.chat_handles.ensure_index('wallet_id', unique=True)
+    mongo_db.chat_handles.ensure_index('handle', unique=True)
     
     #Connect to cube
     cube_client = cube.Cube(hostname=config.CUBE_CONNECT,
@@ -542,62 +499,6 @@ if __name__ == '__main__':
     else:
         redis_client = None
     
-    #Optionally connect to dynamodb (for wallet prefs storage)
-    if config.DYNAMODB_ENABLE:
-        from boto import dynamodb2
-        from boto.dynamodb2.fields import HashKey, GlobalAllIndex
-        from boto.dynamodb2.table import Table
-        from boto.dynamodb2.types import STRING
-        #import boto
-        #boto.set_stream_logger('boto')
-        
-        #boto seems to have a bug where it doesn't like access creds passed into the constructor, so throw
-        # them in the environment instead
-        os.environ['AWS_ACCESS_KEY_ID'] = config.DYNAMODB_AWS_KEY
-        os.environ['AWS_SECRET_ACCESS_KEY'] = config.DYNAMODB_AWS_SECRET
-
-        dynamodb_client = dynamodb2.connect_to_region(config.DYNAMODB_AWS_REGION)
-        tables = dynamodb_client.list_tables()['TableNames']
-        
-        #make sure preferences domain exists
-        if 'preferences' not in tables:
-            logging.info("Creating 'preferences' domain in DynamoDB as it doesn't exist...")
-            dynamo_preferences_table = Table.create('preferences', schema=[
-                HashKey('wallet_id', data_type=STRING)
-            ], throughput={
-                'read':20,
-                'write': 10,
-            }, connection=dynamodb_client)
-        else:
-            dynamo_preferences_table = Table('preferences',
-                schema=[HashKey('wallet_id', data_type=STRING)],
-                connection=dynamodb_client
-            )
-
-        if 'chat_handles' not in tables:
-            dynamo_chat_handles_table = Table.create('chat_handles', schema=[
-                HashKey('wallet_id', data_type=STRING)
-            ], throughput={
-                'read':16,
-                'write': 8,
-            }, global_indexes=[
-                GlobalAllIndex('WalletsByHandle', parts=[ HashKey('handle', data_type=STRING) ],
-                throughput={
-                  'read':4,
-                  'write':2,
-                }),
-            ], connection=dynamodb_client)
-        else:
-            dynamo_chat_handles_table = Table('chat_handles',
-                schema=[HashKey('wallet_id', data_type=STRING)],
-                indexes=[GlobalAllIndex('WalletsByHandle', parts=[ HashKey('handle', data_type=STRING) ])],
-                connection=dynamodb_client
-            )
-    else:
-        dynamodb_client = None
-        dynamo_preferences_table = None
-        dynamo_chat_handles_table = None
-    
     to_socketio_queue = gevent.queue.Queue()
     
     logging.info("Starting up socket.io server (counterpartyd event feed)...")
@@ -610,7 +511,7 @@ if __name__ == '__main__':
     logging.info("Starting up socket.io server (counterwallet chat)...")
     sio_server = socketio_server.SocketIOServer(
         (config.SOCKETIO_CHAT_HOST, config.SOCKETIO_CHAT_PORT),
-        siofeeds.SocketIOChatServer(mongo_db, dynamo_chat_handles_table),
+        siofeeds.SocketIOChatServer(mongo_db),
         resource="socket.io", policy_server=False)
     sio_server.start() #start the socket.io server greenlets
 
@@ -618,6 +519,6 @@ if __name__ == '__main__':
     #gevent.spawn(poll_counterpartyd, mongo_db, mongo_cube_db, cube_client, to_socketio_queue)
 
     logging.info("Starting up RPC API handler...")
-    api.serve_api(mongo_db, dynamo_preferences_table, dynamo_chat_handles_table, redis_client)
+    api.serve_api(mongo_db, redis_client)
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
