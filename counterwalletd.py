@@ -32,23 +32,75 @@ from requests.auth import HTTPBasicAuth
 
 from lib import (config, api, siofeeds, util)
 
-CUBE_ENTITIES = ['credit', 'debit', 'burn', 'cancel', 'issuance', 'order', 'send']
+CUBE_ENTITIES = ['trades',]
 
 def poll_counterpartyd(mongo_db, mongo_cube_db, cube_client, to_socketio_queue):
+    def clear_on_new_db_version(running_info, prefs, my_latest_block, force=False):
+        #check for a new DB version
+        wipeState = False
+        if force:
+            wipeState = True
+        elif running_info['db_version_major'] != prefs['counterpartyd_db_version_major']:
+            logging.warn("counterpartyd MAJOR DB version change (we built from %s, counterpartyd is at %s). Wiping our state data." % (
+                prefs['counterpartyd_db_version_major'], running_info['db_version_major']))
+            wipeState = True
+        elif running_info['db_version_minor'] != prefs['counterpartyd_db_version_minor']:
+            logging.warn("counterpartyd MINOR DB version change (we built from %s.%s, counterpartyd is at %s.%s). Wiping our state data." % (
+                prefs['counterpartyd_db_version_major'], prefs['counterpartyd_db_version_minor'],
+                running_info['db_version_major'], running_info['db_version_minor']))
+            wipeState = True
+        if wipeState:
+            #boom! blow away all collections in mongo
+            mongo_db.processed_blocks.remove()
+            for entity in CUBE_ENTITIES:
+                mongo_db[entity+'_events'].remove()
+                mongo_db[entity+'_metrics'].remove()
+            
+            #update our DB prefs
+            prefs['db_version'] = config.DB_VERSION
+            prefs['counterpartyd_db_version_major'] = running_info['db_version_major'] 
+            prefs['counterpartyd_db_version_minor'] = running_info['db_version_minor']
+            mongo_db.prefs.update({}, prefs)
+            
+            #reset my latest block record
+            my_latest_block = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
+            config.CAUGHT_UP = False #You've Come a Long Way, Baby
+        return prefs, my_latest_block
+        
     def prune_my_stale_blocks(max_block_index, max_block_time):
         """called if there are any records for blocks higher than this in the database? If so, they were impartially created
            and we should get rid of them"""
-        for entity in CUBE_ENTITIES:
+        mongo_db.processed_blocks.remove({"block_index": {"$gt": max_block_index}})
+        for entity in CUBE_ENTITIES: #for each cube data table
             #delete the cube events
-            mongo_db[entity+'_events'].remove({"block_index": {"$gt": max_block_index}})
+            mongo_db[entity+'_events'].remove({"d.block_index": {"$gt": max_block_index}})
             #invaliate the cube metrics by setting metric.i to True for any metrics with a time >= last block time
             mongo_db[entity+'_metrics'].update({"_id.t": {"$gte": max_block_time}}, {"$set": {"i": True}})
             #^ TODO: not 100% sure this will work, needs more testing :)
 
+    #grab our stored preferences
+    prefs_created = False
+    prefs = mongo_db.prefs.find()
+    assert prefs.count() in [0, 1]
+    if prefs.count() == 0:
+        mongo_db.prefs.insert({ #create default prefs object
+            'db_version': config.DB_VERSION, #counterwalletd database version
+            'counterpartyd_db_version_major': None,
+            'counterpartyd_db_version_minor': None,
+        })
+        prefs = mongo_db.prefs.find()[0]
+        prefs_created = True
+    else:
+        prefs = prefs[0]
+        
     #get the last processed block out of mongo
     my_latest_block = mongo_db.processed_blocks.find_one(sort=[("block_index", -1)])
     if not my_latest_block:
-        my_latest_block = {'block_index': 0, 'block_time': datetime.datetime.utcfromtimestamp(0), 'block_hash': None}
+        my_latest_block = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
+
+    #see if DB version has increased and rebuild if so
+    if prefs_created or prefs['db_version'] != config.DB_VERSION:
+        prefs, my_latest_block = clear_on_new_db_version(None, prefs, my_latest_block, force=True)
     
     #remove any data we have for blocks higher than this (would happen if counterwalletd, cube, or mongo died
     # or erroed out while processing a block)
@@ -57,56 +109,129 @@ def poll_counterpartyd(mongo_db, mongo_cube_db, cube_client, to_socketio_queue):
     #start polling counterpartyd for new blocks    
     while True:
         try:
-            result = util.call_jsonrpc_api("get_last_processed_block", abort_on_error=True)
-            #^ REMEMBER: last_processed_block['block_time'] is an int, not a datetime object
+            running_info = util.call_jsonrpc_api("get_running_info", abort_on_error=True)['result']
         except Exception, e:
-            logging.warn(str(e) + " Waiting 5 seconds before trying again...")
-            time.sleep(5)
+            logging.warn(str(e) + " Waiting 3 seconds before trying again...")
+            time.sleep(3)
             continue
         
-        #new block - get the various different entities that could exist under that block
+        #wipe our state data if necessary, if counterpartyd has moved on to a new DB version
+        prefs, my_latest_block = clear_on_new_db_version(running_info, prefs, my_latest_block)
+        
+        ##########################
+        #REORG detection: examine the last N processed block hashes from counterpartyd, and prune back if necessary
+        #TODO!!!!
+        #running_info['last_block_hashes'] =
+        ########################## 
+        
+        #work up to what block counterpartyd is at
+        last_processed_block = running_info['last_block']
+        
+        if last_processed_block['block_index'] is None:
+            logging.warn("counterpartyd has no last processed block (probably is reparsing). Waiting 3 seconds before trying again...")
+            time.sleep(3)
+            continue
+        
         if my_latest_block['block_index'] < last_processed_block['block_index']:
             #need to catch up
+            config.CAUGHT_UP = False
+            
+            cur_block_index = my_latest_block['block_index'] + 1
+            #get the blocktime for the next block we have to process 
             try:
-                block_data = util.call_jsonrpc_api("get_data_for_block",
-                    [my_latest_block['block_index'] + 1], abort_on_error=True)
+                cur_block = util.call_jsonrpc_api("get_block_info", [cur_block_index,], abort_on_error=True)['result']
+            except Exception, e:
+                logging.warn(str(e) + " Waiting 3 seconds before trying again...")
+                time.sleep(3)
+                continue
+            cur_block['block_time_str'] = datetime.datetime.fromtimestamp(cur_block['block_time']).isoformat()
+            
+            logging.info("Processing block %i ..." % (cur_block_index,))
+            try:
+                block_data = util.call_jsonrpc_api("get_messages", [cur_block_index,], abort_on_error=True)['result']
             except Exception, e:
                 logging.warn(str(e) + " Waiting 5 seconds before trying again...")
                 time.sleep(5)
                 continue
             
-            #add relevant data into cube
-            block_time_str = my_latest_block['block_time'].strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-            for entity in CUBE_ENTITIES:
-                raise NotImplementedError("TODO: determine how the data from get_data_for_block comes back")
-                #assert entity in block_data #should be a list (even if empty)
-
-                #cube_client.put(entity, data)
+            #parse out response (list of txns, ordered as they appeared in the block)
+            for msg in block_data:
+                processed = False
+                msg_data = json.loads(msg['bindings'])
                 
-                #data = WHATEVER
+                #in the future, we will do more off of this message feed data internally
                 
-                #for each new entity, send out a message via socket.io
-                event = {
-                    'event': entity,
-                    'block_time': time.mktime(my_latest_block['block_time'].timetuple()),
-                    'block_time_str': block_time_str,
-                    'msg': data
-                }
-                to_socketio_queue.put(event)
+                #book trades
+                if     msg['category'] == 'btcpays' \
+                   or (    msg['category'] == 'order_matches' \
+                       and msg_data['forward_asset'] != 'BTC' \
+                       and msg_data['backward_asset'] != 'BTC'):
+                    #check if the referrenced assets are divisible
+                    forward_asset_info = util.call_jsonrpc_api("get_asset_info", [msg_data['forward_asset'],], abort_on_error=True)['result']
+                    backward_asset_info = util.call_jsonrpc_api("get_asset_info", [msg_data['backward_asset'],], abort_on_error=True)['result']
+                    
+                    if msg['category'] == 'btcpays':
+                        tx0_hash, tx1_hash = msg_data['order_match_id'][:64], msg_data['order_match_id'][64:] 
+                        #get the order_match this btcpay settles
+                        order_match = util.call_jsonrpc_api("get_order_matches",
+                            [{'field': 'tx0_hash', 'op': '==', 'value': tx0_hash},
+                             {'field': 'tx1_hash', 'op': '==', 'value': tx1_hash}], abort_on_error=True)['result']
+                    else:
+                        order_match = msg_data
+                    
+                    cube.put('trades', {
+                        'block_index': cur_block_index,
+                        'msg_index': msg['message_index'], #secondary temporaral ordering off of when
+                        'order_match_id': order_match['tx0_hash'] + order_match['tx1_hash'],
+                        'forward_asset': msg_data['forward_asset'],
+                        'forward_amount': float(msg_data['forward_amount']) / config.UNIT \
+                            if forward_asset_info['divisible'] else forward_asset_info['divisible'],
+                        'backward_asset': msg_data['backward_asset'],
+                        'backward_amount': float(msg_data['backward_amount']) / config.UNIT \
+                            if backward_asset_info['divisible'] else backward_asset_info['divisible'],
+                        'unit_price': msg_data['backward_amount'] / msg_data['forward_amount']
+                        
+                    }, time=cur_block['block_time_str'])
+                    processed = True
+                
+                if processed: #only print out for messages we actually digested in some form
+                    logging.info("Procesed tx %s -- %s :: %s" % (event_data['_message_index'], msg['category'], event_data))
+                    
+                #if we're catching up beyond 10 blocks out, make sure not to send out any socket.io events, as to not flood
+                # on a resync (as we may give a 525 to kick the logged in clients out, but we can't guarantee that the
+                # socket.io connection will always be severed as well??)
+                if last_processed_block['block_index'] - my_latest_block['block_index'] < 10: #>= max likely reorg size we'd ever see
+                    #for each new entity, send out a message via socket.io
+                    event = {
+                        'event': msg['category'],
+                        'block_time': cur_block['block_time'],
+                        'block_time_str': cur_block['block_time_str'],
+                        'msg': msg_data
+                    }
+                    to_socketio_queue.put(event)
             
-            #block successfully processed, add into our DB
+            #block successfully processed, track this in our DB
             new_block = {
-                'block_index': block_data['block_index'],
-                'block_time': datetime.datetime.fromutctimestamp(block_data['block_time']),
-                'block_hash': block_data['block_hash'],
+                'block_index': cur_block_index,
+                'block_time': cur_block['block_time'],
+                'block_hash': cur_block['block_hash'],
             }
             mongo_db.processed_blocks.insert(new_block)
-            
+            my_latest_block = new_block
         elif my_latest_block['block_index'] > last_processed_block['block_index']:
-            #we have stale blocks (i.e. a reorg happened in counterpartyd)
+            #we have stale blocks (i.e. most likely a reorg happened in counterpartyd)
+            config.CAUGHT_UP = False
+            logging.warn("Ahead of counterpartyd with block indexes. Pruning from block %i back to %i ..." % (
+                my_latest_block['block_index'], last_processed_block['block_index']))
             prune_my_stale_blocks(last_processed_block['block_index'], last_processed_block['block_time'])
-            
-        time.sleep(2) #wait a bit to query again for the latest block
+            #NOTE that is is only the first step, that only gets our block_index equal to counterpartyd's current block
+            # index... after this, we will cycle us back to querying get_running_info, which will
+            # return the last X block indexes... from that, we can detect if there was a reorg that we need to further
+            # prune back for
+        else:
+            #...we may be caught up (to counterpartyd), but counterpartyd may not be (to the blockchain). And if it isn't, we aren't
+            config.CAUGHT_UP = running_info['db_caught_up']
+            time.sleep(2) #counterwalletd itself is at least caught up, wait a bit to query again for the latest block from cpd
 
 
 if __name__ == '__main__':
@@ -115,6 +240,7 @@ if __name__ == '__main__':
     parser.add_argument('-V', '--version', action='version', version="counterwalletd v%s" % config.VERSION)
     parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', help='sets log level to DEBUG instead of WARNING')
 
+    parser.add_argument('--testnet', action='store_true', help='use Bitcoin testnet addresses and block numbers')
     parser.add_argument('--data-dir', help='specify to explicitly override the directory in which to keep the config file and log file')
     parser.add_argument('--config-file', help='the location of the configuration file')
     parser.add_argument('--log-file', help='the location of the log file')
@@ -169,6 +295,14 @@ if __name__ == '__main__':
     configfile.read(config_path)
     has_config = configfile.has_section('Default')
 
+    # testnet
+    if args.testnet:
+        config.TESTNET = args.testnet
+    elif has_config and configfile.has_option('Default', 'testnet'):
+        config.TESTNET = configfile.getboolean('Default', 'testnet')
+    else:
+        config.TESTNET = False
+        
     ##############
     # STUFF WE CONNECT TO
 
@@ -186,7 +320,10 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'bitcoind-rpc-port') and configfile.get('Default', 'bitcoind-rpc-port'):
         config.BITCOIND_RPC_PORT = configfile.get('Default', 'bitcoind-rpc-port')
     else:
-        config.BITCOIND_RPC_PORT = 8332
+        if config.TESTNET:
+            config.BITCOIND_RPC_PORT = '18332'
+        else:
+            config.BITCOIND_RPC_PORT = '8332'
     try:
         int(config.BITCOIND_RPC_PORT)
         assert int(config.BITCOIND_RPC_PORT) > 1 and int(config.BITCOIND_RPC_PORT) < 65535
@@ -226,7 +363,10 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'counterpartyd-rpc-port') and configfile.get('Default', 'counterpartyd-rpc-port'):
         config.COUNTERPARTYD_RPC_PORT = configfile.get('Default', 'counterpartyd-rpc-port')
     else:
-        config.COUNTERPARTYD_RPC_PORT = 4000
+        if config.TESTNET:
+            config.COUNTERPARTYD_RPC_PORT = 14000
+        else:
+            config.COUNTERPARTYD_RPC_PORT = 4000
     try:
         int(config.COUNTERPARTYD_RPC_PORT)
         assert int(config.COUNTERPARTYD_RPC_PORT) > 1 and int(config.COUNTERPARTYD_RPC_PORT) < 65535
@@ -279,7 +419,10 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'mongodb-database') and configfile.get('Default', 'mongodb-database'):
         config.MONGODB_DATABASE = configfile.get('Default', 'mongodb-database')
     else:
-        config.MONGODB_DATABASE = 'counterwalletd'
+        if config.TESTNET:
+            config.MONGODB_DATABASE = 'counterwalletd_testnet'
+        else:
+            config.MONGODB_DATABASE = 'counterwalletd'
 
     # mongodb user
     if args.mongodb_user:
@@ -399,7 +542,10 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'rpc-port') and configfile.get('Default', 'rpc-port'):
         config.RPC_PORT = configfile.get('Default', 'rpc-port')
     else:
-        config.RPC_PORT = 4100
+        if config.TESTNET:
+            config.RPC_PORT = 14100
+        else:
+            config.RPC_PORT = 4100        
     try:
         int(config.RPC_PORT)
         assert int(config.RPC_PORT) > 1 and int(config.RPC_PORT) < 65535
@@ -420,7 +566,10 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'socketio-port') and configfile.get('Default', 'socketio-port'):
         config.SOCKETIO_PORT = configfile.get('Default', 'socketio-port')
     else:
-        config.SOCKETIO_PORT = 4101
+        if config.TESTNET:
+            config.SOCKETIO_PORT = 14101
+        else:
+            config.SOCKETIO_PORT = 4101        
     try:
         int(config.SOCKETIO_PORT)
         assert int(config.SOCKETIO_PORT) > 1 and int(config.SOCKETIO_PORT) < 65535
@@ -441,12 +590,21 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'socketio-chat-port') and configfile.get('Default', 'socketio-chat-port'):
         config.SOCKETIO_CHAT_PORT = configfile.get('Default', 'socketio-chat-port')
     else:
-        config.SOCKETIO_CHAT_PORT = 4102
+        if config.TESTNET:
+            config.SOCKETIO_CHAT_PORT = 14102
+        else:
+            config.SOCKETIO_CHAT_PORT = 4102       
     try:
         int(config.SOCKETIO_CHAT_PORT)
         assert int(config.SOCKETIO_CHAT_PORT) > 1 and int(config.SOCKETIO_CHAT_PORT) < 65535
     except:
         raise Exception("Please specific a valid port number socketio-chat-port configuration parameter")
+
+    #More testnet
+    if config.TESTNET:
+        config.BLOCK_FIRST = 154908
+    else:
+        config.BLOCK_FIRST = 278270
 
     # Log
     if args.log_file:
@@ -479,18 +637,23 @@ if __name__ == '__main__':
     if config.MONGODB_USER and config.MONGODB_PASSWORD:
         if not mongo_db.authenticate(config.MONGODB_USER, config.MONGODB_PASSWORD):
             raise Exception("Could not authenticate to mongodb with the supplied username and password.")
-    #insert mongo indexes if need-be (i.e. for newly created database)
-    mongo_db.processed_blocks.ensure_index('block_index')
-    for entity in CUBE_ENTITIES: #ensure indexing for cube data
-        mongo_db[entity+'_events'].ensure_index([("block_index", pymongo.DESCENDING), ("t", pymongo.ASCENDING)])
-    mongo_db.preferences.ensure_index('wallet_id', unique=True)
-    mongo_db.chat_handles.ensure_index('wallet_id', unique=True)
-    mongo_db.chat_handles.ensure_index('handle', unique=True)
-    
+
     #Connect to cube
     cube_client = cube.Cube(hostname=config.CUBE_CONNECT,
         collector_port=config.CUBE_COLLECTOR_PORT, evaluator_port=config.CUBE_EVALUATOR_PORT)
     mongo_cube_db = mongo_client[config.CUBE_DATABASE] 
+    
+    #insert mongo indexes if need-be (i.e. for newly created database)
+    mongo_db.processed_blocks.ensure_index('block_index')
+    mongo_db.preferences.ensure_index('wallet_id', unique=True)
+    mongo_db.chat_handles.ensure_index('wallet_id', unique=True)
+    mongo_db.chat_handles.ensure_index('handle', unique=True)
+    mongo_db.order_matches.ensure_index([
+        ("forward_asset", pymongo.ASCENDING),
+        ("backward_asset", pymongo.ASCENDING),
+        ("block_index", pymongo.ASCENDING)
+    ])
+    #TODO: ^ we may need to move t at the head with this index...
     
     #Connect to redis
     if config.REDIS_ENABLE_APICACHE:
@@ -515,10 +678,11 @@ if __name__ == '__main__':
         resource="socket.io", policy_server=False)
     sio_server.start() #start the socket.io server greenlets
 
-    logging.info("DISABLED FOR NOW: Starting up counterpartyd block poller...")
-    #gevent.spawn(poll_counterpartyd, mongo_db, mongo_cube_db, cube_client, to_socketio_queue)
+    logging.info("Starting up counterpartyd block poller...")
+    gevent.spawn(poll_counterpartyd, mongo_db, mongo_cube_db, cube_client, to_socketio_queue)
 
     logging.info("Starting up RPC API handler...")
-    api.serve_api(mongo_db, redis_client)
+    api.serve_api(mongo_db, cube_client, redis_client)
+
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
