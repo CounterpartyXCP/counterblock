@@ -10,7 +10,6 @@ from logging import handlers as logging_handlers
 import requests
 from gevent import wsgi
 import cherrypy
-import cube
 from cherrypy.process import plugins
 from jsonrpc import JSONRPCResponseManager, dispatcher
 import pymongo
@@ -29,7 +28,7 @@ def get_block_indexes_for_dates(mongo_db, start, end):
     end_block = mongo_db.processed_blocks.find({"block_time": {"$gte": end_ts} }).sort( { "block_time": pymongo.ASCENDING } ).limit(1)
     return (start_block.block_index, end_block.block_index)
 
-def serve_api(mongo_db, cube_client, redis_client):
+def serve_api(mongo_db, redis_client):
     # Preferneces are just JSON objects... since we don't force a specific form to the wallet on
     # the server side, this makes it easier for 3rd party wallets (i.e. not counterwallet) to fully be able to
     # use counterwalletd to not only pull useful data, but also load and store their own preferences, containing
@@ -72,59 +71,57 @@ def serve_api(mongo_db, cube_client, redis_client):
         return txns 
 
     @dispatcher.add_method
-    def get_market_history(forward_asset, backward_asset, start_date, end_date, step_size):
-        """Return day by day market history data for the specified asset pair.
-        @param step_size: The step size of data required. One of: 10s, 1m, 5m, 1h, 1d
+    def get_market_history(forward_asset, backward_asset, start_date, end_date):
+        """Return block-by-block aggregated market history data for the specified asset pair, within the specified date range.
         @returns List of lists. Each embedded list has 6 elements [datetime (epoch), open, high, low, close, volume]
         """
         if not end: #default to current datetime
             end = datetime.datetime.utcnow()
         if not start: #default to 30 days before the end date
             start = end - datetime.timedelta(30)
-        start_block_index, end_block_index = get_block_indexes_for_dates(mongo_db, start, end)
         
-        #open, high, low, close, volume
-        db.things.aggregate([
+        #get ticks -- open, high, low, close, volume
+        result = db.things.aggregate([
             {"$match": {
-                'forward_asset': forward_asset,
-                'backward_asset': backward_asset,
-                'block_index': {"$lte": start_block_index, "$lte": end_block_index} }},
+                "forward_asset": forward_asset,
+                "backward_asset": backward_asset,
+                "block_time": {"$gte": time.mktime(start.timetuple()), "$lte": time.mktime(end.timetuple())} }},
             {"$project": {
-                'year': {'$year': "$timestamp"},
-                'month': {'$month': "$timestamp"},
-                'day': {'$dayOfMonth': "$timestamp"},
-                'hour': {'$hour': "$timestamp"},
-                'minute': {'$minute': "$timestamp"},
-                'secord': {'$second': "$timestamp"},
-                'timestamp': 1,
-                'price': 1
+                "block_time": 1,
+                "unit_price": 1,
+                "forward_amount": 1 #to derive volume
             }},
-            {"$sort": {'timestamp': 1}},
+            {"$sort": {"block_time": 1}},
             {"$group": {
-                '_id': {'year': "$year", 'month': "$month", 'day': "$day", 'hour': "$hour", 'minute': "$minute"},
-                'open': {"$first": "$price"},
-                'high': {"max": "$price"},
-                'low': {"$min": "$price"},
-                'close'{"$last": "$price"}, 
+                "_id":   "$block_time",
+                "open":  {"$first": "$unit_price"},
+                "high":  {"max": "$unit_price"},
+                "low":   {"$min": "$unit_price"},
+                "close": {"$last": "$unit_price"},
+                "vol":   {"$sum": "$forward_amount"}
             }},
         ])
-        
-        #get trades & volume (bucketed at 5 minute intervals -- would prefer 10 min intervals but closest that cube supports is 5 min)
-        opens = cube_client.metric('sum(trades()).eq(forward_asset,"%s").eq(backward_asset,"%s")' % (forward_asset, backward_asset),
-            step=cube.FIVE_MINUTE, start=start.isoformat(), end=end.isoformat())
-        closes = ???
-
-        lows = cube_client.metric('min(trades(unit_price).eq(forward_asset,"%s").eq(backward_asset,"%s")' % (forward_asset, backward_asset),
-            step=cube.FIVE_MINUTE, start=start.isoformat(), end=end.isoformat())
-        highs = cube_client.metric('max(trades(unit_price).eq(forward_asset,"%s").eq(backward_asset,"%s")' % (forward_asset, backward_asset),
-            step=cube.FIVE_MINUTE, start=start.isoformat(), end=end.isoformat())
-        vols = cube_client.metric('sum(trades(unit_price)).eq(forward_asset,"%s").eq(backward_asset,"%s")' % (forward_asset, backward_asset),
-            step=cube.FIVE_MINUTE, start=start.isoformat(), end=end.isoformat())
-        
-        
+        if not result['ok']:
+            return None
+        return result['result']
     
     @dispatcher.add_method
-    def get_balance_history(start_date, end_date, address, asset):
+    def get_balance_history(address, asset, start_date, end_date):
+        """Retrieves the ordered balance history for a given address and asset pair, within the specified date range
+        @return: A list of tuples, with the first entry of each tuple being the block time (epoch TS), and the second being the new balance
+         at that block time.
+        """
+        if not end: #default to current datetime
+            end = datetime.datetime.utcnow()
+        if not start: #default to 30 days before the end date
+            start = end - datetime.timedelta(30)
+        
+        result = mongo_db.balance_changes.find({
+            'address': address,
+            'asset': asset,
+            "block_time": {"$gte": time.mktime(start.timetuple()), "$lte": time.mktime(end.timetuple())}
+        }).sort("block_time", pymongo.ASCENDING)
+        return [(r['block_time'], r['new_balance']) for r in result]
 
     @dispatcher.add_method
     def get_chat_handle(wallet_id):
