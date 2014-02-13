@@ -19,11 +19,9 @@ from . import (config, util)
 
 PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
 
-def get_block_indexes_for_dates(mongo_db, start, end):
+def get_block_indexes_for_dates(mongo_db, start_ts, end_ts):
     """Returns a 2 tuple (start_block, end_block) result for the block range that encompasses the given start_date
-    and end_date datetime objects (must be UTC objects)"""
-    start_ts = time.mktime(start.timetuple())
-    end_ts = time.mktime(end.timetuple())
+    and end_date unix timestamps"""
     start_block = mongo_db.processed_blocks.find({"block_time": {"$lte": start_ts} }).sort( { "block_time": pymongo.DESCENDING } ).limit(1)
     end_block = mongo_db.processed_blocks.find({"block_time": {"$gte": end_ts} }).sort( { "block_time": pymongo.ASCENDING } ).limit(1)
     return (start_block.block_index, end_block.block_index)
@@ -45,51 +43,71 @@ def serve_api(mongo_db, redis_client):
         return config.CAUGHT_UP
 
     @dispatcher.add_method
-    def get_raw_transactions(address, start, end, limit=10000):
+    def get_raw_transactions(address, start_ts, end_ts, limit=10000):
         """Gets raw transactions for a particular address or set of addresses
         
         @param address: A single address string
-        @param start: The starting date & time. Should be a python datetime object. If passed as None, defaults to 30 days before the end_date
-        @param end_date: The ending date & time. Should be a python datetime object. If passed as None, defaults to the current date & time
+        @param start_ts: The starting date & time. Should be a unix epoch object. If passed as None, defaults to 30 days before the end_date
+        @param end_ts: The ending date & time. Should be a unix epoch object. If passed as None, defaults to the current date & time
         @param limit: the maximum number of transactions to return; defaults to ten thousand
         @return: Returns the data, ordered from newest txn to oldest. If any limit is applied, it will cut back from the oldest results
         """
-        if not end: #default to current datetime
-            end = datetime.datetime.utcnow()
-        if not start: #default to 30 days before the end date
-            start = end - datetime.timedelta(30)
-        start_block_index, end_block_index = get_block_indexes_for_dates(mongo_db, start, end)
+        if not end_ts: #default to current datetime
+            end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+        if not start_ts: #default to 30 days before the end date
+            start_ts = end_ts - 30 * 24 * 60 
+        start_block_index, end_block_index = get_block_indexes_for_dates(mongo_db, start_ts, end_ts)
+        
+        #get all blocks (to derive block times) between the two block indexes
+        blocks = mongo_db.processed_blocks.find(
+            {"block_index": {"$gte": start_block_index, "$lte": end_block_index} }).sort(
+            { "block_index": pymongo.ASCENDING } )
+        
+        #TODO: relay over:
+        # asset divisibility - for callback messages, so we can show the fraction correctly?
+        # order hash references (order tx ID from the hash) - for cancel messages
+        # What else?
         
         #make API call to counterpartyd to get all of the data for the specified address
         txns = []
         d = util.call_jsonrpc_api("get_address",
             {'address': address, 'start_block': start_block_index, 'end_block': end_block_index}, abort_on_error=True)['result']
         #mash it all together
-        for entities in d.values():
+        for k, v in d.iteritems():
+            if k in ['balances', 'debits', 'credits']: continue
+            if k in ['bet_expirations', 'order_expirations', 'bet_match_expirations', 'order_match_expirations']:
+                for e in v:
+                    e['tx_index'] = 0 #add tx_index to all entries (so we can sort on it secondarily), since these lack it
+            for e in v:
+                e['_entity'] = k
+                e['_block_time'] = blocks[e['block_index'] - start_block_index]['block_time']  
             txns += entities
-        txns.sort(key=operator.itemgetter('tx_index'))
+        txns = util.multikeysort(txns, ['-block_index', '-tx_index'])
+        #^ won't be a perfect sort since we don't have tx_indexes for cancellations, but better than nothing
+        #txns.sort(key=operator.itemgetter('block_index'))
         return txns 
 
     @dispatcher.add_method
-    def get_market_history(forward_asset, backward_asset, start_date, end_date):
+    def get_market_history(asset1, asset2, start_date, end_date):
         """Return block-by-block aggregated market history data for the specified asset pair, within the specified date range.
         @returns List of lists. Each embedded list has 6 elements [datetime (epoch), open, high, low, close, volume]
         """
-        if not end: #default to current datetime
-            end = datetime.datetime.utcnow()
-        if not start: #default to 30 days before the end date
-            start = end - datetime.timedelta(30)
+        if not end_ts: #default to current datetime
+            end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+        if not start_ts: #default to 30 days before the end date
+            start_ts = end_ts - 30 * 24 * 60 
+        base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
         
         #get ticks -- open, high, low, close, volume
         result = db.things.aggregate([
             {"$match": {
-                "forward_asset": forward_asset,
-                "backward_asset": backward_asset,
-                "block_time": {"$gte": time.mktime(start.timetuple()), "$lte": time.mktime(end.timetuple())} }},
+                "base_asset": base_asset,
+                "quote_asset": quote_asset,
+                "block_time": {"$gte": start_ts, "$lte": end_ts} }},
             {"$project": {
                 "block_time": 1,
                 "unit_price": 1,
-                "forward_amount": 1 #to derive volume
+                "base_asset_amount": 1 #to derive volume
             }},
             {"$sort": {"block_time": 1}},
             {"$group": {
@@ -98,7 +116,7 @@ def serve_api(mongo_db, redis_client):
                 "high":  {"max": "$unit_price"},
                 "low":   {"$min": "$unit_price"},
                 "close": {"$last": "$unit_price"},
-                "vol":   {"$sum": "$forward_amount"}
+                "vol":   {"$sum": "$base_asset_amount"}
             }},
         ])
         if not result['ok']:
@@ -106,20 +124,72 @@ def serve_api(mongo_db, redis_client):
         return result['result']
     
     @dispatcher.add_method
+    def get_order_book(asset1, asset2):
+        """Gets the current order book"""
+        base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
+        
+        base_asset_info = util.call_jsonrpc_api("get_asset_info", [base_asset,], abort_on_error=True)['result']
+        quote_asset_info = util.call_jsonrpc_api("get_asset_info", [quote_asset,], abort_on_error=True)['result']
+
+        base_bid_orders = util.call_jsonrpc_api("get_orders", {
+            'filters': [
+                {"field": "get_asset", "op": "==", "value": base_asset},
+                {"field": "give_asset", "op": "==", "value": quote_asset},
+                {'field': 'give_remaining', 'op': '!=', 'value': 0}, #don't show empty
+            ],
+            'show_expired': False}, abort_on_error=True)['result']
+        base_ask_orders = util.call_jsonrpc_api("get_orders", {
+            'filters': [
+                {"field": "get_asset", "op": "==", "value": quote_asset},
+                {"field": "give_asset", "op": "==", "value": base_asset},
+                {'field': 'give_remaining', 'op': '!=', 'value': 0}, #don't show empty
+            ],
+            'show_expired': False}, abort_on_error=True)['result']
+        
+        #compile into a single book, at volume tiers
+        bookref = {} #key = {base}_{bid}_{unit_price}, values ref entries in book
+        for orders in [base_bid_orders, base_ask_orders]:
+            for o in orders:
+                if o['give_asset'] == base_asset:
+                    give_amount = float(o['give_amount']) / config.UNIT if base_asset_info['divisible'] else o['give_amount']
+                    get_amount = float(o['get_amount']) / config.UNIT if quote_asset_info['divisible'] else o['get_amount']
+                    unit_price = o['get_amount'] / o['give_amount']
+                    remaining = o['give_remaining']
+                else:
+                    give_amount = float(o['give_amount']) / config.UNIT if quote_asset_info['divisible'] else o['give_amount']
+                    get_amount = float(o['get_amount']) / config.UNIT if base_asset_info['divisible'] else o['get_amount']
+                    unit_price = o['give_amount'] / o['get_amount']
+                    remaining = o['get_remaining']
+                id = "%s_%s_%s" % (base_asset, quote_asset, unit_price)
+                bookref.setdefault(id, {'p': unit_price, 'v': 0, 'n': 0})
+                bookref[id]['v'] += remaining #base amount outstanding
+                bookref[id]['n'] += 1 #num orders at this price level
+        book = sorted(bookref.itervalues(), key=operator.itemgetter('p'), reverse=True)
+        return book
+    
+    @dispatcher.add_method
+    def get_owned_assets(addresses):
+        """Gets a list of owned assets for one or more addresses"""
+        result = mongo_db.tracked_assets.find({
+            'owner': {"$in": addresses}
+        }).sort("asset", pymongo.ASCENDING)
+        return result
+
+    @dispatcher.add_method
     def get_balance_history(address, asset, start_date, end_date):
         """Retrieves the ordered balance history for a given address and asset pair, within the specified date range
         @return: A list of tuples, with the first entry of each tuple being the block time (epoch TS), and the second being the new balance
          at that block time.
         """
-        if not end: #default to current datetime
-            end = datetime.datetime.utcnow()
-        if not start: #default to 30 days before the end date
-            start = end - datetime.timedelta(30)
-        
+        if not end_ts: #default to current datetime
+            end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+        if not start_ts: #default to 30 days before the end date
+            start_ts = end_ts - 30 * 24 * 60
+            
         result = mongo_db.balance_changes.find({
             'address': address,
             'asset': asset,
-            "block_time": {"$gte": time.mktime(start.timetuple()), "$lte": time.mktime(end.timetuple())}
+            "block_time": {"$gte": start_ts, "$lte": end_ts}
         }).sort("block_time", pymongo.ASCENDING)
         return [(r['block_time'], r['new_balance']) for r in result]
 

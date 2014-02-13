@@ -6,6 +6,25 @@ import requests
 
 from . import (config,)
 
+def assets_to_asset_pair(asset1, asset2):
+    """Pair labeling rules are:
+    If XCP is either asset, it takes presidence as the base asset.
+    If XCP is not either asset, but BTC is, BTC will take presidence as the base asset.
+    If neither XCP nor BTC are either asset, the first asset (alphabetically) will take presidence as the base asset
+    """
+    base = None
+    quote = None
+    if asset1 == 'XCP' or asset2 == 'XCP':
+        base = asset1 if asset1 == 'XCP' else asset2
+        quote = asset2 if asset1 == 'XCP' else asset1
+    elif asset1 == 'BTC' or asset2 == 'BTC':
+        base = asset1 if asset1 == 'BTC' else asset2
+        quote = asset2 if asset1 == 'BTC' else asset1
+    else:
+        base = asset1 if asset1 < asset2 else asset2
+        quote = asset2 if asset1 < asset2 else asset1
+    return (base, quote)
+
 def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False):
     if not endpoint: endpoint = config.COUNTERPARTYD_RPC
     if not auth: auth = config.COUNTERPARTYD_AUTH
@@ -38,3 +57,17 @@ def get_address_cols_for_entity(entity):
         return ['tx0_address', 'tx1_address']
     else:
         raise Exception("Unknown entity type: %s" % entity)
+
+
+def multikeysort(items, columns):
+    """http://stackoverflow.com/a/1144405"""
+    from operator import itemgetter
+    comparers = [ ((itemgetter(col[1:].strip()), -1) if col.startswith('-') else (itemgetter(col.strip()), 1)) for col in columns]  
+    def comparer(left, right):
+        for fn, mult in comparers:
+            result = cmp(fn(left), fn(right))
+            if result:
+                return mult * result
+        else:
+            return 0
+    return sorted(items, cmp=comparer)

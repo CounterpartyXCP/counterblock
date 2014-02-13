@@ -147,9 +147,32 @@ def poll_counterpartyd(mongo_db, to_socketio_queue):
             for msg in block_data:
                 msg_data = json.loads(msg['bindings'])
                 
+                #track assets
+                if msg['category'] == 'issuances':
+                    if msg_data['amount'] == 0: #lock asset
+                        mongo_db.tracked_assets.update(
+                            {'asset': msg_data['asset']}, {"$set": {'locked': True}}, upsert=False)
+                    elif msg_data['transfer']: #transfer asset
+                        mongo_db.tracked_assets.update(
+                            {'asset': msg_data['asset']}, {"$set": {'owner': msg_data['issuer']}}, upsert=False)
+                    else: #issue new asset or issue addition qty of an asset
+                        tracked_asset = mongo_db.tracked_assets.find_one({'asset': msg_data['asset']})
+                        if not tracked_asset:
+                            tracked_asset = {
+                                'asset': msg_data['asset'],
+                                'owner': msg_data['issuer'],
+                                'divisible': msg_data['divisible'],
+                                'locked': False,
+                                'total_issued': msg_data['amount']
+                            }
+                            mongo_db.tracked_assets.insert(tracked_asset)
+                        else:
+                            mongo_db.tracked_assets.update(
+                                {'asset': msg_data['asset']}, {'$inc': {'total_issued': msg_data['amount']}}, upsert=False)
+                
                 #track balance changes for each address
-                if msg['category'] in ['credit', 'debit']:
-                    amount = msg_data['amount'] if msg['category'] == 'credit' else -msg_data['amount']                    
+                if msg['category'] in ['credits', 'debits']:
+                    amount = msg_data['amount'] if msg['category'] == 'credits' else -msg_data['amount']                    
 
                     #look up the previous balance to go off of
                     last_bal_change = mongo_db.balance_changes.find({
@@ -193,20 +216,29 @@ def poll_counterpartyd(mongo_db, to_socketio_queue):
                     else:
                         order_match = msg_data
                     
+                    base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
+                    
+                    #take divisible trade amounts to floating point
+                    forward_amount = float(msg_data['forward_amount']) / config.UNIT if forward_asset_info['divisible'] else msg_data['forward_amount']
+                    backward_amount = float(msg_data['backward_amount']) / config.UNIT if backward_asset_info['divisible'] else msg_data['backward_amount']
+                    
+                    #compose trade
                     trade = {
                         'block_index': cur_block_index,
                         'block_time': cur_block['block_time'],
                         'message_index': msg['message_index'], #secondary temporaral ordering off of when
                         'order_match_id': order_match['tx0_hash'] + order_match['tx1_hash'],
-                        'forward_asset': msg_data['forward_asset'],
-                        'forward_amount': float(msg_data['forward_amount']) / config.UNIT \
-                            if forward_asset_info['divisible'] else forward_asset_info['divisible'],
-                        'backward_asset': msg_data['backward_asset'],
-                        'backward_amount': float(msg_data['backward_amount']) / config.UNIT \
-                            if backward_asset_info['divisible'] else backward_asset_info['divisible'],
-                        'unit_price': msg_data['backward_amount'] / msg_data['forward_amount']
-                        
+                        'base_asset': base_asset,
+                        'quote_asset': quote_asset,
+                        'base_asset_amount': forward_amount if msg_data['forward_asset'] == base_asset else backward_amount,
+                        'quote_asset_amount': backward_amount if msg_data['forward_asset'] == base_asset else forward_amount
                     }
+                    trade['unit_price'] = float(decimal.Decimal(trade['quote_asset_amount'] / trade['base_asset_amount']
+                        ).quantize(decimal.Decimal('.00000000'), rounding=decimal.ROUND_UP))
+                    trade['unit_price_inverse'] = float(decimal.Decimal(trade['base_asset_amount'] / trade['quote_asset_amount']
+                        ).quantize(decimal.Decimal('.00000000'), rounding=decimal.ROUND_UP))
+                    #^ this may be needlessly complex (we need to convert back to floats because mongo stores floats natively)
+
                     mongo_db.trades.insert(trade)
                     logging.info("Procesed Trade from tx %s :: %s" % (msg['message_index'], trade))
                     
@@ -216,6 +248,7 @@ def poll_counterpartyd(mongo_db, to_socketio_queue):
                 if last_processed_block['block_index'] - my_latest_block['block_index'] < 10: #>= max likely reorg size we'd ever see
                     #for each new entity, send out a message via socket.io
                     event = {
+                        'message_index': msg['message_index'],
                         'event': msg['category'],
                         'block_time': cur_block['block_time'], #epoch ts
                         'block_time_str': cur_block['block_time_str'],
@@ -609,13 +642,18 @@ if __name__ == '__main__':
             raise Exception("Could not authenticate to mongodb with the supplied username and password.")
 
     #insert mongo indexes if need-be (i.e. for newly created database)
-    mongo_db.processed_blocks.ensure_index('block_index')
+    mongo_db.processed_blocks.ensure_index('block_index', unique=True)
     mongo_db.preferences.ensure_index('wallet_id', unique=True)
     mongo_db.chat_handles.ensure_index('wallet_id', unique=True)
     mongo_db.chat_handles.ensure_index('handle', unique=True)
-    mongo_db.order_matches.ensure_index([
-        ("forward_asset", pymongo.ASCENDING),
-        ("backward_asset", pymongo.ASCENDING),
+    mongo_db.tracked_assets.ensure_index('asset', unique=True)
+    mongo_db.tracked_assets.ensure_index([
+        ("owner", pymongo.ASCENDING),
+        ("asset", pymongo.ASCENDING),
+    ])
+    mongo_db.trades.ensure_index([
+        ("base_asset", pymongo.ASCENDING),
+        ("quote_asset", pymongo.ASCENDING),
         ("block_time", pymongo.ASCENDING)
     ])
     mongo_db.balance_changes.ensure_index([
