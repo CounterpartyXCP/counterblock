@@ -176,22 +176,28 @@ def serve_api(mongo_db, redis_client):
         return result
 
     @dispatcher.add_method
-    def get_balance_history(address, asset, start_date, end_date):
-        """Retrieves the ordered balance history for a given address and asset pair, within the specified date range
+    def get_balance_history(asset, addresses, start_date, end_date):
+        """Retrieves the ordered balance history for a given address (or list of addresses) and asset pair, within the specified date range
         @return: A list of tuples, with the first entry of each tuple being the block time (epoch TS), and the second being the new balance
          at that block time.
         """
+        if isinstance(addresses, str):
+            addresses = [addresses,]
+            
         if not end_ts: #default to current datetime
             end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not start_ts: #default to 30 days before the end date
             start_ts = end_ts - 30 * 24 * 60
-            
-        result = mongo_db.balance_changes.find({
-            'address': address,
-            'asset': asset,
-            "block_time": {"$gte": start_ts, "$lte": end_ts}
-        }).sort("block_time", pymongo.ASCENDING)
-        return [(r['block_time'], r['new_balance']) for r in result]
+        
+        results = []
+        for address in addresses:
+            result = mongo_db.balance_changes.find({
+                'address': address,
+                'asset': asset,
+                "block_time": {"$gte": start_ts, "$lte": end_ts}
+            }).sort("block_time", pymongo.ASCENDING)
+            results.append({'name': address, 'data': [(r['block_time']*1000, r['new_balance']) for r in result]})
+        return results
 
     @dispatcher.add_method
     def get_chat_handle(wallet_id):
@@ -217,7 +223,7 @@ def serve_api(mongo_db, redis_client):
                 'last_updated': time.mktime(time.gmtime()) 
                 }
             }, upsert=True)
-        #^ last_updated MUST be in GMT, as it will be compaired again other servers
+        #^ last_updated MUST be in UTC, as it will be compaired again other servers
         return True
 
     @dispatcher.add_method

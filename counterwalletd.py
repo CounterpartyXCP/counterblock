@@ -16,10 +16,11 @@ import json
 import copy
 import logging
 import datetime
-import appdirs
+import decimal
 import ConfigParser
 import time
 
+import appdirs
 import pymongo
 import redis
 import redis.connection
@@ -31,40 +32,42 @@ from requests.auth import HTTPBasicAuth
 from lib import (config, api, siofeeds, util)
 
 def poll_counterpartyd(mongo_db, to_socketio_queue):
-    def clear_on_new_db_version(running_info, prefs, my_latest_block, force=False):
-        #check for a new DB version
-        wipeState = False
-        if force:
-            wipeState = True
-        elif running_info['db_version_major'] != prefs['counterpartyd_db_version_major']:
-            logging.warn("counterpartyd MAJOR DB version change (we built from %s, counterpartyd is at %s). Wiping our state data." % (
-                prefs['counterpartyd_db_version_major'], running_info['db_version_major']))
-            wipeState = True
-        elif running_info['db_version_minor'] != prefs['counterpartyd_db_version_minor']:
-            logging.warn("counterpartyd MINOR DB version change (we built from %s.%s, counterpartyd is at %s.%s). Wiping our state data." % (
-                prefs['counterpartyd_db_version_major'], prefs['counterpartyd_db_version_minor'],
-                running_info['db_version_major'], running_info['db_version_minor']))
-            wipeState = True
-        if wipeState:
-            #boom! blow away all collections in mongo
-            mongo_db.processed_blocks.remove()
-            mongo_db.trades.remove()
-            #update our DB prefs
-            prefs['db_version'] = config.DB_VERSION
-            prefs['counterpartyd_db_version_major'] = running_info['db_version_major'] 
-            prefs['counterpartyd_db_version_minor'] = running_info['db_version_minor']
-            mongo_db.prefs.update({}, prefs)
-            
-            #reset my latest block record
-            my_latest_block = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
-            config.CAUGHT_UP = False #You've Come a Long Way, Baby
-        return prefs, my_latest_block
+    def blow_away_db(prefs):
+        #boom! blow away all collections in mongo
+        mongo_db.processed_blocks.remove()
+        mongo_db.balance_changes.remove()
+        mongo_db.trades.remove()
+        mongo_db.tracked_assets.remove()
+        prefs['db_version'] = config.DB_VERSION
+        mongo_db.prefs.update({}, prefs)
+        return prefs
         
     def prune_my_stale_blocks(max_block_index, max_block_time):
         """called if there are any records for blocks higher than this in the database? If so, they were impartially created
            and we should get rid of them"""
-        mongo_db.processed_blocks.remove({"block_index": {"$gt": max_block_index}})
+        mongo_db.balance_changes.remove({"block_index": {"$gt": max_block_index}})
         mongo_db.trades.remove({"block_index": {"$gt": max_block_index}})
+        
+        #to roll back the state of the tracked asset, dive into the history object for each asset that has
+        # been updated on or after the block that we are pruning back to
+        assets_to_prune = mongo_db.tracked_assets.find({'_at_block': {"$gt": max_block_index}})
+        for asset in assets_to_prune:
+            logging.info("Pruning asset %s (last modified @ block %i, pruning to state at block %i)" % (
+                asset['asset'], asset['_at_block'], max_block_index))
+            while len(asset['_history']):
+                prev_ver = asset['_history'].pop()
+                if prev_ver['_at_block'] <= max_block_index:
+                    break
+            if prev_ver['_at_block'] > max_block_index:
+                #even the first history version is newer than max_block_index.
+                #in this case, just remove the asset tracking record itself
+                mongo_db.tracked_assets.remove({'asset': asset['asset']})
+            else:
+                #if here, we were able to find a previous version that was saved at or before max_block_index
+                # (which should be prev_ver ... restore asset's values to its values
+                prev_ver['_id'] = asset['_id']
+                prev_ver['_history'] = asset['_history']
+                mongo_db.tracked_assets.save(prev_ver)
 
     #grab our stored preferences
     prefs_created = False
@@ -82,17 +85,20 @@ def poll_counterpartyd(mongo_db, to_socketio_queue):
         prefs = prefs[0]
         
     #get the last processed block out of mongo
-    my_latest_block = mongo_db.processed_blocks.find_one(sort=[("block_index", -1)])
+    my_latest_block = mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)])
     if not my_latest_block:
         my_latest_block = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
 
     #see if DB version has increased and rebuild if so
     if prefs_created or prefs['db_version'] != config.DB_VERSION:
-        prefs, my_latest_block = clear_on_new_db_version(None, prefs, my_latest_block, force=True)
-    
-    #remove any data we have for blocks higher than this (would happen if counterwalletd or mongo died
-    # or errored out while processing a block)
-    prune_my_stale_blocks(my_latest_block['block_index'], my_latest_block['block_time'])
+        logging.warn("counterwalletd database version UPDATED (from %i to %i). REBUILDING FROM SCRATCH ..." % (
+            prefs['db_version'], config.DB_VERSION))
+        prefs = blow_away_db(prefs)
+        my_latest_block = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
+    else:
+        #remove any data we have for blocks higher than this (would happen if counterwalletd or mongo died
+        # or errored out while processing a block)
+        prune_my_stale_blocks(my_latest_block['block_index'], my_latest_block['block_time'])
     
     #start polling counterpartyd for new blocks    
     while True:
@@ -104,7 +110,26 @@ def poll_counterpartyd(mongo_db, to_socketio_queue):
             continue
         
         #wipe our state data if necessary, if counterpartyd has moved on to a new DB version
-        prefs, my_latest_block = clear_on_new_db_version(running_info, prefs, my_latest_block)
+        wipeState = False
+        if running_info['db_version_major'] != prefs['counterpartyd_db_version_major']:
+            logging.warn("counterpartyd MAJOR DB version change (we built from %s, counterpartyd is at %s). Wiping our state data." % (
+                prefs['counterpartyd_db_version_major'], running_info['db_version_major']))
+            wipeState = True
+        elif running_info['db_version_minor'] != prefs['counterpartyd_db_version_minor']:
+            logging.warn("counterpartyd MINOR DB version change (we built from %s.%s, counterpartyd is at %s.%s). Wiping our state data." % (
+                prefs['counterpartyd_db_version_major'], prefs['counterpartyd_db_version_minor'],
+                running_info['db_version_major'], running_info['db_version_minor']))
+            wipeState = True
+        if wipeState:
+            prefs = blow_away_db(prefs)
+            prefs['counterpartyd_db_version_major'] = running_info['db_version_major'] 
+            prefs['counterpartyd_db_version_minor'] = running_info['db_version_minor']
+            mongo_db.prefs.update({}, prefs)
+            
+            #reset my latest block record
+            my_latest_block = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
+            config.CAUGHT_UP = False #You've Come a Long Way, Baby
+        
         
         ##########################
         #REORG detection: examine the last N processed block hashes from counterpartyd, and prune back if necessary
@@ -147,46 +172,76 @@ def poll_counterpartyd(mongo_db, to_socketio_queue):
             for msg in block_data:
                 msg_data = json.loads(msg['bindings'])
                 
+                #keep out the riff raff...
+                if msg_data.get('validity', 'valid').lower() != 'valid':
+                    continue
+                
                 #track assets
                 if msg['category'] == 'issuances':
+                    tracked_asset = mongo_db.tracked_assets.find_one({'asset': msg_data['asset']})
+                    if tracked_asset:
+                        tracked_asset_for_history = copy.copy(tracked_asset) #includes the previous _at_block setting
+                        del tracked_asset_for_history['_id']
+                        del tracked_asset_for_history['_history']
+                    else:
+                        tracked_asset_for_history = None
+                    
                     if msg_data['amount'] == 0: #lock asset
+                        assert tracked_asset_for_history
                         mongo_db.tracked_assets.update(
-                            {'asset': msg_data['asset']}, {"$set": {'locked': True}}, upsert=False)
+                            {'asset': msg_data['asset']},
+                            {"$set": {'locked': True, '_at_block': cur_block_index},
+                             "$push": {'_history': tracked_asset_for_history } }, upsert=False)
                     elif msg_data['transfer']: #transfer asset
+                        assert tracked_asset_for_history
                         mongo_db.tracked_assets.update(
-                            {'asset': msg_data['asset']}, {"$set": {'owner': msg_data['issuer']}}, upsert=False)
+                            {'asset': msg_data['asset']},
+                            {"$set": {'owner': msg_data['issuer'], '_at_block': cur_block_index},
+                             "$push": {'_history': tracked_asset_for_history } }, upsert=False)
                     else: #issue new asset or issue addition qty of an asset
-                        tracked_asset = mongo_db.tracked_assets.find_one({'asset': msg_data['asset']})
                         if not tracked_asset:
+                            assert not tracked_asset_for_history
                             tracked_asset = {
                                 'asset': msg_data['asset'],
                                 'owner': msg_data['issuer'],
                                 'divisible': msg_data['divisible'],
                                 'locked': False,
-                                'total_issued': msg_data['amount']
+                                'total_issued': msg_data['amount'],
+                                '_at_block': cur_block_index, #the block ID this asset is current for
+                                #(if there are multiple asset tracked changes updates in a single block for the same
+                                # asset, the last one with _at_block == that block id in the history array is the
+                                # final version for that asset at that block
+                                '_history': [] #to allow for block rollbacks
                             }
                             mongo_db.tracked_assets.insert(tracked_asset)
                         else:
+                            assert tracked_asset_for_history
                             mongo_db.tracked_assets.update(
-                                {'asset': msg_data['asset']}, {'$inc': {'total_issued': msg_data['amount']}}, upsert=False)
+                                {'asset': msg_data['asset']},
+                                {"$set": {'_at_block': cur_block_index},
+                                 "$inc": {'total_issued': msg_data['amount']},
+                                 "$push": {'_history': tracked_asset_for_history} }, upsert=False)
                 
                 #track balance changes for each address
                 if msg['category'] in ['credits', 'debits']:
                     amount = msg_data['amount'] if msg['category'] == 'credits' else -msg_data['amount']                    
 
                     #look up the previous balance to go off of
-                    last_bal_change = mongo_db.balance_changes.find({
+                    last_bal_change = mongo_db.balance_changes.find_one({
                         'address': msg_data['address'],
                         'asset': msg_data['asset']
-                    }).sort("block_time", pymongo.DESCENDING).limit(1)
+                    }, sort=[("block_time", pymongo.DESCENDING)])
+                    print("GOT last_bal_change", last_bal_change, cur_block_index)
                     
-                    if last_bal_change['block_index'] == cur_block_index:
+                    if     last_bal_change \
+                       and last_bal_change['block_index'] == cur_block_index:
                         #modify this record, as we want at most one entry per block index for each (address, asset) pair
+                        print "bla", msg_data['asset'], amount, last_bal_change['amount'], last_bal_change['new_balance']
                         last_bal_change['amount'] += amount 
                         last_bal_change['new_balance'] += amount
-                        last_bal_change.save()
-                        logging.info("Procesed BalChange (UPDATED) from tx %s :: %s" % (msg['message_index'], bal_change))
-                    else:
+                        mongo_db.balance_changes.save(last_bal_change)
+                        logging.info("Procesed BalChange (UPDATED) from tx %s :: %s" % (msg['message_index'], last_bal_change))
+                    else: #new balance change record for this block
                         bal_change = {
                             'address': msg_data['address'], 
                             'asset': msg_data['asset'],
@@ -203,24 +258,24 @@ def poll_counterpartyd(mongo_db, to_socketio_queue):
                    or (    msg['category'] == 'order_matches' \
                        and msg_data['forward_asset'] != 'BTC' \
                        and msg_data['backward_asset'] != 'BTC'):
-                    #check if the referrenced assets are divisible
-                    forward_asset_info = util.call_jsonrpc_api("get_asset_info", [msg_data['forward_asset'],], abort_on_error=True)['result']
-                    backward_asset_info = util.call_jsonrpc_api("get_asset_info", [msg_data['backward_asset'],], abort_on_error=True)['result']
-                    
                     if msg['category'] == 'btcpays':
                         tx0_hash, tx1_hash = msg_data['order_match_id'][:64], msg_data['order_match_id'][64:] 
                         #get the order_match this btcpay settles
                         order_match = util.call_jsonrpc_api("get_order_matches",
                             [{'field': 'tx0_hash', 'op': '==', 'value': tx0_hash},
-                             {'field': 'tx1_hash', 'op': '==', 'value': tx1_hash}], abort_on_error=True)['result']
+                             {'field': 'tx1_hash', 'op': '==', 'value': tx1_hash}], abort_on_error=True)['result'][0]
                     else:
                         order_match = msg_data
+
+                    forward_asset_info = util.call_jsonrpc_api("get_asset_info", [order_match['forward_asset'],], abort_on_error=True)['result']
+                    backward_asset_info = util.call_jsonrpc_api("get_asset_info", [order_match['backward_asset'],], abort_on_error=True)['result']
                     
-                    base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
+                    base_asset, quote_asset = util.assets_to_asset_pair(order_match['forward_asset'], order_match['backward_asset'])
+                    #print "BASE",base_asset,"QUOTE", quote_asset
                     
                     #take divisible trade amounts to floating point
-                    forward_amount = float(msg_data['forward_amount']) / config.UNIT if forward_asset_info['divisible'] else msg_data['forward_amount']
-                    backward_amount = float(msg_data['backward_amount']) / config.UNIT if backward_asset_info['divisible'] else msg_data['backward_amount']
+                    forward_amount = float(order_match['forward_amount']) / config.UNIT if forward_asset_info['divisible'] else order_match['forward_amount']
+                    backward_amount = float(order_match['backward_amount']) / config.UNIT if backward_asset_info['divisible'] else order_match['backward_amount']
                     
                     #compose trade
                     trade = {
@@ -228,10 +283,14 @@ def poll_counterpartyd(mongo_db, to_socketio_queue):
                         'block_time': cur_block['block_time'],
                         'message_index': msg['message_index'], #secondary temporaral ordering off of when
                         'order_match_id': order_match['tx0_hash'] + order_match['tx1_hash'],
+                        'order_match_tx0_index': order_match['tx0_index'],
+                        'order_match_tx1_index': order_match['tx1_index'],
+                        #'order_match_tx0_address': order_match['tx0_address'],
+                        #'order_match_tx1_address': order_match['tx1_address'],
                         'base_asset': base_asset,
                         'quote_asset': quote_asset,
-                        'base_asset_amount': forward_amount if msg_data['forward_asset'] == base_asset else backward_amount,
-                        'quote_asset_amount': backward_amount if msg_data['forward_asset'] == base_asset else forward_amount
+                        'base_asset_amount': forward_amount if order_match['forward_asset'] == base_asset else backward_amount,
+                        'quote_asset_amount': backward_amount if order_match['forward_asset'] == base_asset else forward_amount
                     }
                     trade['unit_price'] = float(decimal.Decimal(trade['quote_asset_amount'] / trade['base_asset_amount']
                         ).quantize(decimal.Decimal('.00000000'), rounding=decimal.ROUND_UP))
@@ -627,7 +686,7 @@ if __name__ == '__main__':
     # Log also to stderr.
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(message)s')
+    formatter = logging.Formatter('%(asctime)s :: %(levelname)s :: %(message)s')
     console.setFormatter(formatter)
     logging.getLogger('').addHandler(console)
 
@@ -647,15 +706,18 @@ if __name__ == '__main__':
     mongo_db.chat_handles.ensure_index('wallet_id', unique=True)
     mongo_db.chat_handles.ensure_index('handle', unique=True)
     mongo_db.tracked_assets.ensure_index('asset', unique=True)
+    mongo_db.tracked_assets.ensure_index('_at_block') #for tracked asset pruning
     mongo_db.tracked_assets.ensure_index([
         ("owner", pymongo.ASCENDING),
         ("asset", pymongo.ASCENDING),
     ])
+    mongo_db.trades.ensure_index('block_index')
     mongo_db.trades.ensure_index([
         ("base_asset", pymongo.ASCENDING),
         ("quote_asset", pymongo.ASCENDING),
         ("block_time", pymongo.ASCENDING)
     ])
+    mongo_db.balance_changes.ensure_index('block_index')
     mongo_db.balance_changes.ensure_index([
         ("address", pymongo.ASCENDING),
         ("asset", pymongo.ASCENDING),
