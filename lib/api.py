@@ -22,9 +22,14 @@ PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
 def get_block_indexes_for_dates(mongo_db, start_ts, end_ts):
     """Returns a 2 tuple (start_block, end_block) result for the block range that encompasses the given start_date
     and end_date unix timestamps"""
-    start_block = mongo_db.processed_blocks.find({"block_time": {"$lte": start_ts} }).sort( { "block_time": pymongo.DESCENDING } ).limit(1)
-    end_block = mongo_db.processed_blocks.find({"block_time": {"$gte": end_ts} }).sort( { "block_time": pymongo.ASCENDING } ).limit(1)
-    return (start_block.block_index, end_block.block_index)
+    start_block = mongo_db.processed_blocks.find_one({"block_time": {"$lte": start_ts} }, sort=[("block_time", pymongo.ASCENDING)])
+    end_block = mongo_db.processed_blocks.find_one({"block_time": {"$gte": end_ts} }, sort=[("block_time", pymongo.ASCENDING)])
+    start_block_index = config.BLOCK_FIRST if not start_block else start_block['block_index']
+    if not end_block:
+        end_block_index = mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)])['block_index']
+    else:
+        end_block_index = end_block.block_index
+    return (start_block_index, end_block_index)
 
 def serve_api(mongo_db, redis_client):
     # Preferneces are just JSON objects... since we don't force a specific form to the wallet on
@@ -43,7 +48,7 @@ def serve_api(mongo_db, redis_client):
         return config.CAUGHT_UP
 
     @dispatcher.add_method
-    def get_raw_transactions(address, start_ts, end_ts, limit=10000):
+    def get_raw_transactions(address, start_ts=None, end_ts=None, limit=10000):
         """Gets raw transactions for a particular address or set of addresses
         
         @param address: A single address string
@@ -52,50 +57,72 @@ def serve_api(mongo_db, redis_client):
         @param limit: the maximum number of transactions to return; defaults to ten thousand
         @return: Returns the data, ordered from newest txn to oldest. If any limit is applied, it will cut back from the oldest results
         """
+        def get_asset_cached(asset, asset_cache):
+            if asset in asset_cache:
+                return asset_cache[asset]
+            asset_data = mongo_db.tracked_assets.find_one({'asset': asset})
+            asset_cache[asset] = asset_data
+            return asset_data
+        
+        asset_cache = {} #ghetto cache to speed asset lookups within the scope of a function call
+        
         if not end_ts: #default to current datetime
             end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not start_ts: #default to 30 days before the end date
-            start_ts = end_ts - 30 * 24 * 60 
+            start_ts = end_ts - (30 * 24 * 60 * 60) 
         start_block_index, end_block_index = get_block_indexes_for_dates(mongo_db, start_ts, end_ts)
         
         #get all blocks (to derive block times) between the two block indexes
         blocks = mongo_db.processed_blocks.find(
-            {"block_index": {"$gte": start_block_index, "$lte": end_block_index} }).sort(
-            { "block_index": pymongo.ASCENDING } )
-        
-        #TODO: relay over:
-        # asset divisibility - for callback messages, so we can show the fraction correctly?
-        # order hash references (order tx ID from the hash) - for cancel messages
-        # What else?
+            {"block_index": {"$gte": start_block_index, "$lte": end_block_index} }).sort("block_index", pymongo.ASCENDING)
         
         #make API call to counterpartyd to get all of the data for the specified address
         txns = []
         d = util.call_jsonrpc_api("get_address",
-            {'address': address, 'start_block': start_block_index, 'end_block': end_block_index}, abort_on_error=True)['result']
+            {'address': address,
+             'start_block': start_block_index,
+             'end_block': end_block_index}, abort_on_error=True)['result']
         #mash it all together
         for k, v in d.iteritems():
-            if k in ['balances', 'debits', 'credits']: continue
+            if k in ['balances', 'debits', 'credits']:
+                continue
+            if k in ['sends', 'callbacks']: #add asset divisibility info
+                for e in v:
+                    asset_info = get_asset_cached(e['asset'], asset_cache)
+                    e['_divisible'] = asset_info['divisible']
+            if k in ['orders',]: #add asset divisibility info for both assets
+                for e in v:
+                    give_asset_info = get_asset_cached(e['give_asset'], asset_cache)
+                    e['_give_divisible'] = give_asset_info['divisible']
+                    get_asset_info = get_asset_cached(e['get_asset'], asset_cache)
+                    e['_get_divisible'] = get_asset_info['divisible']
+            if k in ['order_matches',]: #add asset divisibility info for both assets
+                for e in v:
+                    forward_asset_info = get_asset_cached(e['forward_asset'], asset_cache)
+                    e['_forward_divisible'] = forward_asset_info['divisible']
+                    backward_asset_info = get_asset_cached(e['backward_asset'], asset_cache)
+                    e['_backward_divisible'] = backward_asset_info['divisible']
             if k in ['bet_expirations', 'order_expirations', 'bet_match_expirations', 'order_match_expirations']:
                 for e in v:
                     e['tx_index'] = 0 #add tx_index to all entries (so we can sort on it secondarily), since these lack it
             for e in v:
                 e['_entity'] = k
                 e['_block_time'] = blocks[e['block_index'] - start_block_index]['block_time']  
-            txns += entities
+            txns += v
         txns = util.multikeysort(txns, ['-block_index', '-tx_index'])
         #^ won't be a perfect sort since we don't have tx_indexes for cancellations, but better than nothing
         #txns.sort(key=operator.itemgetter('block_index'))
         return txns 
 
     @dispatcher.add_method
-    def get_market_history(asset1, asset2, start_date, end_date):
+    def get_market_history(asset1, asset2, start_ts=None, end_ts=None):
         """Return block-by-block aggregated market history data for the specified asset pair, within the specified date range.
         @returns List of lists. Each embedded list has 6 elements [datetime (epoch), open, high, low, close, volume]
         """
         if not end_ts: #default to current datetime
             end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not start_ts: #default to 30 days before the end date
-            start_ts = end_ts - 30 * 24 * 60 
+            start_ts = end_ts - (30 * 24 * 60 * 60) 
         base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
         
         #get ticks -- open, high, low, close, volume
@@ -127,9 +154,10 @@ def serve_api(mongo_db, redis_client):
     def get_order_book(asset1, asset2):
         """Gets the current order book"""
         base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
-        
-        base_asset_info = util.call_jsonrpc_api("get_asset_info", [base_asset,], abort_on_error=True)['result']
-        quote_asset_info = util.call_jsonrpc_api("get_asset_info", [quote_asset,], abort_on_error=True)['result']
+        base_asset_info = mongo_db.tracked_assets.find_one({'asset': base_asset})
+        quote_asset_info = mongo_db.tracked_assets.find_one({'asset': quote_asset})
+        #base_asset_info = util.call_jsonrpc_api("get_asset_info", [base_asset,], abort_on_error=True)['result']
+        #quote_asset_info = util.call_jsonrpc_api("get_asset_info", [quote_asset,], abort_on_error=True)['result']
 
         base_bid_orders = util.call_jsonrpc_api("get_orders", {
             'filters': [
@@ -172,23 +200,28 @@ def serve_api(mongo_db, redis_client):
         """Gets a list of owned assets for one or more addresses"""
         result = mongo_db.tracked_assets.find({
             'owner': {"$in": addresses}
-        }).sort("asset", pymongo.ASCENDING)
-        return result
+        }, {"_id":0}).sort("asset", pymongo.ASCENDING)
+        return list(result)
 
     @dispatcher.add_method
-    def get_balance_history(asset, addresses, start_date, end_date):
+    def get_balance_history(asset, addresses, processed_amounts=True, start_ts=None, end_ts=None):
         """Retrieves the ordered balance history for a given address (or list of addresses) and asset pair, within the specified date range
+        @param processed_amounts: If set to True, return amounts that (if the asset is divisible) have been divided by 100M (satoshi). 
         @return: A list of tuples, with the first entry of each tuple being the block time (epoch TS), and the second being the new balance
          at that block time.
         """
         if isinstance(addresses, str):
             addresses = [addresses,]
             
+        asset_info = mongo_db.tracked_assets.find_one({'asset': asset})
+        if not asset_info:
+            raise Exception("Asset does not exist.")
+            
         if not end_ts: #default to current datetime
             end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not start_ts: #default to 30 days before the end date
-            start_ts = end_ts - 30 * 24 * 60
-        
+            start_ts = end_ts - (30 * 24 * 60 * 60)
+            
         results = []
         for address in addresses:
             result = mongo_db.balance_changes.find({
@@ -196,7 +229,8 @@ def serve_api(mongo_db, redis_client):
                 'asset': asset,
                 "block_time": {"$gte": start_ts, "$lte": end_ts}
             }).sort("block_time", pymongo.ASCENDING)
-            results.append({'name': address, 'data': [(r['block_time']*1000, r['new_balance']) for r in result]})
+            results.append({'name': address, 'data': [(r['block_time']*1000,
+                float(r['new_balance']) / config.UNIT if processed_amounts and asset_info['divisible'] else r['new_balance']) for r in result]})
         return results
 
     @dispatcher.add_method
