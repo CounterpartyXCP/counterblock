@@ -239,7 +239,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                         'address': msg_data['address'],
                         'asset': msg_data['asset']
                     }, sort=[("block_time", pymongo.DESCENDING)])
-                    print("GOT last_bal_change", last_bal_change, cur_block_index)
+                    #print("GOT last_bal_change", last_bal_change, cur_block_index)
                     
                     if     last_bal_change \
                        and last_bal_change['block_index'] == cur_block_index:
@@ -301,9 +301,9 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                         'quote_asset_amount': backward_amount if order_match['forward_asset'] == base_asset else forward_amount
                     }
                     trade['unit_price'] = float(decimal.Decimal(trade['quote_asset_amount'] / trade['base_asset_amount']
-                        ).quantize(decimal.Decimal('.00000000'), rounding=decimal.ROUND_UP))
+                        ).quantize(decimal.Decimal('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
                     trade['unit_price_inverse'] = float(decimal.Decimal(trade['base_asset_amount'] / trade['quote_asset_amount']
-                        ).quantize(decimal.Decimal('.00000000'), rounding=decimal.ROUND_UP))
+                        ).quantize(decimal.Decimal('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
                     #^ this may be needlessly complex (we need to convert back to floats because mongo stores floats natively)
 
                     mongo_db.trades.insert(trade)

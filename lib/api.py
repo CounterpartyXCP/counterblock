@@ -4,6 +4,7 @@ import re
 import time
 import datetime
 import base64
+import decimal
 import operator
 import logging
 from logging import handlers as logging_handlers
@@ -126,7 +127,7 @@ def serve_api(mongo_db, redis_client):
         base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
         
         #get ticks -- open, high, low, close, volume
-        result = db.things.aggregate([
+        result = mongo_db.trades.aggregate([
             {"$match": {
                 "base_asset": base_asset,
                 "quote_asset": quote_asset,
@@ -136,11 +137,11 @@ def serve_api(mongo_db, redis_client):
                 "unit_price": 1,
                 "base_asset_amount": 1 #to derive volume
             }},
-            {"$sort": {"block_time": 1}},
+            {"$sort": {"block_time": pymongo.ASCENDING}},
             {"$group": {
                 "_id":   "$block_time",
                 "open":  {"$first": "$unit_price"},
-                "high":  {"max": "$unit_price"},
+                "high":  {"$max": "$unit_price"},
                 "low":   {"$min": "$unit_price"},
                 "close": {"$last": "$unit_price"},
                 "vol":   {"$sum": "$base_asset_amount"}
@@ -148,16 +149,35 @@ def serve_api(mongo_db, redis_client):
         ])
         if not result['ok']:
             return None
-        return result['result']
+        return [[r['_id'], r['open'], r['high'], r['low'], r['close'], r['vol']] for r in result['result']]
     
     @dispatcher.add_method
+    def get_market_price(asset1, asset2):
+        """Gets a synthesized trading "market price" for a specified asset pair (if available)"""
+        #look for the last max 6 trades within the past 10 day window
+        base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
+        min_trade_time = int(time.mktime((datetime.datetime.utcnow() - datetime.timedelta(days=10)).timetuple()))
+        last_trades = mongo_db.trades.find({
+            "base_asset": base_asset,
+            "quote_asset": quote_asset,
+            'block_time': {"$gte": min_trade_time}}, {'unit_price': 1}).sort("block_time", pymongo.ASCENDING)
+        if not last_trades.count():
+            return None #no suitable trade data to form a market price
+        last_trades = list(last_trades)[:6]
+        last_trades.reverse() #from newest to oldest
+        weights = [1, .9, .8, .7, .6, .5]
+        weighted_inputs = []
+        for i in xrange(len(last_trades)):
+            weighted_inputs.append([last_trades[i]['unit_price'], weights[i]])
+        market_price = util.weighted_average(weighted_inputs)
+        return float(decimal.Decimal(market_price).quantize(decimal.Decimal('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+
+    @dispatcher.add_method
     def get_order_book(asset1, asset2):
-        """Gets the current order book"""
+        """Gets the current order book for a specified asset pair"""
         base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
         base_asset_info = mongo_db.tracked_assets.find_one({'asset': base_asset})
         quote_asset_info = mongo_db.tracked_assets.find_one({'asset': quote_asset})
-        #base_asset_info = util.call_jsonrpc_api("get_asset_info", [base_asset,], abort_on_error=True)['result']
-        #quote_asset_info = util.call_jsonrpc_api("get_asset_info", [quote_asset,], abort_on_error=True)['result']
 
         base_bid_orders = util.call_jsonrpc_api("get_orders", {
             'filters': [
@@ -236,6 +256,8 @@ def serve_api(mongo_db, redis_client):
     @dispatcher.add_method
     def get_chat_handle(wallet_id):
         result = mongo_db.chat_handles.find_one({"wallet_id": wallet_id})
+        result['last_touched'] = time.mktime(time.gmtime())
+        mongo_db.chat_handles.save(result)
         return {
             'handle': result['handle'],
             'last_updated': result.get('last_updated', None)
@@ -254,7 +276,8 @@ def serve_api(mongo_db, redis_client):
             {"$set": {
                 'wallet_id': wallet_id,
                 'handle': handle,
-                'last_updated': time.mktime(time.gmtime()) 
+                'last_updated': time.mktime(time.gmtime()),
+                'last_touched': time.mktime(time.gmtime()) 
                 }
             }, upsert=True)
         #^ last_updated MUST be in UTC, as it will be compaired again other servers
@@ -263,6 +286,8 @@ def serve_api(mongo_db, redis_client):
     @dispatcher.add_method
     def get_preferences(wallet_id):
         result =  mongo_db.preferences.find_one({"wallet_id": wallet_id})
+        result['last_touched'] = time.mktime(time.gmtime())
+        mongo_db.preferences.save(result)
         return {
             'preferences': json.loads(result['preferences']),
             'last_updated': result.get('last_updated', None)
@@ -286,7 +311,8 @@ def serve_api(mongo_db, redis_client):
             {"$set": {
                 'wallet_id': wallet_id,
                 'preferences': preferences_json,
-                'last_updated': time.mktime(time.gmtime())
+                'last_updated': time.mktime(time.gmtime()),
+                'last_touched': time.mktime(time.gmtime())
                 }
             }, upsert=True)
         #^ last_updated MUST be in GMT, as it will be compaired again other servers

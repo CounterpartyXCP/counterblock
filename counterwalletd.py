@@ -24,7 +24,7 @@ redis.connection.socket = gevent.socket #make redis play well with gevent
 from socketio import server as socketio_server
 from requests.auth import HTTPBasicAuth
 
-from lib import (config, api, blockfeed, siofeeds, util)
+from lib import (config, api, events, blockfeed, siofeeds, util)
 
 if __name__ == '__main__':
     # Parse command-line arguments.
@@ -394,6 +394,7 @@ if __name__ == '__main__':
     #insert mongo indexes if need-be (i.e. for newly created database)
     mongo_db.processed_blocks.ensure_index('block_index', unique=True)
     mongo_db.preferences.ensure_index('wallet_id', unique=True)
+    mongo_db.preferences.ensure_index('last_touched')
     mongo_db.chat_handles.ensure_index('wallet_id', unique=True)
     mongo_db.chat_handles.ensure_index('handle', unique=True)
     mongo_db.tracked_assets.ensure_index('asset', unique=True)
@@ -424,7 +425,7 @@ if __name__ == '__main__':
     
     to_socketio_queue = gevent.queue.Queue()
     
-    logging.info("Starting up socket.io server (counterpartyd event feed)...")
+    logging.info("Starting up socket.io server (block event feed)...")
     sio_server = socketio_server.SocketIOServer(
         (config.SOCKETIO_HOST, config.SOCKETIO_PORT),
         siofeeds.SocketIOEventServer(to_socketio_queue),
@@ -440,6 +441,9 @@ if __name__ == '__main__':
 
     logging.info("Starting up counterpartyd block feed poller...")
     gevent.spawn(blockfeed.process_cpd_blockfeed, mongo_db, to_socketio_queue)
+
+    logging.debug("Starting event timer: expire_stale_prefs")
+    gevent.spawn_later(86400, events.expire_stale_prefs)
 
     logging.info("Starting up RPC API handler...")
     api.serve_api(mongo_db, redis_client)

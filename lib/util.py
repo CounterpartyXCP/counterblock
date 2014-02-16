@@ -71,3 +71,15 @@ def multikeysort(items, columns):
         else:
             return 0
     return sorted(items, cmp=comparer)
+
+def weighted_average(value_weight_list):
+    """Takes a list of tuples (value, weight) and returns weighted average as
+    calculated by Sum of all values * weights / Sum of all weights
+    http://bcdcspatial.blogspot.com/2010/08/simple-weighted-average-with-python.html
+    """    
+    numerator = sum([v * w for v,w in value_weight_list])
+    denominator = sum([w for v,w in value_weight_list])
+    if(denominator != 0):
+        return(float(numerator) / float(denominator))
+    else:
+        return None
