@@ -19,6 +19,7 @@ from bson import json_util
 from . import (config, util)
 
 PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
+D = decimal.Decimal
 
 def get_block_indexes_for_dates(mongo_db, start_ts, end_ts):
     """Returns a 2 tuple (start_block, end_block) result for the block range that encompasses the given start_date
@@ -39,6 +40,7 @@ def serve_api(mongo_db, redis_client):
     # whatever data they need
     
     DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD = 60 #in seconds
+    decimal.getcontext().prec = 8
     
     @dispatcher.add_method
     def is_ready():
@@ -116,9 +118,37 @@ def serve_api(mongo_db, redis_client):
         return txns 
 
     @dispatcher.add_method
-    def get_market_history(asset1, asset2, start_ts=None, end_ts=None):
+    def get_market_price(asset1, asset2):
+        """Gets a synthesized trading "market price" for a specified asset pair (if available).
+        If no price is available, False is returned."""
+        #look for the last max 6 trades within the past 10 day window
+        base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
+        min_trade_time = int(time.mktime((datetime.datetime.utcnow() - datetime.timedelta(days=10)).timetuple()))
+        last_trades = mongo_db.trades.find({
+            "base_asset": base_asset,
+            "quote_asset": quote_asset,
+            'block_time': {"$gte": min_trade_time}}, {'unit_price': 1}).sort("block_time", pymongo.DESCENDING).limit(6)
+        if not last_trades.count():
+            return False #no suitable trade data to form a market price
+        last_trades = list(last_trades)
+        last_trades.reverse() #from newest to oldest
+        weights = [1, .9, .72, .6, .4, .3] #good first guess...maybe
+        weighted_inputs = []
+        for i in xrange(len(last_trades)):
+            weighted_inputs.append([last_trades[i]['unit_price'], weights[i]])
+        market_price = util.weighted_average(weighted_inputs)
+        return float(decimal.Decimal(market_price).quantize(decimal.Decimal('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+        #return {
+        #    'market_price': float(decimal.Decimal(market_price).quantize(decimal.Decimal('.00000000'), rounding=decimal.ROUND_HALF_EVEN)),
+        #    'last_history': [[t['block_time'], t['unit_price'], t['base_amount_normalized'], t['quote_amount_normalized'], t['block_index']] for t in last_trades[:30]]
+        #}
+
+    @dispatcher.add_method
+    def get_market_price_history(asset1, asset2, start_ts=None, end_ts=None, as_dict=False):
         """Return block-by-block aggregated market history data for the specified asset pair, within the specified date range.
-        @returns List of lists. Each embedded list has 6 elements [datetime (epoch), open, high, low, close, volume]
+        @returns List of lists (or list of dicts, if as_dict is specified).
+            * If as_dict is False, each embedded list has 8 elements [block time (epoch in MS), open, high, low, close, volume, # trades in block, block index]
+            * If as_dict is True, each dict in the list has the keys: block_time (epoch in MS), block_index, open, high, low, close, vol, count 
         """
         if not end_ts: #default to current datetime
             end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
@@ -134,43 +164,50 @@ def serve_api(mongo_db, redis_client):
                 "block_time": {"$gte": start_ts, "$lte": end_ts} }},
             {"$project": {
                 "block_time": 1,
+                "block_index": 1,
                 "unit_price": 1,
-                "base_asset_amount": 1 #to derive volume
+                "base_amount_normalized": 1 #to derive volume
             }},
-            {"$sort": {"block_time": pymongo.ASCENDING}},
             {"$group": {
-                "_id":   "$block_time",
+                "_id":   {"block_time": "$block_time", "block_index": "$block_index"},
                 "open":  {"$first": "$unit_price"},
                 "high":  {"$max": "$unit_price"},
                 "low":   {"$min": "$unit_price"},
                 "close": {"$last": "$unit_price"},
-                "vol":   {"$sum": "$base_asset_amount"}
+                "vol":   {"$sum": "$base_amount_normalized"},
+                "count": {"$sum": 1},
             }},
+            {"$sort": {"_id.block_time": pymongo.ASCENDING}},
         ])
         if not result['ok']:
             return None
-        return [[r['_id'], r['open'], r['high'], r['low'], r['close'], r['vol']] for r in result['result']]
+        if as_dict:
+            result = result['result']
+            for r in result:
+                r['block_time'] = r['_id']['block_time'] * 1000
+                r['block_index'] = r['_id']['block_index']
+                del r['_id']
+        else:
+            result = [
+                [r['_id']['block_time']*1000, r['open'], r['high'], r['low'], r['close'], r['vol'],
+                r['count'], r['_id']['block_index']] for r in result['result']
+            ]
+        return result
     
     @dispatcher.add_method
-    def get_market_price(asset1, asset2):
-        """Gets a synthesized trading "market price" for a specified asset pair (if available)"""
-        #look for the last max 6 trades within the past 10 day window
+    def get_trade_history(asset1, asset2, last_trades=50):
+        """Gets last N of trades for a specified asset pair"""
         base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
-        min_trade_time = int(time.mktime((datetime.datetime.utcnow() - datetime.timedelta(days=10)).timetuple()))
+        if last_trades > 500:
+            raise Exception("Requesting history of too many trades")
+        
         last_trades = mongo_db.trades.find({
             "base_asset": base_asset,
-            "quote_asset": quote_asset,
-            'block_time': {"$gte": min_trade_time}}, {'unit_price': 1}).sort("block_time", pymongo.ASCENDING)
+            "quote_asset": quote_asset}, {'_id': 0}).sort("block_time", pymongo.DESCENDING).limit(last_trades)
         if not last_trades.count():
-            return None #no suitable trade data to form a market price
-        last_trades = list(last_trades)[:6]
-        last_trades.reverse() #from newest to oldest
-        weights = [1, .9, .8, .7, .6, .5]
-        weighted_inputs = []
-        for i in xrange(len(last_trades)):
-            weighted_inputs.append([last_trades[i]['unit_price'], weights[i]])
-        market_price = util.weighted_average(weighted_inputs)
-        return float(decimal.Decimal(market_price).quantize(decimal.Decimal('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+            return False #no suitable trade data to form a market price
+        last_trades = list(last_trades)
+        return last_trades 
 
     @dispatcher.add_method
     def get_order_book(asset1, asset2):
@@ -178,7 +215,7 @@ def serve_api(mongo_db, redis_client):
         base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
         base_asset_info = mongo_db.tracked_assets.find_one({'asset': base_asset})
         quote_asset_info = mongo_db.tracked_assets.find_one({'asset': quote_asset})
-
+        #TODO: limit # results to 8 or so for each book (we have to sort as well to limit)
         base_bid_orders = util.call_jsonrpc_api("get_orders", {
             'filters': [
                 {"field": "get_asset", "op": "==", "value": base_asset},
@@ -194,26 +231,61 @@ def serve_api(mongo_db, redis_client):
             ],
             'show_expired': False}, abort_on_error=True)['result']
         
-        #compile into a single book, at volume tiers
-        bookref = {} #key = {base}_{bid}_{unit_price}, values ref entries in book
-        for orders in [base_bid_orders, base_ask_orders]:
+        def make_book(orders, isBidBook):
+            book = {}
             for o in orders:
                 if o['give_asset'] == base_asset:
-                    give_amount = float(o['give_amount']) / config.UNIT if base_asset_info['divisible'] else o['give_amount']
-                    get_amount = float(o['get_amount']) / config.UNIT if quote_asset_info['divisible'] else o['get_amount']
-                    unit_price = o['get_amount'] / o['give_amount']
-                    remaining = o['give_remaining']
+                    give_amount = util.normalize_amount(o['give_amount'], base_asset_info['divisible'])
+                    get_amount = util.normalize_amount(o['get_amount'], quote_asset_info['divisible'])
+                    unit_price = float(( D(o['get_amount']) / D(o['give_amount']) ).quantize(
+                        D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+                    remaining = util.normalize_amount(o['give_remaining'], base_asset_info['divisible'])
                 else:
-                    give_amount = float(o['give_amount']) / config.UNIT if quote_asset_info['divisible'] else o['give_amount']
-                    get_amount = float(o['get_amount']) / config.UNIT if base_asset_info['divisible'] else o['get_amount']
-                    unit_price = o['give_amount'] / o['get_amount']
-                    remaining = o['get_remaining']
+                    give_amount = util.normalize_amount(o['give_amount'], quote_asset_info['divisible'])
+                    get_amount = util.normalize_amount(o['get_amount'], base_asset_info['divisible'])
+                    unit_price = float(( D(o['give_amount']) / D(o['get_amount']) ).quantize(
+                        D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+                    remaining = util.normalize_amount(o['get_remaining'], base_asset_info['divisible'])
                 id = "%s_%s_%s" % (base_asset, quote_asset, unit_price)
-                bookref.setdefault(id, {'p': unit_price, 'v': 0, 'n': 0})
-                bookref[id]['v'] += remaining #base amount outstanding
-                bookref[id]['n'] += 1 #num orders at this price level
-        book = sorted(bookref.itervalues(), key=operator.itemgetter('p'), reverse=True)
-        return book
+                #^ key = {base}_{bid}_{unit_price}, values ref entries in book
+                book.setdefault(id, {'unit_price': unit_price, 'amount': 0, 'count': 0})
+                book[id]['amount'] += remaining #base amount outstanding
+                book[id]['count'] += 1 #num orders at this price level
+            book = sorted(book.itervalues(), key=operator.itemgetter('unit_price'), reverse=isBidBook)
+            #^ sort -- bid book = descending, ask book = ascending
+            return book
+        
+        #compile into a single book, at volume tiers
+        base_bid_book = make_book(base_bid_orders, True)
+        base_ask_book = make_book(base_ask_orders, False)
+        print "base_bid_book", base_bid_book
+        print "base_ask_book", base_ask_book
+        #get the bid-ask spread
+        bid_ask_spread = float(( D(base_ask_book[0]['unit_price']) - D(base_bid_book[0]['unit_price']) ).quantize(
+                        D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+        bid_ask_median = float(( D(base_ask_book[0]['unit_price']) - (D(bid_ask_spread) / 2) ).quantize(
+                        D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+        print "bid_ask_spread", bid_ask_spread, bid_ask_median
+        #compose depth
+        bid_depth = D(0)
+        for o in base_bid_book:
+            bid_depth += D(o['amount'])
+            o['depth'] = float(bid_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+        bid_depth = float(bid_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+        ask_depth = D(0)
+        for o in base_ask_book:
+            ask_depth += D(o['amount'])
+            o['depth'] = float(ask_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+        ask_depth = float(ask_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+        #
+        return {
+            'base_bid_book': base_bid_book,
+            'base_ask_book': base_ask_book,
+            'bid_depth': bid_depth,
+            'ask_depth': ask_depth,
+            'bid_ask_spread': bid_ask_spread,
+            'bid_ask_median': bid_ask_median,
+        }
     
     @dispatcher.add_method
     def get_owned_assets(addresses):
@@ -224,9 +296,9 @@ def serve_api(mongo_db, redis_client):
         return list(result)
 
     @dispatcher.add_method
-    def get_balance_history(asset, addresses, processed_amounts=True, start_ts=None, end_ts=None):
+    def get_balance_history(asset, addresses, normalize=True, start_ts=None, end_ts=None):
         """Retrieves the ordered balance history for a given address (or list of addresses) and asset pair, within the specified date range
-        @param processed_amounts: If set to True, return amounts that (if the asset is divisible) have been divided by 100M (satoshi). 
+        @param normalize: If set to True, return amounts that (if the asset is divisible) have been divided by 100M (satoshi). 
         @return: A list of tuples, with the first entry of each tuple being the block time (epoch TS), and the second being the new balance
          at that block time.
         """
@@ -249,8 +321,13 @@ def serve_api(mongo_db, redis_client):
                 'asset': asset,
                 "block_time": {"$gte": start_ts, "$lte": end_ts}
             }).sort("block_time", pymongo.ASCENDING)
-            results.append({'name': address, 'data': [(r['block_time']*1000,
-                float(r['new_balance']) / config.UNIT if processed_amounts and asset_info['divisible'] else r['new_balance']) for r in result]})
+            results.append({
+                'name': address,
+                'data': [
+                    (r['block_time']*1000,
+                     r['new_balance_normalized'] if normalize else r['new_balance']
+                    ) for r in result]
+            })
         return results
 
     @dispatcher.add_method
@@ -347,7 +424,8 @@ def serve_api(mongo_db, redis_client):
             #decode out unicode for now (json-rpc lib was made for python 3.3 and does str(errorMessage) internally,
             # which messes up w/ unicode under python 2.x)
         return result['result']
-    
+
+
     class Root(object):
         @cherrypy.expose
         def index(self):
@@ -357,7 +435,7 @@ def serve_api(mongo_db, redis_client):
         @cherrypy.expose
         def index(self):
             cherrypy.response.headers["Content-Type"] = 'application/json' 
-            cherrypy.response.headers["Access-Control-Allow-Origin"] = '*' 
+            cherrypy.response.headers["Access-Control-Allow-Origin"] = '*'
             cherrypy.response.headers["Access-Control-Allow-Methods"] = 'POST, GET, OPTIONS'
             cherrypy.response.headers["Access-Control-Allow-Headers"] = 'Origin, X-Requested-With, Content-Type, Accept'
 

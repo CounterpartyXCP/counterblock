@@ -407,7 +407,7 @@ if __name__ == '__main__':
     mongo_db.trades.ensure_index([
         ("base_asset", pymongo.ASCENDING),
         ("quote_asset", pymongo.ASCENDING),
-        ("block_time", pymongo.ASCENDING)
+        ("block_time", pymongo.DESCENDING)
     ])
     mongo_db.balance_changes.ensure_index('block_index')
     mongo_db.balance_changes.ensure_index([

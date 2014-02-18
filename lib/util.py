@@ -3,8 +3,11 @@ import json
 import base64
 import logging
 import requests
+import decimal
 
 from . import (config,)
+
+D = decimal.Decimal
 
 def assets_to_asset_pair(asset1, asset2):
     """Pair labeling rules are:
@@ -83,3 +86,8 @@ def weighted_average(value_weight_list):
         return(float(numerator) / float(denominator))
     else:
         return None
+
+def normalize_amount(amount, divisible):
+    if divisible:
+        return float((D(amount) / D(config.UNIT)).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN)) 
+    else: return amount

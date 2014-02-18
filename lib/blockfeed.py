@@ -13,8 +13,10 @@ import time
 import pymongo
 
 from lib import (config, util)
+D = decimal.Decimal
 
 def process_cpd_blockfeed(mongo_db, to_socketio_queue):
+
     def blow_away_db(prefs):
         #boom! blow away all collections in mongo
         mongo_db.processed_blocks.remove()
@@ -232,7 +234,9 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                 
                 #track balance changes for each address
                 if msg['category'] in ['credits', 'debits']:
-                    amount = msg_data['amount'] if msg['category'] == 'credits' else -msg_data['amount']                    
+                    asset_info = mongo_db.tracked_assets.find_one({'asset': msg_data['asset']})
+                    amount = msg_data['amount'] if msg['category'] == 'credits' else -msg_data['amount']
+                    amount_normalized = util.normalize_amount(amount, asset_info['divisible'])
 
                     #look up the previous balance to go off of
                     last_bal_change = mongo_db.balance_changes.find_one({
@@ -244,9 +248,11 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                     if     last_bal_change \
                        and last_bal_change['block_index'] == cur_block_index:
                         #modify this record, as we want at most one entry per block index for each (address, asset) pair
-                        print "bla", msg_data['asset'], amount, last_bal_change['amount'], last_bal_change['new_balance']
-                        last_bal_change['amount'] += amount 
+                        #print "bla", msg_data['asset'], amount, last_bal_change['amount'], last_bal_change['new_balance']
+                        last_bal_change['amount'] += amount
+                        last_bal_change['amount_normalized'] += amount_normalized
                         last_bal_change['new_balance'] += amount
+                        last_bal_change['new_balance_normalized'] += amount_normalized
                         mongo_db.balance_changes.save(last_bal_change)
                         logging.info("Procesed BalChange (UPDATED) from tx %s :: %s" % (msg['message_index'], last_bal_change))
                     else: #new balance change record for this block
@@ -256,7 +262,9 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                             'block_index': cur_block_index,
                             'block_time': cur_block['block_time'],
                             'amount': amount,
-                            'new_balance': last_bal_change['new_balance'] + amount if last_bal_change else amount
+                            'amount_normalized': amount_normalized,
+                            'new_balance': last_bal_change['new_balance'] + amount if last_bal_change else amount,
+                            'new_balance_normalized': last_bal_change['new_balance_normalized'] + amount_normalized if last_bal_change else amount_normalized,
                         }
                         mongo_db.balance_changes.insert(bal_change)
                         logging.info("Procesed BalChange from tx %s :: %s" % (msg['message_index'], bal_change))
@@ -275,15 +283,13 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                     else:
                         order_match = msg_data
 
-                    forward_asset_info = util.call_jsonrpc_api("get_asset_info", [order_match['forward_asset'],], abort_on_error=True)['result']
-                    backward_asset_info = util.call_jsonrpc_api("get_asset_info", [order_match['backward_asset'],], abort_on_error=True)['result']
-                    
+                    forward_asset_info = mongo_db.tracked_assets.find_one({'asset': order_match['forward_asset']})
+                    backward_asset_info = mongo_db.tracked_assets.find_one({'asset': order_match['backward_asset']})
                     base_asset, quote_asset = util.assets_to_asset_pair(order_match['forward_asset'], order_match['backward_asset'])
-                    #print "BASE",base_asset,"QUOTE", quote_asset
-                    
+
                     #take divisible trade amounts to floating point
-                    forward_amount = float(order_match['forward_amount']) / config.UNIT if forward_asset_info['divisible'] else order_match['forward_amount']
-                    backward_amount = float(order_match['backward_amount']) / config.UNIT if backward_asset_info['divisible'] else order_match['backward_amount']
+                    forward_amount = util.normalize_amount(order_match['forward_amount'], forward_asset_info['divisible'])
+                    backward_amount = util.normalize_amount(order_match['backward_amount'], backward_asset_info['divisible'])
                     
                     #compose trade
                     trade = {
@@ -293,18 +299,21 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                         'order_match_id': order_match['tx0_hash'] + order_match['tx1_hash'],
                         'order_match_tx0_index': order_match['tx0_index'],
                         'order_match_tx1_index': order_match['tx1_index'],
-                        #'order_match_tx0_address': order_match['tx0_address'],
-                        #'order_match_tx1_address': order_match['tx1_address'],
+                        'order_match_tx0_address': order_match['tx0_address'],
+                        'order_match_tx1_address': order_match['tx1_address'],
                         'base_asset': base_asset,
                         'quote_asset': quote_asset,
-                        'base_asset_amount': forward_amount if order_match['forward_asset'] == base_asset else backward_amount,
-                        'quote_asset_amount': backward_amount if order_match['forward_asset'] == base_asset else forward_amount
+                        'base_amount': order_match['forward_amount'] if order_match['forward_asset'] == base_asset else order_match['backward_amount'],
+                        'quote_amount': order_match['backward_amount'] if order_match['forward_asset'] == base_asset else order_match['forward_amount'],
+                        'base_amount_normalized': forward_amount if order_match['forward_asset'] == base_asset else backward_amount,
+                        'quote_amount_normalized': backward_amount if order_match['forward_asset'] == base_asset else forward_amount,
                     }
-                    trade['unit_price'] = float(decimal.Decimal(trade['quote_asset_amount'] / trade['base_asset_amount']
-                        ).quantize(decimal.Decimal('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
-                    trade['unit_price_inverse'] = float(decimal.Decimal(trade['base_asset_amount'] / trade['quote_asset_amount']
-                        ).quantize(decimal.Decimal('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
-                    #^ this may be needlessly complex (we need to convert back to floats because mongo stores floats natively)
+                    trade['unit_price'] = float(
+                        ( D(trade['quote_amount_normalized']) / D(trade['base_amount_normalized']) ).quantize(
+                            D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+                    trade['unit_price_inverse'] = float(
+                        ( D(trade['base_amount_normalized']) / D(trade['quote_amount_normalized']) ).quantize(
+                            D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
 
                     mongo_db.trades.insert(trade)
                     logging.info("Procesed Trade from tx %s :: %s" % (msg['message_index'], trade))
