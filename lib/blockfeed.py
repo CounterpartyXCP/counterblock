@@ -128,7 +128,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                 running_info['db_version_major'], running_info['db_version_minor']))
             wipeState = True
             updatePrefs = True
-        elif running_info['running_testnet'] != prefs['counterpartyd_running_testnet']:
+        elif running_info.get('running_testnet', False) != prefs['counterpartyd_running_testnet']:
             logging.warn("counterpartyd testnet setting change (from %s to %s). Wiping our state data." % (
                 prefs['counterpartyd_running_testnet'], running_info['running_testnet']))
             wipeState = True
@@ -217,6 +217,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                                 'divisible': msg_data['divisible'],
                                 'locked': False,
                                 'total_issued': msg_data['amount'],
+                                'total_issued_normalzied': util.normalize_amount(msg_data['divisible'], msg_data['amount']),
                                 '_at_block': cur_block_index, #the block ID this asset is current for
                                 #(if there are multiple asset tracked changes updates in a single block for the same
                                 # asset, the last one with _at_block == that block id in the history array is the
@@ -229,7 +230,10 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                             mongo_db.tracked_assets.update(
                                 {'asset': msg_data['asset']},
                                 {"$set": {'_at_block': cur_block_index},
-                                 "$inc": {'total_issued': msg_data['amount']},
+                                 "$inc": {
+                                     'total_issued': msg_data['amount'],
+                                     'total_issued_normalzied': util.normalize_amount(msg_data['divisible'], msg_data['amount'])
+                                 },
                                  "$push": {'_history': tracked_asset} }, upsert=False)
                 
                 #track balance changes for each address
@@ -243,7 +247,6 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                         'address': msg_data['address'],
                         'asset': msg_data['asset']
                     }, sort=[("block_time", pymongo.DESCENDING)])
-                    #print("GOT last_bal_change", last_bal_change, cur_block_index)
                     
                     if     last_bal_change \
                        and last_bal_change['block_index'] == cur_block_index:
@@ -270,11 +273,12 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                         logging.info("Procesed BalChange from tx %s :: %s" % (msg['message_index'], bal_change))
                 
                 #book trades
-                if     msg['category'] == 'btcpays' \
-                   or (    msg['category'] == 'order_matches' \
-                       and msg_data['forward_asset'] != 'BTC' \
-                       and msg_data['backward_asset'] != 'BTC'):
-                    if msg['category'] == 'btcpays':
+                if (    msg['category'] == 'order_matches'
+                    and msg_data['forward_asset'] != 'BTC'
+                    and msg_data['backward_asset'] != 'BTC'):
+
+                    if msg['command'] == 'update':
+                        #an order is being updated to a valid status (i.e. a BTCpay has completed)
                         tx0_hash, tx1_hash = msg_data['order_match_id'][:64], msg_data['order_match_id'][64:] 
                         #get the order_match this btcpay settles
                         order_match = util.call_jsonrpc_api("get_order_matches",
@@ -294,7 +298,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                     #compose trade
                     trade = {
                         'block_index': cur_block_index,
-                        'block_time': cur_block['block_time'],
+                        'block_time': datetime.datetime.fromutctimestamp(cur_block['block_time']),
                         'message_index': msg['message_index'], #secondary temporaral ordering off of when
                         'order_match_id': order_match['tx0_hash'] + order_match['tx1_hash'],
                         'order_match_tx0_index': order_match['tx0_index'],
