@@ -48,7 +48,26 @@ def serve_api(mongo_db, redis_client):
         If the server is NOT caught up, a 525 error will be returned actually before hitting this point. Thus,
         if we actually return data from this function, it should always be true. (may change this behaviour later)"""
         assert config.CAUGHT_UP
-        return config.CAUGHT_UP
+        return {
+            'caught_up': config.CAUGHT_UP,
+            'testnet': config.TESTNET 
+        }
+
+    @dispatcher.add_method
+    def get_normalized_balances(addresses):
+        if not isinstance(address, list) or not len(addresses):
+            raise Exception("Invalid address list supplied")
+        
+        filters = []
+        for address in addresses:
+            filters.append({'field': 'address', 'op': '==', 'value': address})
+
+        data = util.call_jsonrpc_api("get_balances",
+            {'filters': filters, 'filterop': 'or'}, abort_on_error=True)['result']
+        for d in data:
+            asset_info = mongo_db.tracked_assets.find_one({'asset': d['asset']})
+            d['normalized_amount'] = util.normalize_amount(d['amount'], asset_info['divisible'])
+        return data 
 
     @dispatcher.add_method
     def get_raw_transactions(address, start_ts=None, end_ts=None, limit=10000):
@@ -181,7 +200,6 @@ def serve_api(mongo_db, redis_client):
     @dispatcher.add_method
     def get_market_info(assets):
         """Returns information related to capitalization, volume, etc for the supplied asset(s)
-        
         @param assets: A list of one or more assets
         """
         asset_data = {}
