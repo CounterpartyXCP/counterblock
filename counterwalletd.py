@@ -37,6 +37,7 @@ if __name__ == '__main__':
     parser.add_argument('--data-dir', help='specify to explicitly override the directory in which to keep the config file and log file')
     parser.add_argument('--config-file', help='the location of the configuration file')
     parser.add_argument('--log-file', help='the location of the log file')
+    parser.add_argument('--pid-file', help='the location of the pid file')
 
     #STUFF WE CONNECT TO
     parser.add_argument('--bitcoind-rpc-connect', help='the hostname of the Bitcoind JSON-RPC server')
@@ -362,18 +363,30 @@ if __name__ == '__main__':
     # Log
     if args.log_file:
         config.LOG = args.log_file
-    elif has_config and configfile.has_option('Default', 'logfile'):
-        config.LOG = configfile.get('Default', 'logfile')
+    elif has_config and configfile.has_option('Default', 'log-file'):
+        config.LOG = configfile.get('Default', 'log-file')
     else:
         config.LOG = os.path.join(config.data_dir, 'counterwalletd.log')
-    if args.verbose:
-        log_level = logging.DEBUG
-    else:
-        log_level = logging.INFO
-    logging.basicConfig(filename=config.LOG, level=log_level,
-                        format='%(asctime)s %(message)s',
-                        datefmt='%Y-%m-%d-T%H:%M:%S%z')
 
+    # PID
+    if args.pid_file:
+        config.PID = args.pid_file
+    elif has_config and configfile.has_option('Default', 'pid-file'):
+        config.PID = configfile.get('Default', 'pid-file')
+    else:
+        config.PID = os.path.join(config.data_dir, 'counterwalletd.pid')
+    
+    #Create/update pid file
+    pid = str(os.getpid())
+    pidf = open(config.PID, 'w')
+    pidf.write(pid)
+    pidf.close()    
+
+    #Set up logging
+    logging.basicConfig(filename=config.LOG,
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format='%(asctime)s %(message)s',
+        datefmt='%Y-%m-%d-T%H:%M:%S%z')
     # Log also to stderr.
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)

@@ -237,6 +237,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                                  "$push": {'_history': tracked_asset} }, upsert=False)
                 
                 #track balance changes for each address
+                bal_change = None
                 if msg['category'] in ['credits', 'debits']:
                     asset_info = mongo_db.tracked_assets.find_one({'asset': msg_data['asset']})
                     amount = msg_data['amount'] if msg['category'] == 'credits' else -msg_data['amount']
@@ -329,11 +330,28 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                     #for each new entity, send out a message via socket.io
                     event = {
                         'message_index': msg['message_index'],
+                        'command': msg['command'],
+                        'block_index': msg['block_index'],
                         'event': msg['category'],
                         'block_time': cur_block['block_time'], #epoch ts
                         'block_time_str': cur_block['block_time_str'],
                         'msg': msg_data
                     }
+                    #insert custom fields in certain events...
+                    if(msg['category'] in ['credits', 'debits']):
+                        assert bal_change
+                        event['_amount_normalized'] = bal_change['amount_normalized']
+                        event['_balance'] = bal_change['new_balance']
+                        event['_balance_normalized'] = bal_change['new_balance_normalized']
+                    elif(msg['category'] in ['orders',]):
+                        get_asset_info = mongo_db.tracked_assets.find_one({'asset': msg['get_asset']})
+                        give_asset_info = mongo_db.tracked_assets.find_one({'asset': msg['give_asset']})
+                        event['_get_asset_divisible'] = get_asset_info['divisible']
+                        event['_give_asset_divisible'] = give_asset_info['divisible']
+                    elif(msg['category'] in ['dividends', 'sends',]):
+                        asset_info = mongo_db.tracked_assets.find_one({'asset': msg['asset']})
+                        event['_divisible'] = get_asset_info['divisible']
+                    
                     to_socketio_queue.put(event)
             
             #block successfully processed, track this in our DB

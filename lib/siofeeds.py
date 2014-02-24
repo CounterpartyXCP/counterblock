@@ -27,7 +27,11 @@ class SocketIOEventServer(object):
         socketio = environ['socketio']
         while True:
             event = self.to_socketio_queue.get(block=True, timeout=None)
-            forwarded_msg = self.create_sio_packet(event['event'], event) #forward over as-is
+            event['msg']['_message_index'] = event['message_index']
+            event['msg']['_block_index'] = event['block_index']
+            event['msg']['_block_time'] = event['block_time']
+            event['msg']['_command'] = event['command']
+            forwarded_msg = self.create_sio_packet(event['event'], event['msg']) #forward over as-is
             logging.debug("socket.io: Sending %s" % forwarded_msg)
             socketio.send_packet(forwarded_msg)
 
@@ -89,13 +93,6 @@ class SocketIOChatServer(object):
             'last_chats': collections.deque(maxlen=100), 
         }        
             
-    def create_sio_packet(self, msg_type, msg):
-        return {
-            "type": "event",
-            "name": msg_type,
-            "args": msg
-        }
-        
     def __call__(self, environ, start_response):
         if not environ['PATH_INFO'].startswith('/socket.io'):
             start_response('401 UNAUTHORIZED', [])
