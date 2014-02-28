@@ -17,7 +17,7 @@ Connecting to the API
 ----------------------
 
 By default, ``counterwalletd`` will listen on port ``4001`` for API
-requests. API requests are made via a HTTP POST request to ``/jsonrpc/``, with JSON-encoded
+requests. API requests are made via a HTTP POST request to ``/api/``, with JSON-encoded
 data passed as the POST body. For more information on JSON RPC, please see the `JSON RPC specification <http://json-rpc.org/wiki/specification>`__.
 
 

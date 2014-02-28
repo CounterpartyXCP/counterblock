@@ -21,7 +21,7 @@ class SocketIOEventServer(object):
         }
         
     def __call__(self, environ, start_response):
-        if not environ['PATH_INFO'].startswith('/socket.io'):
+        if not environ['PATH_INFO'].startswith('/_feed'):
             start_response('401 UNAUTHORIZED', [])
             return ''
         socketio = environ['socketio']
@@ -47,10 +47,8 @@ class ChatServerNamespace(BaseNamespace, BroadcastMixin):
         #lookup the walletid and ensure that it has a nickname match for chat
         result =  self.request['mongo_db'].chat_handles.find_one({"wallet_id": wallet_id})
         handle = result['handle'] if result else None
-            
         if not handle:
             return self.error('invalid_id', "No handle is defined for wallet ID %s" % wallet_id)
-
         self.socket.session['wallet_id'] = wallet_id
         self.socket.session['handle'] = handle
         self.socket.session['last_action'] = None
@@ -94,7 +92,7 @@ class SocketIOChatServer(object):
         }        
             
     def __call__(self, environ, start_response):
-        if not environ['PATH_INFO'].startswith('/socket.io'):
+        if not environ['PATH_INFO'].startswith('/_chat'):
             start_response('401 UNAUTHORIZED', [])
             return ''
         socketio_manage(environ, {'': ChatServerNamespace}, self.request)

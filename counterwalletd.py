@@ -186,7 +186,7 @@ if __name__ == '__main__':
     else:
         config.COUNTERPARTYD_RPC_PASSWORD = 'rpcpassword'
 
-    config.COUNTERPARTYD_RPC = 'http://' + config.COUNTERPARTYD_RPC_CONNECT + ':' + str(config.COUNTERPARTYD_RPC_PORT)
+    config.COUNTERPARTYD_RPC = 'http://' + config.COUNTERPARTYD_RPC_CONNECT + ':' + str(config.COUNTERPARTYD_RPC_PORT) + '/api/'
     config.COUNTERPARTYD_AUTH = HTTPBasicAuth(config.COUNTERPARTYD_RPC_USER, config.COUNTERPARTYD_RPC_PASSWORD) if (config.COUNTERPARTYD_RPC_USER and config.COUNTERPARTYD_RPC_PASSWORD) else None
 
     # mongodb host
@@ -442,14 +442,14 @@ if __name__ == '__main__':
     sio_server = socketio_server.SocketIOServer(
         (config.SOCKETIO_HOST, config.SOCKETIO_PORT),
         siofeeds.SocketIOEventServer(to_socketio_queue),
-        resource="socket.io", policy_server=False)
+        resource="_feed", policy_server=False)
     sio_server.start() #start the socket.io server greenlets
 
     logging.info("Starting up socket.io server (counterwallet chat)...")
     sio_server = socketio_server.SocketIOServer(
         (config.SOCKETIO_CHAT_HOST, config.SOCKETIO_CHAT_PORT),
         siofeeds.SocketIOChatServer(mongo_db),
-        resource="socket.io", policy_server=False)
+        resource="_chat", policy_server=False)
     sio_server.start() #start the socket.io server greenlets
 
     logging.info("Starting up counterpartyd block feed poller...")

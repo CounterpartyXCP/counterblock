@@ -188,7 +188,8 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                 msg_data = json.loads(msg['bindings'])
                 
                 #keep out the riff raff...
-                if msg_data.get('validity', 'valid').lower() != 'valid':
+                status = msg_data.get('status', 'valid').lower()
+                if not status.startswith('valid') and not status.startswith('pending') and not status.startswith('completed'):
                     continue
                 
                 #track assets
@@ -227,6 +228,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                             mongo_db.tracked_assets.insert(tracked_asset)
                         else:
                             assert tracked_asset
+                            print "UPDATING", tracked_asset, msg_data
                             mongo_db.tracked_assets.update(
                                 {'asset': msg_data['asset']},
                                 {"$set": {'_at_block': cur_block_index},
@@ -252,13 +254,13 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                     if     last_bal_change \
                        and last_bal_change['block_index'] == cur_block_index:
                         #modify this record, as we want at most one entry per block index for each (address, asset) pair
-                        #print "bla", msg_data['asset'], amount, last_bal_change['amount'], last_bal_change['new_balance']
                         last_bal_change['amount'] += amount
                         last_bal_change['amount_normalized'] += amount_normalized
                         last_bal_change['new_balance'] += amount
                         last_bal_change['new_balance_normalized'] += amount_normalized
                         mongo_db.balance_changes.save(last_bal_change)
                         logging.info("Procesed BalChange (UPDATED) from tx %s :: %s" % (msg['message_index'], last_bal_change))
+                        bal_change = last_bal_change
                     else: #new balance change record for this block
                         bal_change = {
                             'address': msg_data['address'], 
@@ -275,17 +277,18 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                 
                 #book trades
                 if (    msg['category'] == 'order_matches'
-                    and msg_data['forward_asset'] != 'BTC'
-                    and msg_data['backward_asset'] != 'BTC'):
+                    and (   (msg['command'] == 'update' and msg_data['status'] == 'completed')
+                         or (msg_data['forward_asset'] != 'BTC' and msg_data['backward_asset'] != 'BTC'))):
 
-                    if msg['command'] == 'update':
-                        #an order is being updated to a valid status (i.e. a BTCpay has completed)
+                    if msg['command'] == 'update' and msg_data['status'] == 'completed':
+                        #an order is being updated to a completed status (i.e. a BTCpay has completed)
                         tx0_hash, tx1_hash = msg_data['order_match_id'][:64], msg_data['order_match_id'][64:] 
                         #get the order_match this btcpay settles
                         order_match = util.call_jsonrpc_api("get_order_matches",
                             [{'field': 'tx0_hash', 'op': '==', 'value': tx0_hash},
                              {'field': 'tx1_hash', 'op': '==', 'value': tx1_hash}], abort_on_error=True)['result'][0]
                     else:
+                        assert msg_data['status'] == 'completed' #should not enter a pending state for non BTC matches
                         order_match = msg_data
 
                     forward_asset_info = mongo_db.tracked_assets.find_one({'asset': order_match['forward_asset']})
@@ -299,7 +302,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                     #compose trade
                     trade = {
                         'block_index': cur_block_index,
-                        'block_time': datetime.datetime.fromutctimestamp(cur_block['block_time']),
+                        'block_time': datetime.datetime.fromtimestamp(cur_block['block_time']),
                         'message_index': msg['message_index'], #secondary temporaral ordering off of when
                         'order_match_id': order_match['tx0_hash'] + order_match['tx1_hash'],
                         'order_match_tx0_index': order_match['tx0_index'],
@@ -343,14 +346,14 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                         event['_amount_normalized'] = bal_change['amount_normalized']
                         event['_balance'] = bal_change['new_balance']
                         event['_balance_normalized'] = bal_change['new_balance_normalized']
-                    elif(msg['category'] in ['orders',]):
-                        get_asset_info = mongo_db.tracked_assets.find_one({'asset': msg['get_asset']})
-                        give_asset_info = mongo_db.tracked_assets.find_one({'asset': msg['give_asset']})
+                    elif(msg['category'] in ['orders',] and msg['command'] == 'insert'):
+                        get_asset_info = mongo_db.tracked_assets.find_one({'asset': msg_data['get_asset']})
+                        give_asset_info = mongo_db.tracked_assets.find_one({'asset': msg_data['give_asset']})
                         event['_get_asset_divisible'] = get_asset_info['divisible']
                         event['_give_asset_divisible'] = give_asset_info['divisible']
                     elif(msg['category'] in ['dividends', 'sends',]):
-                        asset_info = mongo_db.tracked_assets.find_one({'asset': msg['asset']})
-                        event['_divisible'] = get_asset_info['divisible']
+                        asset_info = mongo_db.tracked_assets.find_one({'asset': msg_data['asset']})
+                        event['_divisible'] = asset_info['divisible']
                     
                     to_socketio_queue.put(event)
             
