@@ -55,7 +55,10 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def get_normalized_balances(addresses):
-        if not isinstance(addresses, list) or not len(addresses):
+        """ Does not retrieve BTC balance """
+        if not isinstance(addresses, list):
+            addresses = [addresses,]
+        if not len(addresses):
             raise Exception("Invalid address list supplied")
         
         filters = []
@@ -67,6 +70,7 @@ def serve_api(mongo_db, redis_client):
         for d in data:
             asset_info = mongo_db.tracked_assets.find_one({'asset': d['asset']})
             d['normalized_amount'] = util.normalize_amount(d['amount'], asset_info['divisible'])
+            
         return data 
 
     @dispatcher.add_method
@@ -239,7 +243,7 @@ def serve_api(mongo_db, redis_client):
                 asset_info['total_issued'] = r.json()
                 asset_info['total_issued_normalzied'] = util.normalize_amount(asset_info['total_issued'], True)
             elif asset == 'XCP':
-                asset_info['total_issued'] = util.call_jsonrpc_api("xcp_supply", [], abort_on_error=True)['result']
+                asset_info['total_issued'] = util.call_jsonrpc_api("get_xcp_supply", [], abort_on_error=True)['result']
                 asset_info['total_issued_normalzied'] = util.normalize_amount(asset_info['total_issued'], True)
                 
             if not asset_info:
@@ -260,7 +264,7 @@ def serve_api(mongo_db, redis_client):
                 #here we take the normal XCP/BTC pair, and invert it to BTC/XCP, to get XCP's data in terms of a BTC base
                 # (this is the only area we do this, as BTC/XCP is NOT standard pair ordering)
                 price_summary_in_xcp = mps_xcp_btc
-                price_summary_in_btc = copy.copy(mps_xcp_btc) #must invert this
+                price_summary_in_btc = copy.deepcopy(mps_xcp_btc) #must invert this
                 price_summary_in_btc['market_price'] = calc_inverse(price_summary_in_btc['market_price'])
                 price_summary_in_btc['base_asset'] = 'BTC'
                 price_summary_in_btc['quote_asset'] = 'XCP'
@@ -330,7 +334,7 @@ def serve_api(mongo_db, redis_client):
                 ])
                 history = [] if not history['ok'] else history['result']
                 history_in_xcp = history
-                history_in_btc = copy.copy(history_in_xcp)
+                history_in_btc = copy.deepcopy(history_in_xcp)
                 for i in xrange(len(history_in_btc)):
                     history_in_btc[i]['price'] = calc_inverse(history_in_btc[i]['price'])
                     history_in_btc[i]['vol'] = calc_inverse(history_in_btc[i]['vol'])
@@ -431,8 +435,10 @@ def serve_api(mongo_db, redis_client):
                 'aggregated_price_in_xcp': aggregated_price_in_xcp, 
                 'aggregated_price_in_btc': aggregated_price_in_btc,
                 'total_supply': asset_info['total_issued_normalzied'], 
-                'market_cap_in_xcp': asset_info['total_issued_normalzied'] * price_in_xcp,
-                'market_cap_in_btc': asset_info['total_issued_normalzied'] * price_in_btc,
+                'market_cap_in_xcp': float( (D(asset_info['total_issued_normalzied']) / D(price_in_xcp)).quantize(
+                    D('.00000000'), rounding=decimal.ROUND_HALF_EVEN) ),
+                'market_cap_in_btc': float( (D(asset_info['total_issued_normalzied']) / D(price_in_btc)).quantize(
+                    D('.00000000'), rounding=decimal.ROUND_HALF_EVEN) ),
                 '24h_summary': total_agg_result,
                 #^ total amount traded of that asset in all markets in last 24h
                 '24h_summary_in_xcp': xcp_base_agg_result,
@@ -613,7 +619,7 @@ def serve_api(mongo_db, redis_client):
         @return: A list of tuples, with the first entry of each tuple being the block time (epoch TS), and the second being the new balance
          at that block time.
         """
-        if isinstance(addresses, str):
+        if not isinstance(addresses, list):
             addresses = [addresses,]
             
         asset_info = mongo_db.tracked_assets.find_one({'asset': asset})

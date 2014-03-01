@@ -32,7 +32,8 @@ class SocketIOEventServer(object):
             event['msg']['_block_time'] = event['block_time']
             event['msg']['_command'] = event['command']
             forwarded_msg = self.create_sio_packet(event['event'], event['msg']) #forward over as-is
-            logging.debug("socket.io: Sending %s" % forwarded_msg)
+            logging.info("socket.io: Sending message ID %s -- %s" % (
+                event['msg']['_message_index'], event['msg']['_command']))
             socketio.send_packet(forwarded_msg)
 
 
