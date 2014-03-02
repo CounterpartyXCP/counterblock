@@ -3,6 +3,8 @@ import json
 import base64
 import logging
 import requests
+import datetime
+import time
 import decimal
 
 from . import (config,)
@@ -87,7 +89,34 @@ def weighted_average(value_weight_list):
     else:
         return None
 
+def json_dthandler(obj):
+    if hasattr(obj, 'timetuple'): #datetime object
+        #give datetime objects to javascript as epoch ts in ms (i.e. * 1000)
+        return int(time.mktime(obj.timetuple())) * 1000
+    else:
+        raise TypeError, 'Object of type %s with value of %s is not JSON serializable' % (type(obj), repr(obj))
+
+
+#############
+# Bitcoin-related
+
 def normalize_amount(amount, divisible):
     if divisible:
         return float((D(amount) / D(config.UNIT)).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN)) 
     else: return amount
+
+def get_btc_supply(normalize=False):
+    """returns the total supply of BTC (based on what bitcoind says the current block height is)"""
+    block_count = config.CURRENT_BLOCK_INDEX
+    blocks_remaining = block_count
+    total_supply = 0 
+    reward = 50.0
+    while blocks_remaining > 0:
+        if blocks_remaining >= 210000:
+            blocks_remaining -= 210000
+            total_supply += 210000 * reward
+            reward /= 2
+        else:
+            total_supply += (blocks_remaining * reward)
+            blocks_remaining = 0
+    return total_supply if normalize else int(total_supply * config.UNIT)

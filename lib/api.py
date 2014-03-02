@@ -203,7 +203,7 @@ def serve_api(mongo_db, redis_client):
         if with_last_trades:
             #[0]=block_time, [1]=unit_price, [2]=base_amount_normalized, [3]=quote_amount_normalized, [4]=block_index
             result['last_trades'] = [[
-                int(time.mktime(t['block_time'].timetuple())),
+                t['block_time'],
                 t['unit_price'],
                 t['base_amount_normalized'],
                 t['quote_amount_normalized'],
@@ -215,7 +215,7 @@ def serve_api(mongo_db, redis_client):
     def get_market_info(assets):
         """Returns information related to capitalization, volume, etc for the supplied asset(s)
         
-        NOTE: in_btc == base asset is BTC, in_xcp == base asset is XCP 
+        NOTE: in_btc == base asset is BTC, in_xcp == base asset is XCP
         
         @param assets: A list of one or more assets
         """
@@ -237,10 +237,7 @@ def serve_api(mongo_db, redis_client):
         for asset in assets:
             asset_info = mongo_db.tracked_assets.find_one({'asset': asset})
             if asset == 'BTC':
-                r = requests.get("https://blockchain.info/q/totalbc")
-                if r.status_code != 200:
-                    raise Exception("Bad status code returned from blockchain.info: %s" % r.status_code)
-                asset_info['total_issued'] = r.json()
+                asset_info['total_issued'] = util.get_btc_supply(normalize=False)
                 asset_info['total_issued_normalzied'] = util.normalize_amount(asset_info['total_issued'], True)
             elif asset == 'XCP':
                 asset_info['total_issued'] = util.call_jsonrpc_api("get_xcp_supply", [], abort_on_error=True)['result']
@@ -474,8 +471,8 @@ def serve_api(mongo_db, redis_client):
                 "base_asset": base_asset,
                 "quote_asset": quote_asset,
                 "block_time": {
-                    "$gte": datetime.datetime.fromutctimestamp(start_ts),
-                    "$lte": datetime.datetime.fromutctimestamp(end_ts)
+                    "$gte": datetime.datetime.fromtimestamp(start_ts),
+                    "$lte": datetime.datetime.fromtimestamp(end_ts)
                 }
             }},
             {"$project": {
@@ -500,13 +497,14 @@ def serve_api(mongo_db, redis_client):
         if as_dict:
             result = result['result']
             for r in result:
-                r['block_time'] = r['_id']['block_time'] * 1000
+                r['block_time'] = r['_id']['block_time']
                 r['block_index'] = r['_id']['block_index']
                 del r['_id']
         else:
             result = [
-                [r['_id']['block_time']*1000, r['open'], r['high'], r['low'], r['close'], r['vol'],
-                r['count'], r['_id']['block_index']] for r in result['result']
+                [r['_id']['block_time'],
+                 r['open'], r['high'], r['low'], r['close'], r['vol'],
+                 r['count'], r['_id']['block_index']] for r in result['result']
             ]
         return result
     
@@ -637,8 +635,8 @@ def serve_api(mongo_db, redis_client):
                 'address': address,
                 'asset': asset,
                 "block_time": {
-                    "$gte": datetime.datetime.fromutctimestamp(start_ts),
-                    "$lte": datetime.datetime.fromutctimestamp(end_ts)
+                    "$gte": datetime.datetime.fromtimestamp(start_ts),
+                    "$lte": datetime.datetime.fromtimestamp(end_ts)
                 }
             }).sort("block_time", pymongo.ASCENDING)
             results.append({
@@ -775,7 +773,7 @@ def serve_api(mongo_db, redis_client):
             except ValueError:
                 raise cherrypy.HTTPError(400, 'Invalid JSON document')
             response = JSONRPCResponseManager.handle(data, dispatcher)
-            return response.json.encode()
+            return json.dumps(response.data, default=util.json_dthandler).encode()
     
     cherrypy.config.update({
         'log.screen': False,
@@ -784,8 +782,9 @@ def serve_api(mongo_db, redis_client):
         'log.access_log.propagate': False,
         "server.logToScreen" : False
     })
-    rootApplication = cherrypy.Application(Root(), script_name="/")
-    apiApplication = cherrypy.Application(API(), script_name="/api/")
+    api = API()
+    rootApplication = cherrypy.Application(api, script_name="/")
+    apiApplication = cherrypy.Application(api, script_name="/api/")
     cherrypy.tree.mount(rootApplication, '/',
         {'/': { 'tools.trailing_slash.on': False,
                 'request.dispatch': cherrypy.dispatch.Dispatcher()}})    

@@ -41,11 +41,16 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
         
         return prefs
         
-    def prune_my_stale_blocks(max_block_index, max_block_time):
+    def prune_my_stale_blocks(max_block_index):
         """called if there are any records for blocks higher than this in the database? If so, they were impartially created
-           and we should get rid of them"""
+           and we should get rid of them
+        
+        NOTE: after calling this function, you should always trigger a "continue" statement to reiterate the processing loop
+        (which will get a new last_processed_block from counterpartyd and resume as appropriate)   
+        """
         mongo_db.balance_changes.remove({"block_index": {"$gt": max_block_index}})
         mongo_db.trades.remove({"block_index": {"$gt": max_block_index}})
+        mongo_db.processed_blocks.remove({"block_index": {"$gt": max_block_index}})
         
         #to roll back the state of the tracked asset, dive into the history object for each asset that has
         # been updated on or after the block that we are pruning back to
@@ -68,6 +73,12 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                 prev_ver['_history'] = asset['_history']
                 mongo_db.tracked_assets.save(prev_ver)
 
+        config.CAUGHT_UP = False
+        latest_block = mongo_db.processed_blocks.find_one({"block_index": max_block_index})
+        return latest_block
+
+    config.CURRENT_BLOCK_INDEX = 0 #initialize
+    
     #grab our stored preferences
     prefs_created = False
     prefs = mongo_db.prefs.find()
@@ -99,7 +110,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
     else:
         #remove any data we have for blocks higher than this (would happen if counterwalletd or mongo died
         # or errored out while processing a block)
-        prune_my_stale_blocks(my_latest_block['block_index'], my_latest_block['block_time'])
+        my_latest_block = prune_my_stale_blocks(my_latest_block['block_index'])
     
     #start polling counterpartyd for new blocks    
     while True:
@@ -145,13 +156,6 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
             my_latest_block = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
             config.CAUGHT_UP = False #You've Come a Long Way, Baby
         
-        
-        ##########################
-        #REORG detection: examine the last N processed block hashes from counterpartyd, and prune back if necessary
-        #TODO!!!!
-        #running_info['last_block_hashes'] =
-        ########################## 
-        
         #work up to what block counterpartyd is at
         last_processed_block = running_info['last_block']
         
@@ -190,6 +194,13 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                 #keep out the riff raff...
                 status = msg_data.get('status', 'valid').lower()
                 if not status.startswith('valid') and not status.startswith('pending') and not status.startswith('completed'):
+                    continue
+                
+                
+                #HANDLE REORGS
+                if msg['category'] == 'reorg':
+                    #prune back to and including the specified message_index
+                    my_latest_block = prune_my_stale_blocks(msg_data['message_index'] - 1)
                     continue
                 
                 #track assets
@@ -365,16 +376,14 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
             }
             mongo_db.processed_blocks.insert(new_block)
             my_latest_block = new_block
+            config.CURRENT_BLOCK_INDEX = cur_block_index
         elif my_latest_block['block_index'] > last_processed_block['block_index']:
-            #we have stale blocks (i.e. most likely a reorg happened in counterpartyd)
-            config.CAUGHT_UP = False
-            logging.warn("Ahead of counterpartyd with block indexes. Pruning from block %i back to %i ..." % (
-                my_latest_block['block_index'], last_processed_block['block_index']))
-            prune_my_stale_blocks(last_processed_block['block_index'], last_processed_block['block_time'])
-            #NOTE that is is only the first step, that only gets our block_index equal to counterpartyd's current block
-            # index... after this, we will cycle us back to querying get_running_info, which will
-            # return the last X block indexes... from that, we can detect if there was a reorg that we need to further
-            # prune back for
+            #we have stale blocks (i.e. most likely a reorg happened in counterpartyd)?? this shouldn't happen, as we
+            # should get a reorg message. Just to be on the safe side, prune back 10 blocks before what counterpartyd is saying if we see this
+            logging.error("Very odd: Ahead of counterpartyd with block indexes. Pruning from block %i back to %i ..." % (
+                my_latest_block['block_index'], last_processed_block['block_index'] - 10))
+            my_latest_block = prune_my_stale_blocks(last_processed_block['block_index'] - 10)
+            continue
         else:
             #...we may be caught up (to counterpartyd), but counterpartyd may not be (to the blockchain). And if it isn't, we aren't
             config.CAUGHT_UP = running_info['db_caught_up']

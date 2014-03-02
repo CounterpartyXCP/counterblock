@@ -21,7 +21,7 @@ class SocketIOEventServer(object):
         }
         
     def __call__(self, environ, start_response):
-        if not environ['PATH_INFO'].startswith('/_feed'):
+        if not environ['PATH_INFO'].startswith('/socket.io'):
             start_response('401 UNAUTHORIZED', [])
             return ''
         socketio = environ['socketio']
@@ -32,8 +32,8 @@ class SocketIOEventServer(object):
             event['msg']['_block_time'] = event['block_time']
             event['msg']['_command'] = event['command']
             forwarded_msg = self.create_sio_packet(event['event'], event['msg']) #forward over as-is
-            logging.info("socket.io: Sending message ID %s -- %s" % (
-                event['msg']['_message_index'], event['msg']['_command']))
+            logging.info("socket.io: Sending message ID %s -- %s:%s" % (
+                event['msg']['_message_index'], event['event'], event['msg']['_command']))
             socketio.send_packet(forwarded_msg)
 
 
@@ -93,7 +93,7 @@ class SocketIOChatServer(object):
         }        
             
     def __call__(self, environ, start_response):
-        if not environ['PATH_INFO'].startswith('/_chat'):
+        if not environ['PATH_INFO'].startswith('/socket.io'):
             start_response('401 UNAUTHORIZED', [])
             return ''
         socketio_manage(environ, {'': ChatServerNamespace}, self.request)

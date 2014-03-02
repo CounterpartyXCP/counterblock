@@ -39,16 +39,14 @@ if __name__ == '__main__':
     parser.add_argument('--log-file', help='the location of the log file')
     parser.add_argument('--pid-file', help='the location of the pid file')
 
-    #STUFF WE CONNECT TO
-    parser.add_argument('--bitcoind-rpc-connect', help='the hostname of the Bitcoind JSON-RPC server')
-    parser.add_argument('--bitcoind-rpc-port', type=int, help='the port used to communicate with Bitcoind over JSON-RPC')
-    parser.add_argument('--bitcoind-rpc-user', help='the username used to communicate with Bitcoind over JSON-RPC')
-    parser.add_argument('--bitcoind-rpc-password', help='the password used to communicate with Bitcoind over JSON-RPC')
-
+    #THINGS WE CONNECT TO
     parser.add_argument('--counterpartyd-rpc-connect', help='the hostname of the counterpartyd JSON-RPC server')
     parser.add_argument('--counterpartyd-rpc-port', type=int, help='the port used to communicate with counterpartyd over JSON-RPC')
     parser.add_argument('--counterpartyd-rpc-user', help='the username used to communicate with counterpartyd over JSON-RPC')
     parser.add_argument('--counterpartyd-rpc-password', help='the password used to communicate with counterpartyd over JSON-RPC')
+
+    parser.add_argument('--insight-connect', help='the insight server hostname or IP to connect to')
+    parser.add_argument('--insight-port', type=int, help='the insight server port to connect to')
 
     parser.add_argument('--mongodb-connect', help='the hostname of the mongodb server to connect to')
     parser.add_argument('--mongodb-port', type=int, help='the port used to communicate with mongodb')
@@ -66,8 +64,8 @@ if __name__ == '__main__':
     parser.add_argument('--cube-evaluator-port', type=int, help='the port used to communicate with the Square Cube evaluator')
     parser.add_argument('--cube-database', help='the name of the mongo database cube stores its data within')
 
-    #STUFF WE HOST
-    parser.add_argument('--rpc-host', help='the interface on which to host the counterwalletd JSON-RPC API')
+    #THINGS WE HOST
+    parser.add_argument('--rpc-host', help='the IP of the interface to bind to for providing JSON-RPC API access (0.0.0.0 for all interfaces)')
     parser.add_argument('--rpc-port', type=int, help='port on which to provide the counterwalletd JSON-RPC API')
     parser.add_argument('--socketio-host', help='the interface on which to host the counterwalletd socket.io API')
     parser.add_argument('--socketio-port', type=int, help='port on which to provide the counterwalletd socket.io API')
@@ -101,50 +99,7 @@ if __name__ == '__main__':
     config.REINIT_FORCED = args.reinit
         
     ##############
-    # STUFF WE CONNECT TO
-
-    # Bitcoind RPC host
-    if args.bitcoind_rpc_connect:
-        config.BITCOIND_RPC_CONNECT = args.bitcoind_rpc_connect
-    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-connect') and configfile.get('Default', 'bitcoind-rpc-connect'):
-        config.BITCOIND_RPC_CONNECT = configfile.get('Default', 'bitcoind-rpc-connect')
-    else:
-        config.BITCOIND_RPC_CONNECT = 'localhost'
-
-    # Bitcoind RPC port
-    if args.bitcoind_rpc_port:
-        config.BITCOIND_RPC_PORT = args.bitcoind_rpc_port
-    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-port') and configfile.get('Default', 'bitcoind-rpc-port'):
-        config.BITCOIND_RPC_PORT = configfile.get('Default', 'bitcoind-rpc-port')
-    else:
-        if config.TESTNET:
-            config.BITCOIND_RPC_PORT = '18332'
-        else:
-            config.BITCOIND_RPC_PORT = '8332'
-    try:
-        int(config.BITCOIND_RPC_PORT)
-        assert int(config.BITCOIND_RPC_PORT) > 1 and int(config.BITCOIND_RPC_PORT) < 65535
-    except:
-        raise Exception("Please specific a valid port number bitcoind-rpc-port configuration parameter")
-            
-    # Bitcoind RPC user
-    if args.bitcoind_rpc_user:
-        config.BITCOIND_RPC_USER = args.bitcoind_rpc_user
-    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-user') and configfile.get('Default', 'bitcoind-rpc-user'):
-        config.BITCOIND_RPC_USER = configfile.get('Default', 'bitcoind-rpc-user')
-    else:
-        config.BITCOIND_RPC_USER = 'bitcoinrpc'
-
-    # Bitcoind RPC password
-    if args.bitcoind_rpc_password:
-        config.BITCOIND_RPC_PASSWORD = args.bitcoind_rpc_password
-    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-password') and configfile.get('Default', 'bitcoind-rpc-password'):
-        config.BITCOIND_RPC_PASSWORD = configfile.get('Default', 'bitcoind-rpc-password')
-    else:
-        raise Exception('bitcoind RPC password not set. (Use configuration file or --bitcoind-rpc-password=PASSWORD)')
-
-    config.BITCOIND_RPC = 'http://' + config.BITCOIND_RPC_CONNECT + ':' + str(config.BITCOIND_RPC_PORT)
-    config.BITCOIND_AUTH = HTTPBasicAuth(config.BITCOIND_RPC_USER, config.BITCOIND_RPC_PASSWORD) if (config.BITCOIND_RPC_USER and config.BITCOIND_RPC_PASSWORD) else None
+    # THINGS WE CONNECT TO
 
     # counterpartyd RPC host
     if args.counterpartyd_rpc_connect:
@@ -165,7 +120,7 @@ if __name__ == '__main__':
         else:
             config.COUNTERPARTYD_RPC_PORT = 4000
     try:
-        int(config.COUNTERPARTYD_RPC_PORT)
+        config.COUNTERPARTYD_RPC_PORT = int(config.COUNTERPARTYD_RPC_PORT)
         assert int(config.COUNTERPARTYD_RPC_PORT) > 1 and int(config.COUNTERPARTYD_RPC_PORT) < 65535
     except:
         raise Exception("Please specific a valid port number counterpartyd-rpc-port configuration parameter")
@@ -189,6 +144,32 @@ if __name__ == '__main__':
     config.COUNTERPARTYD_RPC = 'http://' + config.COUNTERPARTYD_RPC_CONNECT + ':' + str(config.COUNTERPARTYD_RPC_PORT) + '/api/'
     config.COUNTERPARTYD_AUTH = HTTPBasicAuth(config.COUNTERPARTYD_RPC_USER, config.COUNTERPARTYD_RPC_PASSWORD) if (config.COUNTERPARTYD_RPC_USER and config.COUNTERPARTYD_RPC_PASSWORD) else None
 
+    # insight API host
+    if args.insight_connect:
+        config.INSIGHT_CONNECT = args.insight_connect
+    elif has_config and configfile.has_option('Default', 'insight-connect') and configfile.get('Default', 'insight-connect'):
+        config.INSIGHT_CONNECT = configfile.get('Default', 'insight-connect')
+    else:
+        config.INSIGHT_CONNECT = 'localhost'
+
+    # insight API port
+    if args.insight_port:
+        config.INSIGHT_PORT = args.insight_port
+    elif has_config and configfile.has_option('Default', 'insight-port') and configfile.get('Default', 'insight-port'):
+        config.INSIGHT_PORT = configfile.get('Default', 'insight-port')
+    else:
+        if config.TESTNET:
+            config.INSIGHT_PORT = 3001
+        else:
+            config.INSIGHT_PORT = 3000
+    try:
+        config.INSIGHT_PORT = int(config.INSIGHT_PORT)
+        assert int(config.INSIGHT_PORT) > 1 and int(config.INSIGHT_PORT) < 65535
+    except:
+        raise Exception("Please specific a valid port number insight-port configuration parameter")
+
+    config.INSIGHT = 'http://' + config.INSIGHT_CONNECT + ':' + str(config.INSIGHT_PORT)
+
     # mongodb host
     if args.mongodb_connect:
         config.MONGODB_CONNECT = args.mongodb_connect
@@ -205,7 +186,7 @@ if __name__ == '__main__':
     else:
         config.MONGODB_PORT = 27017
     try:
-        int(config.MONGODB_PORT)
+        config.MONGODB_PORT = int(config.MONGODB_PORT)
         assert int(config.MONGODB_PORT) > 1 and int(config.MONGODB_PORT) < 65535
     except:
         raise Exception("Please specific a valid port number mongodb-port configuration parameter")
@@ -261,7 +242,7 @@ if __name__ == '__main__':
     else:
         config.REDIS_PORT = 6379
     try:
-        int(config.REDIS_PORT)
+        config.REDIS_PORT = int(config.REDIS_PORT)
         assert int(config.REDIS_PORT) > 1 and int(config.REDIS_PORT) < 65535
     except:
         raise Exception("Please specific a valid port number redis-port configuration parameter")
@@ -274,13 +255,13 @@ if __name__ == '__main__':
     else:
         config.REDIS_DATABASE = 0
     try:
-        int(config.REDIS_DATABASE)
+        config.REDIS_DATABASE = int(config.REDIS_DATABASE)
         assert int(config.REDIS_DATABASE) >= 0 and int(config.REDIS_DATABASE) <= 16
     except:
         raise Exception("Please specific a valid redis-database configuration parameter (between 0 and 16 inclusive)")
 
     ##############
-    # STUFF WE SERVE
+    # THINGS WE SERVE
     
     # RPC host
     if args.rpc_host:
@@ -301,7 +282,7 @@ if __name__ == '__main__':
         else:
             config.RPC_PORT = 4100        
     try:
-        int(config.RPC_PORT)
+        config.RPC_PORT = int(config.RPC_PORT)
         assert int(config.RPC_PORT) > 1 and int(config.RPC_PORT) < 65535
     except:
         raise Exception("Please specific a valid port number rpc-port configuration parameter")
@@ -325,7 +306,7 @@ if __name__ == '__main__':
         else:
             config.SOCKETIO_PORT = 4101        
     try:
-        int(config.SOCKETIO_PORT)
+        config.SOCKETIO_PORT = int(config.SOCKETIO_PORT)
         assert int(config.SOCKETIO_PORT) > 1 and int(config.SOCKETIO_PORT) < 65535
     except:
         raise Exception("Please specific a valid port number socketio-port configuration parameter")
@@ -349,10 +330,14 @@ if __name__ == '__main__':
         else:
             config.SOCKETIO_CHAT_PORT = 4102       
     try:
-        int(config.SOCKETIO_CHAT_PORT)
+        config.SOCKETIO_CHAT_PORT = int(config.SOCKETIO_CHAT_PORT)
         assert int(config.SOCKETIO_CHAT_PORT) > 1 and int(config.SOCKETIO_CHAT_PORT) < 65535
     except:
         raise Exception("Please specific a valid port number socketio-chat-port configuration parameter")
+
+
+    ##############
+    # OTHER SETTINGS
 
     #More testnet
     if config.TESTNET:
@@ -442,14 +427,14 @@ if __name__ == '__main__':
     sio_server = socketio_server.SocketIOServer(
         (config.SOCKETIO_HOST, config.SOCKETIO_PORT),
         siofeeds.SocketIOEventServer(to_socketio_queue),
-        resource="_feed", policy_server=False)
+        resource="socket.io", policy_server=False)
     sio_server.start() #start the socket.io server greenlets
 
     logging.info("Starting up socket.io server (counterwallet chat)...")
     sio_server = socketio_server.SocketIOServer(
         (config.SOCKETIO_CHAT_HOST, config.SOCKETIO_CHAT_PORT),
         siofeeds.SocketIOChatServer(mongo_db),
-        resource="_chat", policy_server=False)
+        resource="socket.io", policy_server=False)
     sio_server.start() #start the socket.io server greenlets
 
     logging.info("Starting up counterpartyd block feed poller...")
