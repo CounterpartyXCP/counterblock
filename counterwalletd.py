@@ -253,7 +253,10 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'redis-database') and configfile.get('Default', 'redis-database'):
         config.REDIS_DATABASE = configfile.get('Default', 'redis-database')
     else:
-        config.REDIS_DATABASE = 0
+        if config.TESTNET:
+            config.REDIS_DATABASE = 1
+        else:
+            config.REDIS_DATABASE = 0
     try:
         config.REDIS_DATABASE = int(config.REDIS_DATABASE)
         assert int(config.REDIS_DATABASE) >= 0 and int(config.REDIS_DATABASE) <= 16

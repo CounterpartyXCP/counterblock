@@ -782,22 +782,21 @@ def serve_api(mongo_db, redis_client):
         'log.access_log.propagate': False,
         "server.logToScreen" : False
     })
-    api = API()
-    rootApplication = cherrypy.Application(api, script_name="/")
-    apiApplication = cherrypy.Application(api, script_name="/api/")
+    rootApplication = cherrypy.Application(Root(), script_name="")
+    apiApplication = cherrypy.Application(API(), script_name="/api")
     cherrypy.tree.mount(rootApplication, '/',
         {'/': { 'tools.trailing_slash.on': False,
                 'request.dispatch': cherrypy.dispatch.Dispatcher()}})    
     cherrypy.tree.mount(apiApplication, '/api/',
         {'/': { 'tools.trailing_slash.on': False,
-                'request.dispatch': cherrypy.dispatch.Dispatcher()}})
+                'request.dispatch': cherrypy.dispatch.Dispatcher()}})    
     
     #disable logging of the access and error logs to the screen
     rootApplication.log.access_log.propagate = False
     rootApplication.log.error_log.propagate = False
     apiApplication.log.access_log.propagate = False
     apiApplication.log.error_log.propagate = False
-    
+        
     #set up a rotating log handler for this application
     # Remove the default FileHandlers if present.
     apiApplication.log.error_file = ""
