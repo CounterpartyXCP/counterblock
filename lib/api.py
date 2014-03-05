@@ -192,7 +192,7 @@ def serve_api(mongo_db, redis_client):
         last_trades.reverse() #from newest to oldest
         weights = [1, .9, .72, .6, .4, .3] #good first guess...maybe
         weighted_inputs = []
-        for i in xrange(6): #last 6 trades
+        for i in min(len(last_trades), xrange(6)): #last 6 trades
             weighted_inputs.append([last_trades[i]['unit_price'], weights[i]])
         market_price = util.weighted_average(weighted_inputs)
         result = {
@@ -681,7 +681,7 @@ def serve_api(mongo_db, redis_client):
     @dispatcher.add_method
     def get_chat_handle(wallet_id):
         result = mongo_db.chat_handles.find_one({"wallet_id": wallet_id})
-        if not result: return {}
+        if not result: raise Exception("Chat handle not found for specified wallet_id")
         result['last_touched'] = time.mktime(time.gmtime())
         mongo_db.chat_handles.save(result)
         return {
@@ -712,7 +712,7 @@ def serve_api(mongo_db, redis_client):
     @dispatcher.add_method
     def get_preferences(wallet_id):
         result =  mongo_db.preferences.find_one({"wallet_id": wallet_id})
-        if not result: {}
+        if not result: raise Exception("No preferences found for specified wallet_id")
         result['last_touched'] = time.mktime(time.gmtime())
         mongo_db.preferences.save(result)
         return {
