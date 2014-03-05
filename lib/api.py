@@ -522,6 +522,31 @@ def serve_api(mongo_db, redis_client):
             return False #no suitable trade data to form a market price
         last_trades = list(last_trades)
         return last_trades 
+    
+    @dispatcher.add_method
+    def get_trade_history_within_dates(asset1, asset2, start_ts=None, end_ts=None, limit=50):
+        """Gets trades for a certain asset pair between a certain date range, with the max results limited"""
+        base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
+        if not end_ts: #default to current datetime
+            end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+        if not start_ts: #default to 30 days before the end date
+            start_ts = end_ts - (30 * 24 * 60 * 60) 
+
+        if limit > 500:
+            raise Exception("Requesting history of too many trades")
+        
+        last_trades = mongo_db.trades.find({
+            "base_asset": base_asset,
+            "quote_asset": quote_asset,
+            "block_time": {
+                    "$gte": datetime.datetime.fromtimestamp(start_ts),
+                    "$lte": datetime.datetime.fromtimestamp(end_ts)
+                  }
+            }, {'_id': 0}).sort("block_time", pymongo.DESCENDING).limit(limit)
+        if not last_trades.count():
+            return False #no suitable trade data to form a market price
+        last_trades = list(last_trades)
+        return last_trades 
 
     @dispatcher.add_method
     def get_order_book(asset1, asset2):
@@ -576,11 +601,16 @@ def serve_api(mongo_db, redis_client):
         #compile into a single book, at volume tiers
         base_bid_book = make_book(base_bid_orders, True)
         base_ask_book = make_book(base_ask_orders, False)
-        #get the bid-ask spread
-        bid_ask_spread = float(( D(base_ask_book[0]['unit_price']) - D(base_bid_book[0]['unit_price']) ).quantize(
-                        D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
-        bid_ask_median = float(( D(base_ask_book[0]['unit_price']) - (D(bid_ask_spread) / 2) ).quantize(
-                        D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+        #get stats like the spread and median
+        if base_bid_book and base_ask_book:
+            bid_ask_spread = float(( D(base_ask_book[0]['unit_price']) - D(base_bid_book[0]['unit_price']) ).quantize(
+                            D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+        else: bid_ask_spread = 0
+        if base_ask_book:
+            bid_ask_median = float(( D(base_ask_book[0]['unit_price']) - (D(bid_ask_spread) / 2) ).quantize(
+                            D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+        else: bid_ask_median = 0
+        
         #compose depth
         bid_depth = D(0)
         for o in base_bid_book:
@@ -651,8 +681,7 @@ def serve_api(mongo_db, redis_client):
     @dispatcher.add_method
     def get_chat_handle(wallet_id):
         result = mongo_db.chat_handles.find_one({"wallet_id": wallet_id})
-        if not result:
-            raise Exception("Invalid wallet_id")
+        if not result: return {}
         result['last_touched'] = time.mktime(time.gmtime())
         mongo_db.chat_handles.save(result)
         return {
@@ -683,8 +712,7 @@ def serve_api(mongo_db, redis_client):
     @dispatcher.add_method
     def get_preferences(wallet_id):
         result =  mongo_db.preferences.find_one({"wallet_id": wallet_id})
-        if not result:
-            raise Exception("Invalid wallet_id")
+        if not result: {}
         result['last_touched'] = time.mktime(time.gmtime())
         mongo_db.preferences.save(result)
         return {
