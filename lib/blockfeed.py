@@ -77,13 +77,14 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
         latest_block = mongo_db.processed_blocks.find_one({"block_index": max_block_index})
         return latest_block
 
-    config.CURRENT_BLOCK_INDEX = 0 #initialize
+    config.CURRENT_BLOCK_INDEX = 0 #initialize (last processed block index -- i.e. currently active block)
+    config.LAST_MESSAGE_INDEX = 0 #initialize (last processed message index)
     
     #grab our stored preferences
     prefs_created = False
     prefs = mongo_db.prefs.find()
     assert prefs.count() in [0, 1]
-    if prefs.count() == 0 or config.REINIT_FORCED:
+    if prefs.count() == 0 or config.REPARSE_FORCED:
         mongo_db.prefs.update({}, { #create/update default prefs object
         'db_version': config.DB_VERSION, #counterwalletd database version
         'running_testnet': config.TESTNET,
@@ -102,9 +103,9 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
         my_latest_block = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
 
     #see if DB version has increased and rebuild if so
-    if prefs_created or config.REINIT_FORCED or prefs['db_version'] != config.DB_VERSION or prefs['running_testnet'] != config.TESTNET:
+    if prefs_created or config.REPARSE_FORCED or prefs['db_version'] != config.DB_VERSION or prefs['running_testnet'] != config.TESTNET:
         logging.warn("counterwalletd database version UPDATED (from %i to %i) or testnet setting changed (from %s to %s), or REINIT forced (%s). REBUILDING FROM SCRATCH ..." % (
-            prefs['db_version'], config.DB_VERSION, prefs['running_testnet'], config.TESTNET, config.REINIT_FORCED))
+            prefs['db_version'], config.DB_VERSION, prefs['running_testnet'], config.TESTNET, config.REPARSE_FORCED))
         prefs = blow_away_db(prefs)
         my_latest_block = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
     else:
@@ -179,7 +180,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
             cur_block['block_time_obj'] = datetime.datetime.fromtimestamp(cur_block['block_time'])
             cur_block['block_time_str'] = cur_block['block_time_obj'].isoformat()
             
-            logging.info("Processing block %i ..." % (cur_block_index,))
+            #logging.info("Processing block %i ..." % (cur_block_index,))
             try:
                 block_data = util.call_jsonrpc_api("get_messages", [cur_block_index,], abort_on_error=True)['result']
             except Exception, e:
@@ -251,15 +252,17 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                 
                 #track balance changes for each address
                 bal_change = None
-                if msg['category'] in ['credits', 'debits']:
-                    asset_info = mongo_db.tracked_assets.find_one({'asset': msg_data['asset']})
+                if msg['category'] in ['credits', 'debits',]:
+                    actionName = 'credit' if msg['category'] == 'credits' else 'debit'
+                    address = msg_data['address']
+                    asset_info = mongo_db.tracked_assets.find_one({ 'asset': msg_data['asset'] })
                     amount = msg_data['amount'] if msg['category'] == 'credits' else -msg_data['amount']
                     amount_normalized = util.normalize_amount(amount, asset_info['divisible'])
 
                     #look up the previous balance to go off of
                     last_bal_change = mongo_db.balance_changes.find_one({
-                        'address': msg_data['address'],
-                        'asset': msg_data['asset']
+                        'address': address,
+                        'asset': asset_info['asset']
                     }, sort=[("block_time", pymongo.DESCENDING)])
                     
                     if     last_bal_change \
@@ -270,12 +273,12 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                         last_bal_change['new_balance'] += amount
                         last_bal_change['new_balance_normalized'] += amount_normalized
                         mongo_db.balance_changes.save(last_bal_change)
-                        logging.info("Procesed BalChange (UPDATED) from tx %s :: %s" % (msg['message_index'], last_bal_change))
+                        logging.info("Procesed %s bal change (UPDATED) from tx %s :: %s" % (actionName, msg['message_index'], last_bal_change))
                         bal_change = last_bal_change
                     else: #new balance change record for this block
                         bal_change = {
-                            'address': msg_data['address'], 
-                            'asset': msg_data['asset'],
+                            'address': address, 
+                            'asset': asset_info['asset'],
                             'block_index': cur_block_index,
                             'block_time': cur_block['block_time'],
                             'amount': amount,
@@ -284,7 +287,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                             'new_balance_normalized': last_bal_change['new_balance_normalized'] + amount_normalized if last_bal_change else amount_normalized,
                         }
                         mongo_db.balance_changes.insert(bal_change)
-                        logging.info("Procesed BalChange from tx %s :: %s" % (msg['message_index'], bal_change))
+                        logging.info("Procesed %s bal change from tx %s :: %s" % (actionName, msg['message_index'], bal_change))
                 
                 #book trades
                 if (    msg['category'] == 'order_matches'
@@ -367,6 +370,9 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                         event['_divisible'] = asset_info['divisible']
                     
                     to_socketio_queue.put(event)
+
+                #this is the last processed message index
+                config.LAST_MESSAGE_INDEX = msg['message_index']
             
             #block successfully processed, track this in our DB
             new_block = {
@@ -377,6 +383,8 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
             mongo_db.processed_blocks.insert(new_block)
             my_latest_block = new_block
             config.CURRENT_BLOCK_INDEX = cur_block_index
+            logging.info("Block: %i (message_index height=%s)" % (config.CURRENT_BLOCK_INDEX,
+                config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX else '???'))
         elif my_latest_block['block_index'] > last_processed_block['block_index']:
             #we have stale blocks (i.e. most likely a reorg happened in counterpartyd)?? this shouldn't happen, as we
             # should get a reorg message. Just to be on the safe side, prune back 10 blocks before what counterpartyd is saying if we see this
@@ -387,4 +395,12 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
         else:
             #...we may be caught up (to counterpartyd), but counterpartyd may not be (to the blockchain). And if it isn't, we aren't
             config.CAUGHT_UP = running_info['db_caught_up']
+            
+            #this logic here will cover a case where we shut down counterwalletd, then start it up again quickly...
+            # in that case, there are no new blocks for it to parse, so LAST_MESSAGE_INDEX would otherwise remain 0.
+            # With this logic, we will correctly initialize LAST_MESSAGE_INDEX to the last message ID of the last processed block
+            if config.LAST_MESSAGE_INDEX == 0:
+                config.LAST_MESSAGE_INDEX = running_info['last_message_index']
+                logging.info("Startup detected and we are caught up. Initializing last message_index to %i ..." % (config.LAST_MESSAGE_INDEX))
+            
             time.sleep(2) #counterwalletd itself is at least caught up, wait a bit to query again for the latest block from cpd

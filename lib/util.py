@@ -2,7 +2,8 @@ import os
 import json
 import base64
 import logging
-import requests
+import grequests
+from requests import Session
 import datetime
 import time
 import decimal
@@ -10,6 +11,7 @@ import decimal
 from . import (config,)
 
 D = decimal.Decimal
+API_SESSION = Session()
 
 def assets_to_asset_pair(asset1, asset2):
     """Pair labeling rules are:
@@ -33,14 +35,21 @@ def assets_to_asset_pair(asset1, asset2):
 def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False):
     if not endpoint: endpoint = config.COUNTERPARTYD_RPC
     if not auth: auth = config.COUNTERPARTYD_AUTH
+    
     payload = {
       "id": 0,
       "jsonrpc": "2.0",
       "method": method,
       "params": params or [],
     }
-    r = requests.post(
-        endpoint, data=json.dumps(payload), headers={'content-type': 'application/json'}, auth=auth)
+    r = grequests.map(
+        (grequests.post(endpoint,
+            data=json.dumps(payload),
+            headers={'content-type': 'application/json'},
+            auth=auth,
+            session=API_SESSION),)
+    )[0]
+    #^ use requests.Session to utilize connectionpool and keepalive (avoid connection setup/teardown overhead)
     if r.status_code != 200:
         raise Exception("Bad status code returned from counterwalletd: '%s'. payload: '%s'." % (r.status_code, r.text))
     

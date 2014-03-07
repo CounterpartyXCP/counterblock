@@ -9,7 +9,6 @@ import operator
 import logging
 import copy
 from logging import handlers as logging_handlers
-import requests
 from gevent import wsgi
 import cherrypy
 from cherrypy.process import plugins
@@ -50,6 +49,7 @@ def serve_api(mongo_db, redis_client):
         assert config.CAUGHT_UP
         return {
             'caught_up': config.CAUGHT_UP,
+            'last_message_index': config.LAST_MESSAGE_INDEX, 
             'testnet': config.TESTNET 
         }
 
@@ -658,7 +658,6 @@ def serve_api(mongo_db, redis_client):
             end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not start_ts: #default to 30 days before the end date
             start_ts = end_ts - (30 * 24 * 60 * 60)
-            
         results = []
         for address in addresses:
             result = mongo_db.balance_changes.find({
