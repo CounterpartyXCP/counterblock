@@ -109,7 +109,7 @@ def json_dthandler(obj):
 #############
 # Bitcoin-related
 
-def normalize_amount(amount, divisible):
+def normalize_amount(amount, divisible=True):
     if divisible:
         return float((D(amount) / D(config.UNIT)).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN)) 
     else: return amount
@@ -128,4 +128,5 @@ def get_btc_supply(normalize=False):
         else:
             total_supply += (blocks_remaining * reward)
             blocks_remaining = 0
+            
     return total_supply if normalize else int(total_supply * config.UNIT)

@@ -2,6 +2,7 @@
 blockfeed: sync with and process new blocks from counterpartyd
 """
 import os
+import sys
 import json
 import copy
 import logging
@@ -48,6 +49,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
         NOTE: after calling this function, you should always trigger a "continue" statement to reiterate the processing loop
         (which will get a new last_processed_block from counterpartyd and resume as appropriate)   
         """
+        logging.warn("Pruning to block %i ..." % (max_block_index))        
         mongo_db.balance_changes.remove({"block_index": {"$gt": max_block_index}})
         mongo_db.trades.remove({"block_index": {"$gt": max_block_index}})
         mongo_db.processed_blocks.remove({"block_index": {"$gt": max_block_index}})
@@ -177,7 +179,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                 logging.warn(str(e) + " Waiting 3 seconds before trying again...")
                 time.sleep(3)
                 continue
-            cur_block['block_time_obj'] = datetime.datetime.fromtimestamp(cur_block['block_time'])
+            cur_block['block_time_obj'] = datetime.datetime.utcfromtimestamp(cur_block['block_time'])
             cur_block['block_time_str'] = cur_block['block_time_obj'].isoformat()
             
             #logging.info("Processing block %i ..." % (cur_block_index,))
@@ -210,7 +212,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                         {'asset': msg_data['asset']}, {'_id': 0, '_history': 0})
                     #^ pulls the tracked asset without the _id and history fields. This may be None
                     
-                    if msg_data['amount'] == 0: #lock asset
+                    if msg_data['locked']: #lock asset
                         assert tracked_asset
                         mongo_db.tracked_assets.update(
                             {'asset': msg_data['asset']},
@@ -230,7 +232,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                                 'divisible': msg_data['divisible'],
                                 'locked': False,
                                 'total_issued': msg_data['amount'],
-                                'total_issued_normalzied': util.normalize_amount(msg_data['divisible'], msg_data['amount']),
+                                'total_issued_normalzied': util.normalize_amount(msg_data['amount'], msg_data['divisible']),
                                 '_at_block': cur_block_index, #the block ID this asset is current for
                                 #(if there are multiple asset tracked changes updates in a single block for the same
                                 # asset, the last one with _at_block == that block id in the history array is the
@@ -246,7 +248,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                                 {"$set": {'_at_block': cur_block_index},
                                  "$inc": {
                                      'total_issued': msg_data['amount'],
-                                     'total_issued_normalzied': util.normalize_amount(msg_data['divisible'], msg_data['amount'])
+                                     'total_issued_normalzied': util.normalize_amount(msg_data['amount'], msg_data['divisible'])
                                  },
                                  "$push": {'_history': tracked_asset} }, upsert=False)
                 
@@ -280,7 +282,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                             'address': address, 
                             'asset': asset_info['asset'],
                             'block_index': cur_block_index,
-                            'block_time': cur_block['block_time'],
+                            'block_time': datetime.datetime.utcfromtimestamp(cur_block['block_time']),
                             'amount': amount,
                             'amount_normalized': amount_normalized,
                             'new_balance': last_bal_change['new_balance'] + amount if last_bal_change else amount,
@@ -316,7 +318,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                     #compose trade
                     trade = {
                         'block_index': cur_block_index,
-                        'block_time': datetime.datetime.fromtimestamp(cur_block['block_time']),
+                        'block_time': datetime.datetime.utcfromtimestamp(cur_block['block_time']),
                         'message_index': msg['message_index'], #secondary temporaral ordering off of when
                         'order_match_id': order_match['tx0_hash'] + order_match['tx1_hash'],
                         'order_match_tx0_index': order_match['tx0_index'],
@@ -388,8 +390,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
         elif my_latest_block['block_index'] > last_processed_block['block_index']:
             #we have stale blocks (i.e. most likely a reorg happened in counterpartyd)?? this shouldn't happen, as we
             # should get a reorg message. Just to be on the safe side, prune back 10 blocks before what counterpartyd is saying if we see this
-            logging.error("Very odd: Ahead of counterpartyd with block indexes. Pruning from block %i back to %i ..." % (
-                my_latest_block['block_index'], last_processed_block['block_index'] - 10))
+            logging.error("Very odd: Ahead of counterpartyd with block indexes! Pruning back 10 blocks to be safe.")
             my_latest_block = prune_my_stale_blocks(last_processed_block['block_index'] - 10)
             continue
         else:
@@ -399,8 +400,10 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
             #this logic here will cover a case where we shut down counterwalletd, then start it up again quickly...
             # in that case, there are no new blocks for it to parse, so LAST_MESSAGE_INDEX would otherwise remain 0.
             # With this logic, we will correctly initialize LAST_MESSAGE_INDEX to the last message ID of the last processed block
-            if config.LAST_MESSAGE_INDEX == 0:
-                config.LAST_MESSAGE_INDEX = running_info['last_message_index']
-                logging.info("Startup detected and we are caught up. Initializing last message_index to %i ..." % (config.LAST_MESSAGE_INDEX))
+            if config.LAST_MESSAGE_INDEX == 0 or config.CURRENT_BLOCK_INDEX == 0:
+                if config.LAST_MESSAGE_INDEX == 0: config.LAST_MESSAGE_INDEX = running_info['last_message_index']
+                if config.CURRENT_BLOCK_INDEX == 0: config.CURRENT_BLOCK_INDEX = running_info['last_block']['block_index']
+                logging.info("Detected blocks caught up on startup. Setting last message_index to %i, and current block index to %s ..." % (
+                    config.LAST_MESSAGE_INDEX, config.CURRENT_BLOCK_INDEX))
             
             time.sleep(2) #counterwalletd itself is at least caught up, wait a bit to query again for the latest block from cpd
