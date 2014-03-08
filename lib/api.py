@@ -79,10 +79,7 @@ def serve_api(mongo_db, redis_client):
         
         #include any owned assets for each address, even if their balance is zero
         owned_assets = mongo_db.tracked_assets.find( { '$or': [{'owner': a } for a in addresses] }, { '_history': 0, '_id': 0 } )
-        print("owned_assets", owned_assets.count())
         for o in owned_assets:
-            print("here", o)
-            print((o['owner'] + o['asset']) not in mappings, o['owner'] + o['asset'], mappings)
             if (o['owner'] + o['asset']) not in mappings:
                 data.append({
                     'address': o['owner'],
@@ -92,7 +89,6 @@ def serve_api(mongo_db, redis_client):
                 })
             else:
                 mappings[o['owner'] + o['asset']]['owner'] = False
-        print("norm balances", data)
         return data 
 
     @dispatcher.add_method

@@ -242,7 +242,6 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                             mongo_db.tracked_assets.insert(tracked_asset)
                         else:
                             assert tracked_asset
-                            print "UPDATING", tracked_asset, msg_data
                             mongo_db.tracked_assets.update(
                                 {'asset': msg_data['asset']},
                                 {"$set": {'_at_block': cur_block_index},
