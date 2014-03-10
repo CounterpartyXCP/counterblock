@@ -17,6 +17,7 @@ from lib import (config, util)
 D = decimal.Decimal
 
 def process_cpd_blockfeed(mongo_db, to_socketio_queue):
+    LATEST_BLOCK_INIT = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
 
     def blow_away_db(prefs):
         #boom! blow away all collections in mongo
@@ -76,7 +77,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                 mongo_db.tracked_assets.save(prev_ver)
 
         config.CAUGHT_UP = False
-        latest_block = mongo_db.processed_blocks.find_one({"block_index": max_block_index})
+        latest_block = mongo_db.processed_blocks.find_one({"block_index": max_block_index}) or LATEST_BLOCK_INIT
         return latest_block
 
     config.CURRENT_BLOCK_INDEX = 0 #initialize (last processed block index -- i.e. currently active block)
@@ -102,14 +103,14 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
     #get the last processed block out of mongo
     my_latest_block = mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)])
     if not my_latest_block:
-        my_latest_block = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
+        my_latest_block = LATEST_BLOCK_INIT
 
     #see if DB version has increased and rebuild if so
     if prefs_created or config.REPARSE_FORCED or prefs['db_version'] != config.DB_VERSION or prefs['running_testnet'] != config.TESTNET:
         logging.warn("counterwalletd database version UPDATED (from %i to %i) or testnet setting changed (from %s to %s), or REINIT forced (%s). REBUILDING FROM SCRATCH ..." % (
             prefs['db_version'], config.DB_VERSION, prefs['running_testnet'], config.TESTNET, config.REPARSE_FORCED))
         prefs = blow_away_db(prefs)
-        my_latest_block = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
+        my_latest_block = LATEST_BLOCK_INIT
     else:
         #remove any data we have for blocks higher than this (would happen if counterwalletd or mongo died
         # or errored out while processing a block)
@@ -156,7 +157,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
             mongo_db.prefs.update({}, prefs)
             
             #reset my latest block record
-            my_latest_block = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
+            my_latest_block = LATEST_BLOCK_INIT
             config.CAUGHT_UP = False #You've Come a Long Way, Baby
         
         #work up to what block counterpartyd is at
@@ -281,7 +282,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                             'address': address, 
                             'asset': asset_info['asset'],
                             'block_index': cur_block_index,
-                            'block_time': datetime.datetime.utcfromtimestamp(cur_block['block_time']),
+                            'block_time': cur_block['block_time_obj'],
                             'amount': amount,
                             'amount_normalized': amount_normalized,
                             'new_balance': last_bal_change['new_balance'] + amount if last_bal_change else amount,
@@ -317,7 +318,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                     #compose trade
                     trade = {
                         'block_index': cur_block_index,
-                        'block_time': datetime.datetime.utcfromtimestamp(cur_block['block_time']),
+                        'block_time': cur_block['block_time_obj'],
                         'message_index': msg['message_index'], #secondary temporaral ordering off of when
                         'order_match_id': order_match['tx0_hash'] + order_match['tx1_hash'],
                         'order_match_tx0_index': order_match['tx0_index'],
@@ -378,7 +379,7 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
             #block successfully processed, track this in our DB
             new_block = {
                 'block_index': cur_block_index,
-                'block_time': cur_block['block_time'],
+                'block_time': cur_block['block_time_obj'],
                 'block_hash': cur_block['block_hash'],
             }
             mongo_db.processed_blocks.insert(new_block)

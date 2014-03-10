@@ -12,6 +12,7 @@ from . import (config,)
 
 D = decimal.Decimal
 API_SESSION = Session()
+API_INSIGHT_SESSION = Session()
 
 def assets_to_asset_pair(asset1, asset2):
     """Pair labeling rules are:
@@ -51,11 +52,22 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
     )[0]
     #^ use requests.Session to utilize connectionpool and keepalive (avoid connection setup/teardown overhead)
     if r.status_code != 200:
-        raise Exception("Bad status code returned from counterwalletd: '%s'. payload: '%s'." % (r.status_code, r.text))
-    
-    result = r.json()
+        raise Exception("Bad status code returned from counterwalletd: '%s'. result body: '%s'." % (r.status_code, r.text))
+        result = None
+    else:
+        result = r.json()
     if abort_on_error and 'error' in result:
         raise Exception("Got back error from server: %s" % result['error'])
+    return result
+
+def call_insight_api(request_string, abort_on_error=False):
+    r = grequests.map((grequests.get(config.INSIGHT + request_string, session=API_INSIGHT_SESSION),) )[0]
+    #^ use requests.Session to utilize connectionpool and keepalive (avoid connection setup/teardown overhead)
+    if r.status_code != 200:
+        raise Exception("Bad status code returned from insight: '%s'. result body: '%s'." % (r.status_code, r.text))
+        result = None
+    else:
+        result = r.json()
     return result
 
 def get_address_cols_for_entity(entity):
@@ -112,6 +124,11 @@ def json_dthandler(obj):
 def normalize_amount(amount, divisible=True):
     if divisible:
         return float((D(amount) / D(config.UNIT)).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN)) 
+    else: return amount
+
+def denormalize_amount(amount, divisible=True):
+    if divisible:
+        return int(amount * config.UNIT)
     else: return amount
 
 def get_btc_supply(normalize=False):

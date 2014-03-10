@@ -21,17 +21,23 @@ from . import (config, util)
 PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
 D = decimal.Decimal
 
-def get_block_indexes_for_dates(mongo_db, start_ts, end_ts):
+
+def get_block_indexes_for_dates(mongo_db, start_dt, end_dt):
     """Returns a 2 tuple (start_block, end_block) result for the block range that encompasses the given start_date
     and end_date unix timestamps"""
-    start_block = mongo_db.processed_blocks.find_one({"block_time": {"$lte": start_ts} }, sort=[("block_time", pymongo.ASCENDING)])
-    end_block = mongo_db.processed_blocks.find_one({"block_time": {"$gte": end_ts} }, sort=[("block_time", pymongo.ASCENDING)])
+    start_block = mongo_db.processed_blocks.find_one({"block_time": {"$lte": start_dt} }, sort=[("block_time", pymongo.ASCENDING)])
+    end_block = mongo_db.processed_blocks.find_one({"block_time": {"$gte": end_dt} }, sort=[("block_time", pymongo.ASCENDING)])
     start_block_index = config.BLOCK_FIRST if not start_block else start_block['block_index']
     if not end_block:
         end_block_index = mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)])['block_index']
     else:
         end_block_index = end_block['block_index']
     return (start_block_index, end_block_index)
+
+def get_block_time(block_index):
+    block = mongo_db.processed_blocks.find_one({"block_index": block_index })
+    if not block: return None
+    return block['block_time']
 
 def serve_api(mongo_db, redis_client):
     # Preferneces are just JSON objects... since we don't force a specific form to the wallet on
@@ -51,6 +57,22 @@ def serve_api(mongo_db, redis_client):
             'caught_up': config.CAUGHT_UP,
             'last_message_index': config.LAST_MESSAGE_INDEX, 
             'testnet': config.TESTNET 
+        }
+
+    @dispatcher.add_method
+    def get_btc_address_info(address):
+        return util.call_insight_api('/api/addr/' + address + '/', abort_on_error=True)
+
+    @dispatcher.add_method
+    def get_btc_address_utxos(address):
+        return util.call_insight_api('/api/addr/' + address + '/utxo/', abort_on_error=True)
+    
+    @dispatcher.add_method
+    def get_btc_block_height():
+        data = util.call_insight_api('/sync', abort_on_error=True)
+        return {
+            'caught_up': data['syncPercentage'] < 100,
+            'block_height': data['blockChainHeight'],
         }
 
     @dispatcher.add_method
@@ -114,7 +136,8 @@ def serve_api(mongo_db, redis_client):
             end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not start_ts: #default to 30 days before the end date
             start_ts = end_ts - (30 * 24 * 60 * 60) 
-        start_block_index, end_block_index = get_block_indexes_for_dates(mongo_db, start_ts, end_ts)
+        start_block_index, end_block_index = get_block_indexes_for_dates(mongo_db,
+            datetime.datetime.utcfromtimestamp(start_ts), datetime.datetime.utcfromtimestamp(end_ts))
         
         #get all blocks (to derive block times) between the two block indexes
         blocks = mongo_db.processed_blocks.find(
@@ -592,8 +615,14 @@ def serve_api(mongo_db, redis_client):
         return last_trades 
 
     @dispatcher.add_method
-    def get_order_book(asset1, asset2):
-        """Gets the current order book for a specified asset pair"""
+    def get_order_book(asset1, asset2, normalized_fee_required=None, normalized_fee_provided=None):
+        """Gets the current order book for a specified asset pair
+        
+        @param: normalized_fee_required: Only specify if buying BTC. If specified, the order book will be pruned down to only
+         show orders at and above this fee_required
+        @param: normalized_fee_provided: Only specify if selling BTC. If specified, the order book will be pruned down to only
+         show orders at and above this fee_provided
+        """
         base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
         base_asset_info = mongo_db.tracked_assets.find_one({'asset': base_asset})
         quote_asset_info = mongo_db.tracked_assets.find_one({'asset': quote_asset})
@@ -602,20 +631,37 @@ def serve_api(mongo_db, redis_client):
             raise Exception("Invalid asset(s)")
         
         #TODO: limit # results to 8 or so for each book (we have to sort as well to limit)
+        base_bid_filters = [
+            {"field": "get_asset", "op": "==", "value": base_asset},
+            {"field": "give_asset", "op": "==", "value": quote_asset},
+            {'field': 'give_remaining', 'op': '!=', 'value': 0}, #don't show empty
+        ]
+        if normalized_fee_required:
+            base_bid_filters.append({"field": "fee_required", "op": ">=", "value": util.denormalize_amount(normalized_fee_required)})
+        if normalized_fee_provided:
+            base_bid_filters.append({"field": "fee_provided", "op": ">=", "value": util.denormalize_amount(normalized_fee_provided)})
         base_bid_orders = util.call_jsonrpc_api("get_orders", {
-            'filters': [
-                {"field": "get_asset", "op": "==", "value": base_asset},
-                {"field": "give_asset", "op": "==", "value": quote_asset},
-                {'field': 'give_remaining', 'op': '!=', 'value': 0}, #don't show empty
-            ],
-            'show_expired': False}, abort_on_error=True)['result']
+            'filters': base_bid_filters,
+            'show_expired': False,
+             'order_by': 'block_index',
+             'order_dir': 'asc',
+            }, abort_on_error=True)['result']
+
+        base_ask_filters = [
+            {"field": "get_asset", "op": "==", "value": quote_asset},
+            {"field": "give_asset", "op": "==", "value": base_asset},
+            {'field': 'give_remaining', 'op': '!=', 'value': 0}, #don't show empty
+        ]
+        if normalized_fee_required:
+            base_ask_filters.append({"field": "fee_required", "op": ">=", "value": util.denormalize_amount(normalized_fee_required)})
+        if normalized_fee_provided:
+            base_ask_filters.append({"field": "fee_provided", "op": ">=", "value": util.denormalize_amount(normalized_fee_provided)})
         base_ask_orders = util.call_jsonrpc_api("get_orders", {
-            'filters': [
-                {"field": "get_asset", "op": "==", "value": quote_asset},
-                {"field": "give_asset", "op": "==", "value": base_asset},
-                {'field': 'give_remaining', 'op': '!=', 'value': 0}, #don't show empty
-            ],
-            'show_expired': False}, abort_on_error=True)['result']
+            'filters': base_ask_filters,
+            'show_expired': False,
+             'order_by': 'block_index',
+             'order_dir': 'asc',
+            }, abort_on_error=True)['result']
         
         def make_book(orders, isBidBook):
             book = {}
@@ -665,7 +711,14 @@ def serve_api(mongo_db, redis_client):
             ask_depth += D(o['amount'])
             o['depth'] = float(ask_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
         ask_depth = float(ask_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
-        #
+        
+        #compose raw orders
+        orders = base_bid_orders + base_ask_orders
+        for o in orders:
+            #add in the blocktime to help makes interfaces more user-friendly (i.e. avoid displaying block
+            # indexes and display datetimes instead)
+            o['block_time'] = get_block_time(o['block_index']) * 1000
+        
         return {
             'base_bid_book': base_bid_book,
             'base_ask_book': base_ask_book,
@@ -673,6 +726,7 @@ def serve_api(mongo_db, redis_client):
             'ask_depth': ask_depth,
             'bid_ask_spread': bid_ask_spread,
             'bid_ask_median': bid_ask_median,
+            'raw_orders': orders,
         }
     
     @dispatcher.add_method
