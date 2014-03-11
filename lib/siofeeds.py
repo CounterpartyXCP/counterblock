@@ -2,42 +2,50 @@ import logging
 import datetime
 import time
 import collections
+import zmq.green as zmq
 from socketio import socketio_manage
 from socketio.mixins import BroadcastMixin
 from socketio.namespace import BaseNamespace
 
-class SocketIOEventServer(object):
+
+class MessagesFeedServerNamespace(BaseNamespace):
+    def listener(self):
+        #subscribe to the zmq queue
+        sock = self.request['zmq_context'].socket(zmq.SUB)
+        sock.setsockopt(zmq.SUBSCRIBE, "")
+        sock.connect('inproc://queue_eventfeed')
+        
+        #as we receive messages, send them out to the socket.io listener
+        while True:
+            event = sock.recv_json()
+            logging.info("socket.io: Sending message ID %s -- %s:%s" % (
+                event['_message_index'], event['_category'], event['_command']))
+            self.emit(event['_category'], event)
+
+    def on_subscribe(self):
+        if 'listening' not in self.socket.session:
+            self.socket.session['listening'] = True
+            self.spawn(self.listener)
+
+        
+class SocketIOMessagesFeedServer(object):
     """
     Funnel messages coming from counterpartyd polls to socket.io clients
     """
-    def __init__(self, to_socketio_queue):
-        self.to_socketio_queue = to_socketio_queue
-        
-    def create_sio_packet(self, msg_type, msg):
-        return {
-            "type": "event",
-            "name": msg_type,
-            "args": msg
-        }
-        
+    def __init__(self, zmq_context):
+        # Dummy request object to maintain state between Namespace initialization.
+        self.request = {
+            'zmq_context': zmq_context,
+        }        
+            
     def __call__(self, environ, start_response):
         if not environ['PATH_INFO'].startswith('/socket.io'):
             start_response('401 UNAUTHORIZED', [])
             return ''
-        socketio = environ['socketio']
-        while True:
-            event = self.to_socketio_queue.get(block=True, timeout=None)
-            event['msg']['_message_index'] = event['message_index']
-            event['msg']['_block_index'] = event['block_index']
-            event['msg']['_block_time'] = event['block_time']
-            event['msg']['_command'] = event['command']
-            forwarded_msg = self.create_sio_packet(event['event'], event['msg']) #forward over as-is
-            logging.info("socket.io: Sending message ID %s -- %s:%s" % (
-                event['msg']['_message_index'], event['event'], event['msg']['_command']))
-            socketio.send_packet(forwarded_msg)
+        socketio_manage(environ, {'': MessagesFeedServerNamespace}, self.request)
 
 
-class ChatServerNamespace(BaseNamespace, BroadcastMixin):
+class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
     MAX_TEXT_LEN = 500
     TIME_BETWEEN_MESSAGES = 10 #in seconds (auto-adjust this in the future based on chat speed/volume)
     
@@ -81,7 +89,7 @@ class ChatServerNamespace(BaseNamespace, BroadcastMixin):
                 last_message_ago, self.TIME_BETWEEN_MESSAGES))
         
 
-class SocketIOChatServer(object):
+class SocketIOChatFeedServer(object):
     """
     Funnel messages from counterparty.io client chats to other clients
     """
@@ -96,4 +104,4 @@ class SocketIOChatServer(object):
         if not environ['PATH_INFO'].startswith('/socket.io'):
             start_response('401 UNAUTHORIZED', [])
             return ''
-        socketio_manage(environ, {'': ChatServerNamespace}, self.request)
+        socketio_manage(environ, {'': ChatFeedServerNamespace}, self.request)

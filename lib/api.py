@@ -8,6 +8,7 @@ import decimal
 import operator
 import logging
 import copy
+
 from logging import handlers as logging_handlers
 from gevent import wsgi
 import cherrypy
@@ -34,7 +35,7 @@ def get_block_indexes_for_dates(mongo_db, start_dt, end_dt):
         end_block_index = end_block['block_index']
     return (start_block_index, end_block_index)
 
-def get_block_time(block_index):
+def get_block_time(mongo_db, block_index):
     block = mongo_db.processed_blocks.find_one({"block_index": block_index })
     if not block: return None
     return block['block_time']
@@ -58,6 +59,14 @@ def serve_api(mongo_db, redis_client):
             'last_message_index': config.LAST_MESSAGE_INDEX, 
             'testnet': config.TESTNET 
         }
+        
+    @dispatcher.add_method
+    def get_messagefeed_messages_by_index(message_indexes): #yeah, dumb name :)
+        messages = util.call_jsonrpc_api("get_messages_by_index", [message_indexes,], abort_on_error=True)['result']
+        events = []
+        for m in messages:
+            events.push(create_message_feed_obj_from_cpd_message(mongo_db, messages))
+        return events
 
     @dispatcher.add_method
     def get_btc_address_info(address):
@@ -717,7 +726,7 @@ def serve_api(mongo_db, redis_client):
         for o in orders:
             #add in the blocktime to help makes interfaces more user-friendly (i.e. avoid displaying block
             # indexes and display datetimes instead)
-            o['block_time'] = get_block_time(o['block_index']) * 1000
+            o['block_time'] = time.mktime(get_block_time(mongo_db, o['block_index']).timetuple()) * 1000
         
         return {
             'base_bid_book': base_bid_book,
@@ -872,11 +881,6 @@ def serve_api(mongo_db, redis_client):
         return result['result']
 
 
-    class Root(object):
-        @cherrypy.expose
-        def index(self):
-            return ''
-
     class API(object):
         @cherrypy.expose
         def index(self):
@@ -906,41 +910,36 @@ def serve_api(mongo_db, redis_client):
         'log.access_log.propagate': False,
         "server.logToScreen" : False
     })
-    rootApplication = cherrypy.Application(Root(), script_name="")
-    apiApplication = cherrypy.Application(API(), script_name="/api")
-    cherrypy.tree.mount(rootApplication, '/',
-        {'/': { 'tools.trailing_slash.on': False,
-                'request.dispatch': cherrypy.dispatch.Dispatcher()}})    
-    cherrypy.tree.mount(apiApplication, '/api/',
-        {'/': { 'tools.trailing_slash.on': False,
-                'request.dispatch': cherrypy.dispatch.Dispatcher()}})    
-    
+    app_config = {
+        '/': {
+            'tools.trailing_slash.on': False,
+        },
+    }
+    application = cherrypy.Application(API(), script_name="/api", config=app_config)
+
     #disable logging of the access and error logs to the screen
-    rootApplication.log.access_log.propagate = False
-    rootApplication.log.error_log.propagate = False
-    apiApplication.log.access_log.propagate = False
-    apiApplication.log.error_log.propagate = False
+    application.log.access_log.propagate = False
+    application.log.error_log.propagate = False
         
     #set up a rotating log handler for this application
     # Remove the default FileHandlers if present.
-    apiApplication.log.error_file = ""
-    apiApplication.log.access_file = ""
-    maxBytes = getattr(apiApplication.log, "rot_maxBytes", 10000000)
-    backupCount = getattr(apiApplication.log, "rot_backupCount", 1000)
+    application.log.error_file = ""
+    application.log.access_file = ""
+    maxBytes = getattr(application.log, "rot_maxBytes", 10000000)
+    backupCount = getattr(application.log, "rot_backupCount", 1000)
     # Make a new RotatingFileHandler for the error log.
-    fname = getattr(apiApplication.log, "rot_error_file", os.path.join(config.data_dir, "api.error.log"))
+    fname = getattr(application.log, "rot_error_file", os.path.join(config.data_dir, "api.error.log"))
     h = logging_handlers.RotatingFileHandler(fname, 'a', maxBytes, backupCount)
     h.setLevel(logging.DEBUG)
     h.setFormatter(cherrypy._cplogging.logfmt)
-    apiApplication.log.error_log.addHandler(h)
+    application.log.error_log.addHandler(h)
     # Make a new RotatingFileHandler for the access log.
-    fname = getattr(apiApplication.log, "rot_access_file", os.path.join(config.data_dir, "api.access.log"))
+    fname = getattr(application.log, "rot_access_file", os.path.join(config.data_dir, "api.access.log"))
     h = logging_handlers.RotatingFileHandler(fname, 'a', maxBytes, backupCount)
     h.setLevel(logging.DEBUG)
     h.setFormatter(cherrypy._cplogging.logfmt)
-    apiApplication.log.access_log.addHandler(h)
+    application.log.access_log.addHandler(h)
     
     #start up the API listener/handler
-    server = wsgi.WSGIServer(
-        (config.RPC_HOST, int(config.RPC_PORT)), cherrypy.tree)
+    server = wsgi.WSGIServer((config.RPC_HOST, int(config.RPC_PORT)), application, log=None)
     server.serve_forever()

@@ -17,6 +17,7 @@ import time
 
 import appdirs
 import pymongo
+import zmq.green as zmq
 import redis
 import redis.connection
 redis.connection.socket = gevent.socket #make redis play well with gevent
@@ -25,6 +26,7 @@ from socketio import server as socketio_server
 from requests.auth import HTTPBasicAuth
 
 from lib import (config, api, events, blockfeed, siofeeds, util)
+
 
 if __name__ == '__main__':
     # Parse command-line arguments.
@@ -424,24 +426,27 @@ if __name__ == '__main__':
     else:
         redis_client = None
     
-    to_socketio_queue = gevent.queue.Queue()
-    
+    #set up zeromq publisher for sending out received events to connected socket.io clients
+    zmq_context = zmq.Context()
+    zmq_publisher_eventfeed = zmq_context.socket(zmq.PUB)
+    zmq_publisher_eventfeed.bind('inproc://queue_eventfeed')
+
     logging.info("Starting up socket.io server (block event feed)...")
     sio_server = socketio_server.SocketIOServer(
         (config.SOCKETIO_HOST, config.SOCKETIO_PORT),
-        siofeeds.SocketIOEventServer(to_socketio_queue),
+        siofeeds.SocketIOMessagesFeedServer(zmq_context),
         resource="socket.io", policy_server=False)
     sio_server.start() #start the socket.io server greenlets
 
     logging.info("Starting up socket.io server (counterwallet chat)...")
     sio_server = socketio_server.SocketIOServer(
         (config.SOCKETIO_CHAT_HOST, config.SOCKETIO_CHAT_PORT),
-        siofeeds.SocketIOChatServer(mongo_db),
+        siofeeds.SocketIOChatFeedServer(mongo_db),
         resource="socket.io", policy_server=False)
     sio_server.start() #start the socket.io server greenlets
 
     logging.info("Starting up counterpartyd block feed poller...")
-    gevent.spawn(blockfeed.process_cpd_blockfeed, mongo_db, to_socketio_queue)
+    gevent.spawn(blockfeed.process_cpd_blockfeed, mongo_db, zmq_publisher_eventfeed)
 
     logging.debug("Starting event timer: expire_stale_prefs")
     gevent.spawn_later(86400, events.expire_stale_prefs)

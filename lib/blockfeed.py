@@ -16,7 +16,7 @@ import pymongo
 from lib import (config, util)
 D = decimal.Decimal
 
-def process_cpd_blockfeed(mongo_db, to_socketio_queue):
+def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
     LATEST_BLOCK_INIT = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
 
     def blow_away_db(prefs):
@@ -347,31 +347,8 @@ def process_cpd_blockfeed(mongo_db, to_socketio_queue):
                 # socket.io connection will always be severed as well??)
                 if last_processed_block['block_index'] - my_latest_block['block_index'] < 10: #>= max likely reorg size we'd ever see
                     #for each new entity, send out a message via socket.io
-                    event = {
-                        'message_index': msg['message_index'],
-                        'command': msg['command'],
-                        'block_index': msg['block_index'],
-                        'event': msg['category'],
-                        'block_time': cur_block['block_time'], #epoch ts
-                        'block_time_str': cur_block['block_time_str'],
-                        'msg': msg_data
-                    }
-                    #insert custom fields in certain events...
-                    if(msg['category'] in ['credits', 'debits']):
-                        assert bal_change
-                        event['_amount_normalized'] = bal_change['amount_normalized']
-                        event['_balance'] = bal_change['new_balance']
-                        event['_balance_normalized'] = bal_change['new_balance_normalized']
-                    elif(msg['category'] in ['orders',] and msg['command'] == 'insert'):
-                        get_asset_info = mongo_db.tracked_assets.find_one({'asset': msg_data['get_asset']})
-                        give_asset_info = mongo_db.tracked_assets.find_one({'asset': msg_data['give_asset']})
-                        event['_get_asset_divisible'] = get_asset_info['divisible']
-                        event['_give_asset_divisible'] = give_asset_info['divisible']
-                    elif(msg['category'] in ['dividends', 'sends',]):
-                        asset_info = mongo_db.tracked_assets.find_one({'asset': msg_data['asset']})
-                        event['_divisible'] = asset_info['divisible']
-                    
-                    to_socketio_queue.put(event)
+                    event = util.create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=msg_data)
+                    zmq_publisher_eventfeed.send_json(event)
 
                 #this is the last processed message index
                 config.LAST_MESSAGE_INDEX = msg['message_index']

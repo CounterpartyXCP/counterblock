@@ -2,11 +2,14 @@ import os
 import json
 import base64
 import logging
-import grequests
-from requests import Session
 import datetime
 import time
+import copy
 import decimal
+
+import pymongo
+import grequests
+from requests import Session
 
 from . import (config,)
 
@@ -116,6 +119,41 @@ def json_dthandler(obj):
         return int(time.mktime(obj.timetuple())) * 1000
     else:
         raise TypeError, 'Object of type %s with value of %s is not JSON serializable' % (type(obj), repr(obj))
+
+
+def create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=None):
+    """This function takes a message from counterpartyd's message feed and mutates it a bit to be suitable to be
+    sent through the counterwalletd message feed to an end-client"""
+    if not msg_data:
+        msg_data = json.loads(msg['bindings'])
+
+    event = copy.deepcopy(msg_data)
+    event['_message_index'] = msg['message_index']
+    event['_command'] = msg['command']
+    event['_block_index'] = msg['block_index']
+    event['_category'] = msg['category']
+    #event['_block_time'] = msg['block_time']
+    
+    #insert custom fields in certain events...
+    if(event['_category'] in ['credits', 'debits']):
+        #find the last balance change on record
+        bal_change = mongo_db.balance_changes.find_one({ 'address': event['address'], 'asset': event['asset'] },
+            sort=[("block_time", pymongo.DESCENDING)])
+        assert bal_change
+        event['_amount_normalized'] = bal_change['amount_normalized']
+        event['_balance'] = bal_change['new_balance']
+        event['_balance_normalized'] = bal_change['new_balance_normalized']
+    elif(event['_category'] in ['orders',] and event['_command'] == 'insert'):
+        get_asset_info = mongo_db.tracked_assets.find_one({'asset': event['get_asset']})
+        give_asset_info = mongo_db.tracked_assets.find_one({'asset': event['give_asset']})
+        assert get_asset_info and give_asset_info
+        event['_get_asset_divisible'] = get_asset_info['divisible']
+        event['_give_asset_divisible'] = give_asset_info['divisible']
+    elif(event['_category'] in ['dividends', 'sends',]):
+        asset_info = mongo_db.tracked_assets.find_one({'asset': event['asset']})
+        assert asset_info
+        event['_divisible'] = asset_info['divisible']
+    return event
 
 
 #############
