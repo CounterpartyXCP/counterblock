@@ -132,6 +132,7 @@ def create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=None):
     event['_command'] = msg['command']
     event['_block_index'] = msg['block_index']
     event['_category'] = msg['category']
+    event['_status'] = msg['status']
     #event['_block_time'] = msg['block_time']
     
     #insert custom fields in certain events...

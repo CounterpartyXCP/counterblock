@@ -198,13 +198,18 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                 #keep out the riff raff...
                 status = msg_data.get('status', 'valid').lower()
                 if not status.startswith('valid') and not status.startswith('pending') and not status.startswith('completed'):
+                    #send out the message to listening clients
+                    event = util.create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=msg_data)
+                    zmq_publisher_eventfeed.send_json(event)
                     continue
-                
                 
                 #HANDLE REORGS
                 if msg['category'] == 'reorg':
                     #prune back to and including the specified message_index
-                    my_latest_block = prune_my_stale_blocks(msg_data['message_index'] - 1)
+                    my_latest_block = prune_my_stale_blocks(msg_data['block_index'] - 1)
+                    #send out the message to listening clients
+                    event = util.create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=msg_data)
+                    zmq_publisher_eventfeed.send_json(event)
                     continue
                 
                 #track assets
@@ -346,7 +351,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                 # on a resync (as we may give a 525 to kick the logged in clients out, but we can't guarantee that the
                 # socket.io connection will always be severed as well??)
                 if last_processed_block['block_index'] - my_latest_block['block_index'] < 10: #>= max likely reorg size we'd ever see
-                    #for each new entity, send out a message via socket.io
+                    #send out the message to listening clients
                     event = util.create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=msg_data)
                     zmq_publisher_eventfeed.send_json(event)
 

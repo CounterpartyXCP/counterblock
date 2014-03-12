@@ -65,7 +65,7 @@ def serve_api(mongo_db, redis_client):
         messages = util.call_jsonrpc_api("get_messages_by_index", [message_indexes,], abort_on_error=True)['result']
         events = []
         for m in messages:
-            events.push(create_message_feed_obj_from_cpd_message(mongo_db, messages))
+            events.append(util.create_message_feed_obj_from_cpd_message(mongo_db, messages))
         return events
 
     @dispatcher.add_method
@@ -78,7 +78,7 @@ def serve_api(mongo_db, redis_client):
     
     @dispatcher.add_method
     def get_btc_block_height():
-        data = util.call_insight_api('/sync', abort_on_error=True)
+        data = util.call_insight_api('/api/sync/', abort_on_error=True)
         return {
             'caught_up': data['syncPercentage'] < 100,
             'block_height': data['blockChainHeight'],
