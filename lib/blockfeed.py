@@ -195,6 +195,8 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
             for msg in block_data:
                 msg_data = json.loads(msg['bindings'])
                 
+                logging.info("Got RAW message %s: %s ..." % (msg['message_index'], msg))
+                
                 #keep out the riff raff...
                 status = msg_data.get('status', 'valid').lower()
                 if not status.startswith('valid') and not status.startswith('pending') and not status.startswith('completed'):
@@ -222,38 +224,66 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                         assert tracked_asset
                         mongo_db.tracked_assets.update(
                             {'asset': msg_data['asset']},
-                            {"$set": {'locked': True, '_at_block': cur_block_index},
+                            {"$set": {
+                                '_at_block': cur_block_index,
+                                '_at_block_time': cur_block['block_time_obj'], 
+                                '_change_type': 'locked',
+                                'locked': True,
+                             },
                              "$push": {'_history': tracked_asset } }, upsert=False)
                     elif msg_data['transfer']: #transfer asset
                         assert tracked_asset
                         mongo_db.tracked_assets.update(
                             {'asset': msg_data['asset']},
-                            {"$set": {'owner': msg_data['issuer'], '_at_block': cur_block_index},
+                            {"$set": {
+                                '_at_block': cur_block_index,
+                                '_at_block_time': cur_block['block_time_obj'], 
+                                '_change_type': 'transferred',
+                                'owner': msg_data['issuer'],
+                             },
+                             "$push": {'_history': tracked_asset } }, upsert=False)
+                    elif msg_data['amount'] == 0: #change description
+                        assert tracked_asset
+                        mongo_db.tracked_assets.update(
+                            {'asset': msg_data['asset']},
+                            {"$set": {
+                                '_at_block': cur_block_index,
+                                '_at_block_time': cur_block['block_time_obj'], 
+                                '_change_type': 'changed_description',
+                                'description': msg_data['description'],
+                             },
                              "$push": {'_history': tracked_asset } }, upsert=False)
                     else: #issue new asset or issue addition qty of an asset
-                        if not tracked_asset:
+                        if not tracked_asset: #new issuance
                             tracked_asset = {
+                                '_change_type': 'created',
+                                '_at_block': cur_block_index, #the block ID this asset is current for
+                                '_at_block_time': cur_block['block_time_obj'], 
+                                #^ NOTE: (if there are multiple asset tracked changes updates in a single block for the same
+                                # asset, the last one with _at_block == that block id in the history array is the
+                                # final version for that asset at that block
                                 'asset': msg_data['asset'],
                                 'owner': msg_data['issuer'],
+                                'description': msg_data['description'],
                                 'divisible': msg_data['divisible'],
                                 'locked': False,
                                 'total_issued': msg_data['amount'],
-                                'total_issued_normalzied': util.normalize_amount(msg_data['amount'], msg_data['divisible']),
-                                '_at_block': cur_block_index, #the block ID this asset is current for
-                                #(if there are multiple asset tracked changes updates in a single block for the same
-                                # asset, the last one with _at_block == that block id in the history array is the
-                                # final version for that asset at that block
+                                'total_issued_normalized': util.normalize_amount(msg_data['amount'], msg_data['divisible']),
                                 '_history': [] #to allow for block rollbacks
                             }
                             mongo_db.tracked_assets.insert(tracked_asset)
-                        else:
+                        else: #issuing additional of existing asset
                             assert tracked_asset
                             mongo_db.tracked_assets.update(
                                 {'asset': msg_data['asset']},
-                                {"$set": {'_at_block': cur_block_index},
+                                {"$set": {
+                                    '_at_block': cur_block_index,
+                                    '_at_block_time': cur_block['block_time_obj'], 
+                                    '_change_type': 'issued_more',
+                                 },
                                  "$inc": {
                                      'total_issued': msg_data['amount'],
-                                     'total_issued_normalzied': util.normalize_amount(msg_data['amount'], msg_data['divisible'])
+                                     'total_issued_normalized': util.normalize_amount(msg_data['amount'], msg_data['divisible'])
                                  },
                                  "$push": {'_history': tracked_asset} }, upsert=False)
                 

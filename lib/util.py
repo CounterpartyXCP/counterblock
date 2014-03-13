@@ -54,9 +54,10 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
             session=API_SESSION),)
     )[0]
     #^ use requests.Session to utilize connectionpool and keepalive (avoid connection setup/teardown overhead)
-    if r.status_code != 200:
-        raise Exception("Bad status code returned from counterwalletd: '%s'. result body: '%s'." % (r.status_code, r.text))
-        result = None
+    if not r:
+        raise Exception("Could not contact counterpartyd!")
+    elif r.status_code != 200:
+        raise Exception("Bad status code returned from counterpartyd: '%s'. result body: '%s'." % (r.status_code, r.text))
     else:
         result = r.json()
     if abort_on_error and 'error' in result:
@@ -66,9 +67,10 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
 def call_insight_api(request_string, abort_on_error=False):
     r = grequests.map((grequests.get(config.INSIGHT + request_string, session=API_INSIGHT_SESSION),) )[0]
     #^ use requests.Session to utilize connectionpool and keepalive (avoid connection setup/teardown overhead)
-    if r.status_code != 200:
+    if not r:
+        raise Exception("Could not contact insight!")
+    elif r.status_code != 200:
         raise Exception("Bad status code returned from insight: '%s'. result body: '%s'." % (r.status_code, r.text))
-        result = None
     else:
         result = r.json()
     return result
@@ -132,8 +134,10 @@ def create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=None):
     event['_command'] = msg['command']
     event['_block_index'] = msg['block_index']
     event['_category'] = msg['category']
-    event['_status'] = msg['status']
-    #event['_block_time'] = msg['block_time']
+    event['_status'] = msg_data.get('status', 'valid')
+
+    if event['_status'].startswith('invalid'):
+        return event 
     
     #insert custom fields in certain events...
     if(event['_category'] in ['credits', 'debits']):
@@ -150,6 +154,12 @@ def create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=None):
         assert get_asset_info and give_asset_info
         event['_get_asset_divisible'] = get_asset_info['divisible']
         event['_give_asset_divisible'] = give_asset_info['divisible']
+    elif(event['_category'] in ['orders_matches',] and event['_command'] == 'insert'):
+        forward_asset_info = mongo_db.tracked_assets.find_one({'asset': event['forward_asset']})
+        backward_asset_info = mongo_db.tracked_assets.find_one({'asset': event['backward_asset']})
+        assert forward_asset_info and backward_asset_info
+        event['_forward_asset_info'] = forward_asset_info['divisible']
+        event['_backward_asset_info'] = backward_asset_info['divisible']
     elif(event['_category'] in ['dividends', 'sends',]):
         asset_info = mongo_db.tracked_assets.find_one({'asset': event['asset']})
         assert asset_info

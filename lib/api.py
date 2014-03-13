@@ -291,10 +291,10 @@ def serve_api(mongo_db, redis_client):
             #modify some of the properties of the returned asset_info for BTC and XCP
             if asset == 'BTC':
                 asset_info['total_issued'] = util.get_btc_supply(normalize=False)
-                asset_info['total_issued_normalzied'] = util.normalize_amount(asset_info['total_issued'])
+                asset_info['total_issued_normalized'] = util.normalize_amount(asset_info['total_issued'])
             elif asset == 'XCP':
                 asset_info['total_issued'] = util.call_jsonrpc_api("get_xcp_supply", [], abort_on_error=True)['result']
-                asset_info['total_issued_normalzied'] = util.normalize_amount(asset_info['total_issued'])
+                asset_info['total_issued_normalized'] = util.normalize_amount(asset_info['total_issued'])
                 
             if not asset_info:
                 raise Exception("Invalid asset: %s" % asset)
@@ -506,10 +506,10 @@ def serve_api(mongo_db, redis_client):
                 'price_in_btc': price_in_btc, #current price of asset against BTC
                 'aggregated_price_in_xcp': aggregated_price_in_xcp, 
                 'aggregated_price_in_btc': aggregated_price_in_btc,
-                'total_supply': asset_info['total_issued_normalzied'], 
-                'market_cap_in_xcp': float( (D(asset_info['total_issued_normalzied']) / D(price_in_xcp)).quantize(
+                'total_supply': asset_info['total_issued_normalized'], 
+                'market_cap_in_xcp': float( (D(asset_info['total_issued_normalized']) / D(price_in_xcp)).quantize(
                     D('.00000000'), rounding=decimal.ROUND_HALF_EVEN) ) if price_in_xcp else None,
-                'market_cap_in_btc': float( (D(asset_info['total_issued_normalzied']) / D(price_in_btc)).quantize(
+                'market_cap_in_btc': float( (D(asset_info['total_issued_normalized']) / D(price_in_btc)).quantize(
                     D('.00000000'), rounding=decimal.ROUND_HALF_EVEN) ) if price_in_btc else None,
                 '24h_summary': _24h_vols,
                 #^ total amount traded of that asset in all markets in last 24h
@@ -745,6 +745,115 @@ def serve_api(mongo_db, redis_client):
             'owner': {"$in": addresses}
         }, {"_id":0}).sort("asset", pymongo.ASCENDING)
         return list(result)
+
+
+    @dispatcher.add_method
+    def get_asset_history(asset):
+        """
+        Returns a list of changes for the specified asset, from its inception to the current time.
+        
+        Changes are returned as a list of dicts, with each dict having the following format:
+        * type: One of 'created', 'issued_more', 'changed_description', 'locked', 'transferred', 'called_back'
+        * 'at_block': The block number this change took effect
+        * 'at_block_time': The block time this change took effect
+        
+        * IF type = 'created': Has the following fields, as specified when the asset was initially created:
+          * owner, description, divisible, locked, total_issued, total_issued_normalized
+        * IF type = 'issued_more':
+          * 'additional': The additional quantity issued (raw)
+          * 'additional_normalized': The additional quantity issued (normalized)
+          * 'total_issued': The total issuance after this change (raw)
+          * 'total_issued_normalized': The total issuance after this change (normalized)
+        * IF type = 'changed_description':
+          * 'old_description': The old description
+          * 'new_description': The new description
+        * IF type = 'locked': NO EXTRA FIELDS
+        * IF type = 'transferred':
+          * 'new_owner': The address the asset was transferred to
+        * IF type = 'called_back':
+          * 'percentage': The percentage of the asset called back (between 0 and 100)
+        """
+        asset = mongo_db.tracked_assets.find_one({ 'asset': asset }, {"_id":0})
+        if not asset:
+            raise Exception("Unrecognized asset")
+        
+        #run down through _history in reverse (from newest to oldest change) and compose a diff log
+        history = []
+        lastState = asset #i.e. the current state of the asset
+        for e in reversed(asset['_history']):
+            if e['_change_type'] == 'created': #new issuance (should be the first entry, and only the first entry)
+                assert e['_at_block'] == asset['_history'][0]['_at_block']
+                history.insert(0, {
+                    'type': 'created',
+                    'owner': e['owner'],
+                    'description': e['description'],
+                    'divisible': e['divisible'],
+                    'locked': e['locked'],
+                    'total_issued': e['total_issued'],
+                    'total_issued_normalized': e['total_issued_normalized'],
+                    'at_block': lastState['_at_block'],
+                    'at_block_time': time.mktime(lastState['_at_block_time'].timetuple()) * 1000,
+                })
+                continue
+
+            if lastState['_change_type'] == 'locked':
+                assert e['locked'] !=  lastState['locked']
+                history.insert(0, {
+                    'type': 'locked',
+                    'at_block': lastState['_at_block'],
+                    'at_block_time': time.mktime(lastState['_at_block_time'].timetuple()) * 1000,
+                })
+            elif lastState['_change_type'] == 'transferred':
+                assert e['owner'] != lastState['owner']
+                history.insert(0, {
+                    'type': 'transferred',
+                    'at_block': lastState['_at_block'],
+                    'at_block_time': time.mktime(lastState['_at_block_time'].timetuple()) * 1000,
+                    'new_owner': lastState['owner'],
+                })
+            elif lastState['_change_type'] == 'changed_description':
+                assert e['description'] !=  lastState['description']
+                history.insert(0, {
+                    'type': 'changed_description',
+                    'at_block': lastState['_at_block'],
+                    'at_block_time': time.mktime(lastState['_at_block_time'].timetuple()) * 1000,
+                    'old_description': e['description'],
+                    'new_description': lastState['description'],
+                })
+            else: #issue additional
+                assert lastState['issued_more']
+                history.insert(0, {
+                    'type': 'issued_more',
+                    'at_block': lastState['_at_block'],
+                    'at_block_time': time.mktime(lastState['_at_block_time'].timetuple()) * 1000,
+                    'additional': lastState['total_issued'] - e['total_issued'],
+                    'additional_normalized': lastState['total_issued_normalized'] - e['total_issued_normalized'],
+                    'total_issued': lastState['total_issued'],
+                    'total_issued_normalized': lastState['total_issued_normalized'],
+                })
+            lastState = e
+        
+        #get callbacks externally via the cpd API, and merge in with the asset history we composed
+        callbacks = util.call_jsonrpc_api("get_callbacks",
+            [{'field': 'asset', 'op': '==', 'value': asset['asset']},], abort_on_error=True)['result']
+        final_history = []
+        if len(callbacks):
+            for e in history: #history goes from earliest to latest (since we shifted onto the list)
+                if callbacks[0]['block_index'] < e['at_block']: #throw the callback entry in before this one
+                    block_time = get_block_time(mongo_db, callbacks[0]['block_index'])
+                    assert block_time
+                    final_history.append({
+                        'type': 'called_back',
+                        'at_block': callbacks[0]['block_index'],
+                        'at_block_time': time.mktime(block_time.timetuple()) * 1000,
+                        'percentage': callbacks[0]['fraction'] * 100,
+                    })
+                    callbacks.pop(0)
+                else:
+                    final_history.append(e)
+        else:
+            final_history = history
+        return final_history
 
     @dispatcher.add_method
     def get_balance_history(asset, addresses, normalize=True, start_ts=None, end_ts=None):
