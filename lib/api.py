@@ -748,10 +748,15 @@ def serve_api(mongo_db, redis_client):
 
 
     @dispatcher.add_method
-    def get_asset_history(asset):
+    def get_asset_history(asset, reverse=False):
         """
         Returns a list of changes for the specified asset, from its inception to the current time.
         
+        @param asset: The asset to retrieve a history on
+        @param reverse: By default, the history is returned in the order of oldest to newest. Set this parameter to True
+        to return items in the order of newest to oldest.
+        
+        @return:
         Changes are returned as a list of dicts, with each dict having the following format:
         * type: One of 'created', 'issued_more', 'changed_description', 'locked', 'transferred', 'called_back'
         * 'at_block': The block number this change took effect
@@ -765,10 +770,11 @@ def serve_api(mongo_db, redis_client):
           * 'total_issued': The total issuance after this change (raw)
           * 'total_issued_normalized': The total issuance after this change (normalized)
         * IF type = 'changed_description':
-          * 'old_description': The old description
+          * 'prev_description': The old description
           * 'new_description': The new description
         * IF type = 'locked': NO EXTRA FIELDS
         * IF type = 'transferred':
+          * 'prev_owner': The address the asset was transferred from
           * 'new_owner': The address the asset was transferred to
         * IF type = 'called_back':
           * 'percentage': The percentage of the asset called back (between 0 and 100)
@@ -777,68 +783,72 @@ def serve_api(mongo_db, redis_client):
         if not asset:
             raise Exception("Unrecognized asset")
         
-        #run down through _history in reverse (from newest to oldest change) and compose a diff log
+        #run down through _history and compose a diff log
         history = []
-        lastState = asset #i.e. the current state of the asset
-        for e in reversed(asset['_history']):
-            if e['_change_type'] == 'created': #new issuance (should be the first entry, and only the first entry)
-                assert e['_at_block'] == asset['_history'][0]['_at_block']
-                history.insert(0, {
+        raw = asset['_history'] + [asset,] #oldest to newest. add on the current state
+        prev = None
+        for i in xrange(len(raw)): #oldest to newest
+            if i == 0:
+                assert raw[i]['_change_type'] == 'created'
+                history.append({
                     'type': 'created',
-                    'owner': e['owner'],
-                    'description': e['description'],
-                    'divisible': e['divisible'],
-                    'locked': e['locked'],
-                    'total_issued': e['total_issued'],
-                    'total_issued_normalized': e['total_issued_normalized'],
-                    'at_block': lastState['_at_block'],
-                    'at_block_time': time.mktime(lastState['_at_block_time'].timetuple()) * 1000,
+                    'owner': raw[i]['owner'],
+                    'description': raw[i]['description'],
+                    'divisible': raw[i]['divisible'],
+                    'locked': raw[i]['locked'],
+                    'total_issued': raw[i]['total_issued'],
+                    'total_issued_normalized': raw[i]['total_issued_normalized'],
+                    'at_block': raw[i]['_at_block'],
+                    'at_block_time': time.mktime(raw[i]['_at_block_time'].timetuple()) * 1000,
                 })
+                prev = raw[i]
                 continue
-
-            if lastState['_change_type'] == 'locked':
-                assert e['locked'] !=  lastState['locked']
-                history.insert(0, {
+            
+            assert prev
+            if raw[i]['_change_type'] == 'locked':
+                assert prev['locked'] != raw[i]['locked']
+                history.append({
                     'type': 'locked',
-                    'at_block': lastState['_at_block'],
-                    'at_block_time': time.mktime(lastState['_at_block_time'].timetuple()) * 1000,
+                    'at_block': raw[i]['_at_block'],
+                    'at_block_time': time.mktime(raw[i]['_at_block_time'].timetuple()) * 1000,
                 })
-            elif lastState['_change_type'] == 'transferred':
-                assert e['owner'] != lastState['owner']
-                history.insert(0, {
+            elif raw[i]['_change_type'] == 'transferred':
+                assert prev['owner'] != raw[i]['owner']
+                history.append({
                     'type': 'transferred',
-                    'at_block': lastState['_at_block'],
-                    'at_block_time': time.mktime(lastState['_at_block_time'].timetuple()) * 1000,
-                    'new_owner': lastState['owner'],
+                    'at_block': raw[i]['_at_block'],
+                    'at_block_time': time.mktime(raw[i]['_at_block_time'].timetuple()) * 1000,
+                    'prev_owner': prev['owner'],
+                    'new_owner': raw[i]['owner'],
                 })
-            elif lastState['_change_type'] == 'changed_description':
-                assert e['description'] !=  lastState['description']
-                history.insert(0, {
+            elif raw[i]['_change_type'] == 'changed_description':
+                assert prev['description'] !=  raw[i]['description']
+                history.append({
                     'type': 'changed_description',
-                    'at_block': lastState['_at_block'],
-                    'at_block_time': time.mktime(lastState['_at_block_time'].timetuple()) * 1000,
-                    'old_description': e['description'],
-                    'new_description': lastState['description'],
+                    'at_block': raw[i]['_at_block'],
+                    'at_block_time': time.mktime(raw[i]['_at_block_time'].timetuple()) * 1000,
+                    'prev_description': prev['description'],
+                    'new_description': raw[i]['description'],
                 })
             else: #issue additional
-                assert lastState['issued_more']
-                history.insert(0, {
+                assert raw[i]['total_issued'] - prev['total_issued'] > 0
+                history.append({
                     'type': 'issued_more',
-                    'at_block': lastState['_at_block'],
-                    'at_block_time': time.mktime(lastState['_at_block_time'].timetuple()) * 1000,
-                    'additional': lastState['total_issued'] - e['total_issued'],
-                    'additional_normalized': lastState['total_issued_normalized'] - e['total_issued_normalized'],
-                    'total_issued': lastState['total_issued'],
-                    'total_issued_normalized': lastState['total_issued_normalized'],
+                    'at_block': raw[i]['_at_block'],
+                    'at_block_time': time.mktime(raw[i]['_at_block_time'].timetuple()) * 1000,
+                    'additional': raw[i]['total_issued'] - prev['total_issued'],
+                    'additional_normalized': raw[i]['total_issued_normalized'] - prev['total_issued_normalized'],
+                    'total_issued': raw[i]['total_issued'],
+                    'total_issued_normalized': raw[i]['total_issued_normalized'],
                 })
-            lastState = e
+            prev = raw[i]
         
         #get callbacks externally via the cpd API, and merge in with the asset history we composed
         callbacks = util.call_jsonrpc_api("get_callbacks",
             [{'field': 'asset', 'op': '==', 'value': asset['asset']},], abort_on_error=True)['result']
         final_history = []
         if len(callbacks):
-            for e in history: #history goes from earliest to latest (since we shifted onto the list)
+            for e in history: #history goes from earliest to latest
                 if callbacks[0]['block_index'] < e['at_block']: #throw the callback entry in before this one
                     block_time = get_block_time(mongo_db, callbacks[0]['block_index'])
                     assert block_time
@@ -853,6 +863,7 @@ def serve_api(mongo_db, redis_client):
                     final_history.append(e)
         else:
             final_history = history
+        if reverse: final_history.reverse()
         return final_history
 
     @dispatcher.add_method

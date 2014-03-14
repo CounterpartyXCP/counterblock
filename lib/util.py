@@ -154,12 +154,12 @@ def create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=None):
         assert get_asset_info and give_asset_info
         event['_get_asset_divisible'] = get_asset_info['divisible']
         event['_give_asset_divisible'] = give_asset_info['divisible']
-    elif(event['_category'] in ['orders_matches',] and event['_command'] == 'insert'):
+    elif(event['_category'] in ['order_matches',] and event['_command'] == 'insert'):
         forward_asset_info = mongo_db.tracked_assets.find_one({'asset': event['forward_asset']})
         backward_asset_info = mongo_db.tracked_assets.find_one({'asset': event['backward_asset']})
         assert forward_asset_info and backward_asset_info
-        event['_forward_asset_info'] = forward_asset_info['divisible']
-        event['_backward_asset_info'] = backward_asset_info['divisible']
+        event['_forward_asset_divisible'] = forward_asset_info['divisible']
+        event['_backward_asset_divisible'] = backward_asset_info['divisible']
     elif(event['_category'] in ['dividends', 'sends',]):
         asset_info = mongo_db.tracked_assets.find_one({'asset': event['asset']})
         assert asset_info
