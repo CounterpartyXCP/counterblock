@@ -65,7 +65,7 @@ def serve_api(mongo_db, redis_client):
         messages = util.call_jsonrpc_api("get_messages_by_index", [message_indexes,], abort_on_error=True)['result']
         events = []
         for m in messages:
-            events.append(util.create_message_feed_obj_from_cpd_message(mongo_db, messages))
+            events.append(util.create_message_feed_obj_from_cpd_message(mongo_db, m))
         return events
 
     @dispatcher.add_method
@@ -87,7 +87,7 @@ def serve_api(mongo_db, redis_client):
     @dispatcher.add_method
     def get_normalized_balances(addresses):
         """
-        This call augments counterpartyd's get_balances with a normalized_amount field. It also will include any owned
+        This call augments counterpartyd's get_balances with a normalized_quantity field. It also will include any owned
         assets for an address, even if their balance is zero. 
         NOTE: Does not retrieve BTC balance
         """
@@ -101,13 +101,16 @@ def serve_api(mongo_db, redis_client):
             filters.append({'field': 'address', 'op': '==', 'value': address})
         
         mappings = {}
-        data = util.call_jsonrpc_api("get_balances",
+        result = util.call_jsonrpc_api("get_balances",
             {'filters': filters, 'filterop': 'or'}, abort_on_error=True)['result']
-        for d in data:
+        data = []
+        for d in result:
+            if not d['quantity']:
+                continue #don't include balances with a zero asset value
             asset_info = mongo_db.tracked_assets.find_one({'asset': d['asset']})
-            d['normalized_amount'] = util.normalize_amount(d['amount'], asset_info['divisible'])
+            d['normalized_quantity'] = util.normalize_quantity(d['quantity'], asset_info['divisible'])
             mappings[d['address'] + d['asset']] = d
-        
+            data.append(d)
         #include any owned assets for each address, even if their balance is zero
         owned_assets = mongo_db.tracked_assets.find( { '$or': [{'owner': a } for a in addresses] }, { '_history': 0, '_id': 0 } )
         for o in owned_assets:
@@ -115,7 +118,7 @@ def serve_api(mongo_db, redis_client):
                 data.append({
                     'address': o['owner'],
                     'asset': o['asset'],
-                    'amount': 0,
+                    'quantity': 0,
                     'owner': True,
                 })
             else:
@@ -236,7 +239,7 @@ def serve_api(mongo_db, redis_client):
                 "quote_asset": quote_asset,
                 'block_time': { "$gte": min_trade_time }
             },
-            {'_id': 0, 'block_index': 1, 'block_time': 1, 'unit_price': 1, 'base_amount_normalized': 1, 'quote_amount_normalized': 1}
+            {'_id': 0, 'block_index': 1, 'block_time': 1, 'unit_price': 1, 'base_quantity_normalized': 1, 'quote_quantity_normalized': 1}
         ).sort("block_time", pymongo.DESCENDING).limit(with_last_trades)
         if not last_trades.count():
             return None #no suitable trade data to form a market price
@@ -253,12 +256,12 @@ def serve_api(mongo_db, redis_client):
             'quote_asset': quote_asset,
         }
         if with_last_trades:
-            #[0]=block_time, [1]=unit_price, [2]=base_amount_normalized, [3]=quote_amount_normalized, [4]=block_index
+            #[0]=block_time, [1]=unit_price, [2]=base_quantity_normalized, [3]=quote_quantity_normalized, [4]=block_index
             result['last_trades'] = [[
                 t['block_time'],
                 t['unit_price'],
-                t['base_amount_normalized'],
-                t['quote_amount_normalized'],
+                t['base_quantity_normalized'],
+                t['quote_quantity_normalized'],
                 t['block_index']
             ] for t in last_trades]
         return result
@@ -271,8 +274,8 @@ def serve_api(mongo_db, redis_client):
         
         @param assets: A list of one or more assets
         """
-        def calc_inverse(amount):
-            return float( (D(1) / D(amount) ).quantize(
+        def calc_inverse(quantity):
+            return float( (D(1) / D(quantity) ).quantize(
                 D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))            
 
         def calc_price_change(open, close):
@@ -291,10 +294,10 @@ def serve_api(mongo_db, redis_client):
             #modify some of the properties of the returned asset_info for BTC and XCP
             if asset == 'BTC':
                 asset_info['total_issued'] = util.get_btc_supply(normalize=False)
-                asset_info['total_issued_normalized'] = util.normalize_amount(asset_info['total_issued'])
+                asset_info['total_issued_normalized'] = util.normalize_quantity(asset_info['total_issued'])
             elif asset == 'XCP':
                 asset_info['total_issued'] = util.call_jsonrpc_api("get_xcp_supply", [], abort_on_error=True)['result']
-                asset_info['total_issued_normalized'] = util.normalize_amount(asset_info['total_issued'])
+                asset_info['total_issued_normalized'] = util.normalize_quantity(asset_info['total_issued'])
                 
             if not asset_info:
                 raise Exception("Invalid asset: %s" % asset)
@@ -333,7 +336,7 @@ def serve_api(mongo_db, redis_client):
                 price_summary_in_btc['base_asset'] = 'BTC'
                 price_summary_in_btc['quote_asset'] = 'XCP'
                 for i in xrange(len(price_summary_in_btc['last_trades'])):
-                    #[0]=block_time, [1]=unit_price, [2]=base_amount_normalized, [3]=quote_amount_normalized, [4]=block_index
+                    #[0]=block_time, [1]=unit_price, [2]=base_quantity_normalized, [3]=quote_quantity_normalized, [4]=block_index
                     price_summary_in_btc['last_trades'][i][1] = calc_inverse(price_summary_in_btc['last_trades'][i][1])
                     price_summary_in_btc['last_trades'][i][2], price_summary_in_btc['last_trades'][i][3] = \
                         price_summary_in_btc['last_trades'][i][3], price_summary_in_btc['last_trades'][i][2] #swap
@@ -366,13 +369,13 @@ def serve_api(mongo_db, redis_client):
                             "day":   {"$dayOfMonth": "$block_time"},
                             "hour":  {"$hour": "$block_time"},
                             "unit_price": 1,
-                            "base_amount_normalized": 1 #to derive volume
+                            "base_quantity_normalized": 1 #to derive volume
                         }},
                         {"$sort": {"block_time": pymongo.ASCENDING}},
                         {"$group": {
                             "_id":   {"year": "$year", "month": "$month", "day": "$day", "hour": "$hour"},
                             "price": {"$avg": "$unit_price"},
-                            "vol":   {"$sum": "$base_amount_normalized"},
+                            "vol":   {"$sum": "$base_quantity_normalized"},
                         }},
                     ])
                     _7d_history = [] if not _7d_history['ok'] else _7d_history['result']
@@ -391,13 +394,13 @@ def serve_api(mongo_db, redis_client):
                         "day":   {"$dayOfMonth": "$block_time"},
                         "hour":  {"$hour": "$block_time"},
                         "unit_price": 1,
-                        "base_amount_normalized": 1 #to derive volume
+                        "base_quantity_normalized": 1 #to derive volume
                     }},
                     {"$sort": {"block_time": pymongo.ASCENDING}},
                     {"$group": {
                         "_id":   {"year": "$year", "month": "$month", "day": "$day", "hour": "$hour"},
                         "price": {"$avg": "$unit_price"},
-                        "vol":   {"$sum": "$base_amount_normalized"},
+                        "vol":   {"$sum": "$base_quantity_normalized"},
                     }},
                 ])
                 _7d_history = [] if not _7d_history['ok'] else _7d_history['result']
@@ -419,11 +422,11 @@ def serve_api(mongo_db, redis_client):
                     "base_asset": asset,
                     "block_time": {"$gte": start_dt_1d } }},
                 {"$project": {
-                    "base_amount_normalized": 1 #to derive volume
+                    "base_quantity_normalized": 1 #to derive volume
                 }},
                 {"$group": {
                     "_id":   1,
-                    "vol":   {"$sum": "$base_amount_normalized"},
+                    "vol":   {"$sum": "$base_quantity_normalized"},
                     "count": {"$sum": 1},
                 }}
             ])
@@ -434,11 +437,11 @@ def serve_api(mongo_db, redis_client):
                     "quote_asset": asset,
                     "block_time": {"$gte": start_dt_1d } }},
                 {"$project": {
-                    "quote_amount_normalized": 1 #to derive volume
+                    "quote_quantity_normalized": 1 #to derive volume
                 }},
                 {"$group": {
                     "_id":   1,
-                    "vol":   {"$sum": "quote_amount_normalized"},
+                    "vol":   {"$sum": "quote_quantity_normalized"},
                     "count": {"$sum": 1},
                 }}
             ])
@@ -456,7 +459,7 @@ def serve_api(mongo_db, redis_client):
                         "block_time": {"$gte": start_dt_1d } }},
                     {"$project": {
                         "unit_price": 1,
-                        "base_amount_normalized": 1 #to derive volume
+                        "base_quantity_normalized": 1 #to derive volume
                     }},
                     {"$group": {
                         "_id":   1,
@@ -464,7 +467,7 @@ def serve_api(mongo_db, redis_client):
                         "high":  {"$max": "$unit_price"},
                         "low":   {"$min": "$unit_price"},
                         "close": {"$last": "$unit_price"},
-                        "vol":   {"$sum": "$base_amount_normalized"},
+                        "vol":   {"$sum": "$base_quantity_normalized"},
                         "count": {"$sum": 1},
                     }}
                 ])
@@ -483,7 +486,7 @@ def serve_api(mongo_db, redis_client):
                         "block_time": {"$gte": start_dt_1d } }},
                     {"$project": {
                         "unit_price": 1,
-                        "base_amount_normalized": 1 #to derive volume
+                        "base_quantity_normalized": 1 #to derive volume
                     }},
                     {"$group": {
                         "_id":   1,
@@ -491,7 +494,7 @@ def serve_api(mongo_db, redis_client):
                         "high":  {"$max": "$unit_price"},
                         "low":   {"$min": "$unit_price"},
                         "close": {"$last": "$unit_price"},
-                        "vol":   {"$sum": "$base_amount_normalized"},
+                        "vol":   {"$sum": "$base_quantity_normalized"},
                         "count": {"$sum": 1},
                     }}
                 ])
@@ -512,11 +515,11 @@ def serve_api(mongo_db, redis_client):
                 'market_cap_in_btc': float( (D(asset_info['total_issued_normalized']) / D(price_in_btc)).quantize(
                     D('.00000000'), rounding=decimal.ROUND_HALF_EVEN) ) if price_in_btc else None,
                 '24h_summary': _24h_vols,
-                #^ total amount traded of that asset in all markets in last 24h
+                #^ total quantity traded of that asset in all markets in last 24h
                 '24h_ohlc_in_xcp': _24h_ohlc_in_xcp,
-                #^ amount of asset traded with BTC in last 24h
+                #^ quantity of asset traded with BTC in last 24h
                 '24h_ohlc_in_btc': _24h_ohlc_in_btc,
-                #^ amount of asset traded with XCP in last 24h
+                #^ quantity of asset traded with XCP in last 24h
                 '24h_vol_price_change_in_xcp': calc_price_change(_24h_ohlc_in_xcp['open'], _24h_ohlc_in_xcp['close'])
                     if _24h_ohlc_in_xcp else None,
                 #^ aggregated price change from 24h ago to now, expressed as a signed float (e.g. .54 is +54%, -1.12 is -112%)
@@ -554,7 +557,7 @@ def serve_api(mongo_db, redis_client):
                 "block_time": 1,
                 "block_index": 1,
                 "unit_price": 1,
-                "base_amount_normalized": 1 #to derive volume
+                "base_quantity_normalized": 1 #to derive volume
             }},
             {"$group": {
                 "_id":   {"block_time": "$block_time", "block_index": "$block_index"},
@@ -562,7 +565,7 @@ def serve_api(mongo_db, redis_client):
                 "high":  {"$max": "$unit_price"},
                 "low":   {"$min": "$unit_price"},
                 "close": {"$last": "$unit_price"},
-                "vol":   {"$sum": "$base_amount_normalized"},
+                "vol":   {"$sum": "$base_quantity_normalized"},
                 "count": {"$sum": 1},
             }},
             {"$sort": {"_id.block_time": pymongo.ASCENDING}},
@@ -646,9 +649,9 @@ def serve_api(mongo_db, redis_client):
             {'field': 'give_remaining', 'op': '!=', 'value': 0}, #don't show empty
         ]
         if normalized_fee_required:
-            base_bid_filters.append({"field": "fee_required", "op": ">=", "value": util.denormalize_amount(normalized_fee_required)})
+            base_bid_filters.append({"field": "fee_required", "op": ">=", "value": util.denormalize_quantity(normalized_fee_required)})
         if normalized_fee_provided:
-            base_bid_filters.append({"field": "fee_provided", "op": ">=", "value": util.denormalize_amount(normalized_fee_provided)})
+            base_bid_filters.append({"field": "fee_provided", "op": ">=", "value": util.denormalize_quantity(normalized_fee_provided)})
         base_bid_orders = util.call_jsonrpc_api("get_orders", {
             'filters': base_bid_filters,
             'show_expired': False,
@@ -662,9 +665,9 @@ def serve_api(mongo_db, redis_client):
             {'field': 'give_remaining', 'op': '!=', 'value': 0}, #don't show empty
         ]
         if normalized_fee_required:
-            base_ask_filters.append({"field": "fee_required", "op": ">=", "value": util.denormalize_amount(normalized_fee_required)})
+            base_ask_filters.append({"field": "fee_required", "op": ">=", "value": util.denormalize_quantity(normalized_fee_required)})
         if normalized_fee_provided:
-            base_ask_filters.append({"field": "fee_provided", "op": ">=", "value": util.denormalize_amount(normalized_fee_provided)})
+            base_ask_filters.append({"field": "fee_provided", "op": ">=", "value": util.denormalize_quantity(normalized_fee_provided)})
         base_ask_orders = util.call_jsonrpc_api("get_orders", {
             'filters': base_ask_filters,
             'show_expired': False,
@@ -676,21 +679,21 @@ def serve_api(mongo_db, redis_client):
             book = {}
             for o in orders:
                 if o['give_asset'] == base_asset:
-                    give_amount = util.normalize_amount(o['give_amount'], base_asset_info['divisible'])
-                    get_amount = util.normalize_amount(o['get_amount'], quote_asset_info['divisible'])
-                    unit_price = float(( D(o['get_amount']) / D(o['give_amount']) ).quantize(
+                    give_quantity = util.normalize_quantity(o['give_quantity'], base_asset_info['divisible'])
+                    get_quantity = util.normalize_quantity(o['get_quantity'], quote_asset_info['divisible'])
+                    unit_price = float(( D(o['get_quantity']) / D(o['give_quantity']) ).quantize(
                         D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
-                    remaining = util.normalize_amount(o['give_remaining'], base_asset_info['divisible'])
+                    remaining = util.normalize_quantity(o['give_remaining'], base_asset_info['divisible'])
                 else:
-                    give_amount = util.normalize_amount(o['give_amount'], quote_asset_info['divisible'])
-                    get_amount = util.normalize_amount(o['get_amount'], base_asset_info['divisible'])
-                    unit_price = float(( D(o['give_amount']) / D(o['get_amount']) ).quantize(
+                    give_quantity = util.normalize_quantity(o['give_quantity'], quote_asset_info['divisible'])
+                    get_quantity = util.normalize_quantity(o['get_quantity'], base_asset_info['divisible'])
+                    unit_price = float(( D(o['give_quantity']) / D(o['get_quantity']) ).quantize(
                         D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
-                    remaining = util.normalize_amount(o['get_remaining'], base_asset_info['divisible'])
+                    remaining = util.normalize_quantity(o['get_remaining'], base_asset_info['divisible'])
                 id = "%s_%s_%s" % (base_asset, quote_asset, unit_price)
                 #^ key = {base}_{bid}_{unit_price}, values ref entries in book
-                book.setdefault(id, {'unit_price': unit_price, 'amount': 0, 'count': 0})
-                book[id]['amount'] += remaining #base amount outstanding
+                book.setdefault(id, {'unit_price': unit_price, 'quantity': 0, 'count': 0})
+                book[id]['quantity'] += remaining #base quantity outstanding
                 book[id]['count'] += 1 #num orders at this price level
             book = sorted(book.itervalues(), key=operator.itemgetter('unit_price'), reverse=isBidBook)
             #^ sort -- bid book = descending, ask book = ascending
@@ -712,12 +715,12 @@ def serve_api(mongo_db, redis_client):
         #compose depth
         bid_depth = D(0)
         for o in base_bid_book:
-            bid_depth += D(o['amount'])
+            bid_depth += D(o['quantity'])
             o['depth'] = float(bid_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
         bid_depth = float(bid_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
         ask_depth = D(0)
         for o in base_ask_book:
-            ask_depth += D(o['amount'])
+            ask_depth += D(o['quantity'])
             o['depth'] = float(ask_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
         ask_depth = float(ask_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
         
@@ -869,7 +872,7 @@ def serve_api(mongo_db, redis_client):
     @dispatcher.add_method
     def get_balance_history(asset, addresses, normalize=True, start_ts=None, end_ts=None):
         """Retrieves the ordered balance history for a given address (or list of addresses) and asset pair, within the specified date range
-        @param normalize: If set to True, return amounts that (if the asset is divisible) have been divided by 100M (satoshi). 
+        @param normalize: If set to True, return quantities that (if the asset is divisible) have been divided by 100M (satoshi). 
         @return: A list of tuples, with the first entry of each tuple being the block time (epoch TS), and the second being the new balance
          at that block time.
         """

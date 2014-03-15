@@ -145,7 +145,7 @@ def create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=None):
         bal_change = mongo_db.balance_changes.find_one({ 'address': event['address'], 'asset': event['asset'] },
             sort=[("block_time", pymongo.DESCENDING)])
         assert bal_change
-        event['_amount_normalized'] = bal_change['amount_normalized']
+        event['_quantity_normalized'] = bal_change['quantity_normalized']
         event['_balance'] = bal_change['new_balance']
         event['_balance_normalized'] = bal_change['new_balance_normalized']
     elif(event['_category'] in ['orders',] and event['_command'] == 'insert'):
@@ -170,15 +170,15 @@ def create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=None):
 #############
 # Bitcoin-related
 
-def normalize_amount(amount, divisible=True):
+def normalize_quantity(quantity, divisible=True):
     if divisible:
-        return float((D(amount) / D(config.UNIT)).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN)) 
-    else: return amount
+        return float((D(quantity) / D(config.UNIT)).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN)) 
+    else: return quantity
 
-def denormalize_amount(amount, divisible=True):
+def denormalize_quantity(quantity, divisible=True):
     if divisible:
-        return int(amount * config.UNIT)
-    else: return amount
+        return int(quantity * config.UNIT)
+    else: return quantity
 
 def get_btc_supply(normalize=False):
     """returns the total supply of BTC (based on what bitcoind says the current block height is)"""
