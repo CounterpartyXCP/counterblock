@@ -69,27 +69,41 @@ def serve_api(mongo_db, redis_client):
         return events
 
     @dispatcher.add_method
-    def get_btc_address_info(address):
-        return util.call_insight_api('/api/addr/' + address + '/', abort_on_error=True)
-
-    @dispatcher.add_method
-    def get_btc_address_utxos(address):
-        return util.call_insight_api('/api/addr/' + address + '/utxo/', abort_on_error=True)
-    
-    @dispatcher.add_method
     def get_btc_block_height():
         data = util.call_insight_api('/api/sync/', abort_on_error=True)
         return {
             'caught_up': data['syncPercentage'] < 100,
+            'sync_percentage': data['sync_percentage'],
             'block_height': data['blockChainHeight'],
         }
+
+    @dispatcher.add_method
+    def get_btc_address_info(addresses, with_uxtos=True, with_last_txn_hashes=5):
+        if not isinstance(addresses, list):
+            raise Exception("addresses must be a list of addresses, even if it just contains one address")
+        results = []
+        for address in addresses:
+            info = util.call_insight_api('/api/addr/' + address + '/', abort_on_error=True)
+            txns = info['transactions']
+            del info['transactions']
+
+            result = {}
+            result['addr'] = address
+            result['info'] = info
+            if with_uxtos:
+                result['uxtos'] = util.call_insight_api('/api/addr/' + address + '/utxo/', abort_on_error=True)
+            if with_last_txn_hashes:
+                #with last_txns, only show CONFIRMED txns (so skip the first info['unconfirmedTxApperances'] # of txns, if not 0
+                result['last_txns'] = txns[info['unconfirmedTxApperances']:with_last_txn_hashes+info['unconfirmedTxApperances']]
+            results.append(result)
+        return results
 
     @dispatcher.add_method
     def get_normalized_balances(addresses):
         """
         This call augments counterpartyd's get_balances with a normalized_quantity field. It also will include any owned
         assets for an address, even if their balance is zero. 
-        NOTE: Does not retrieve BTC balance
+        NOTE: Does not retrieve BTC balance. Use get_btc_address_info for that.
         """
         if not isinstance(addresses, list):
             addresses = [addresses,]
@@ -123,7 +137,7 @@ def serve_api(mongo_db, redis_client):
                 })
             else:
                 mappings[o['owner'] + o['asset']]['owner'] = False
-        return data 
+        return data
 
     @dispatcher.add_method
     def get_raw_transactions(address, start_ts=None, end_ts=None, limit=10000):

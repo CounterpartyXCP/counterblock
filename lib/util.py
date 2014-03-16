@@ -164,6 +164,8 @@ def create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=None):
         asset_info = mongo_db.tracked_assets.find_one({'asset': event['asset']})
         assert asset_info
         event['_divisible'] = asset_info['divisible']
+    elif(event['_category'] in ['issuances',]):
+        event['_quantity_normalized'] = normalize_quantity(msg_data['quantity'], msg_data['divisible'])
     return event
 
 
