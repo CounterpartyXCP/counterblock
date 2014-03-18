@@ -18,8 +18,8 @@ class MessagesFeedServerNamespace(BaseNamespace):
         #as we receive messages, send them out to the socket.io listener
         while True:
             event = sock.recv_json()
-            logging.info("socket.io: Sending message ID %s -- %s:%s" % (
-                event['_message_index'], event['_category'], event['_command']))
+            #logging.info("socket.io: Sending message ID %s -- %s:%s" % (
+            #    event['_message_index'], event['_category'], event['_command']))
             self.emit(event['_category'], event)
 
     def on_subscribe(self):

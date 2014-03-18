@@ -19,14 +19,18 @@ D = decimal.Decimal
 def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
     LATEST_BLOCK_INIT = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
 
-    def blow_away_db(prefs):
+    def blow_away_db(app_config):
         #boom! blow away all collections in mongo
         mongo_db.processed_blocks.remove()
         mongo_db.balance_changes.remove()
         mongo_db.trades.remove()
         mongo_db.tracked_assets.remove()
-        prefs['db_version'] = config.DB_VERSION
-        mongo_db.prefs.update({}, prefs)
+        
+        #Update config to state the new DB version 
+        app_config['db_version'] = config.DB_VERSION
+        mongo_db.app_config.update({}, app_config)
+
+        #DO NOT DELETE preferences and chat_handles
         
         #create XCP and BTC assets in tracked_assets
         for asset in ['XCP', 'BTC']:
@@ -41,7 +45,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
             }
             mongo_db.tracked_assets.insert(base_asset)
         
-        return prefs
+        return app_config
         
     def prune_my_stale_blocks(max_block_index):
         """called if there are any records for blocks higher than this in the database? If so, they were impartially created
@@ -81,24 +85,24 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         return latest_block
 
     config.CURRENT_BLOCK_INDEX = 0 #initialize (last processed block index -- i.e. currently active block)
-    config.LAST_MESSAGE_INDEX = 0 #initialize (last processed message index)
+    config.LAST_MESSAGE_INDEX = -1 #initialize (last processed message index)
     
     #grab our stored preferences
-    prefs_created = False
-    prefs = mongo_db.prefs.find()
-    assert prefs.count() in [0, 1]
-    if prefs.count() == 0 or config.REPARSE_FORCED:
-        mongo_db.prefs.update({}, { #create/update default prefs object
+    app_config_created = False
+    app_config = mongo_db.app_config.find()
+    assert app_config.count() in [0, 1]
+    if app_config.count() == 0 or config.REPARSE_FORCED:
+        mongo_db.app_config.update({}, { #create/update default app_config object
         'db_version': config.DB_VERSION, #counterwalletd database version
         'running_testnet': config.TESTNET,
         'counterpartyd_db_version_major': None,
         'counterpartyd_db_version_minor': None,
         'counterpartyd_running_testnet': None,
         }, upsert=True)
-        prefs = mongo_db.prefs.find()[0]
-        prefs_created = True
+        app_config = mongo_db.app_config.find()[0]
+        app_config_created = True
     else:
-        prefs = prefs[0]
+        app_config = app_config[0]
         
     #get the last processed block out of mongo
     my_latest_block = mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)])
@@ -106,10 +110,13 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         my_latest_block = LATEST_BLOCK_INIT
 
     #see if DB version has increased and rebuild if so
-    if prefs_created or config.REPARSE_FORCED or prefs['db_version'] != config.DB_VERSION or prefs['running_testnet'] != config.TESTNET:
+    if (   app_config_created
+        or config.REPARSE_FORCED
+        or app_config['db_version'] != config.DB_VERSION
+        or app_config['running_testnet'] != config.TESTNET):
         logging.warn("counterwalletd database version UPDATED (from %i to %i) or testnet setting changed (from %s to %s), or REINIT forced (%s). REBUILDING FROM SCRATCH ..." % (
-            prefs['db_version'], config.DB_VERSION, prefs['running_testnet'], config.TESTNET, config.REPARSE_FORCED))
-        prefs = blow_away_db(prefs)
+            app_config['db_version'], config.DB_VERSION, app_config['running_testnet'], config.TESTNET, config.REPARSE_FORCED))
+        app_config = blow_away_db(app_config)
         my_latest_block = LATEST_BLOCK_INIT
     else:
         #remove any data we have for blocks higher than this (would happen if counterwalletd or mongo died
@@ -128,33 +135,33 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         #wipe our state data if necessary, if counterpartyd has moved on to a new DB version
         wipeState = False
         updatePrefs = False
-        if    prefs['counterpartyd_db_version_major'] is None \
-           or prefs['counterpartyd_db_version_minor'] is None \
-           or prefs['counterpartyd_running_testnet'] is None:
+        if    app_config['counterpartyd_db_version_major'] is None \
+           or app_config['counterpartyd_db_version_minor'] is None \
+           or app_config['counterpartyd_running_testnet'] is None:
             updatePrefs = True
-        elif running_info['db_version_major'] != prefs['counterpartyd_db_version_major']:
+        elif running_info['db_version_major'] != app_config['counterpartyd_db_version_major']:
             logging.warn("counterpartyd MAJOR DB version change (we built from %s, counterpartyd is at %s). Wiping our state data." % (
-                prefs['counterpartyd_db_version_major'], running_info['db_version_major']))
+                app_config['counterpartyd_db_version_major'], running_info['db_version_major']))
             wipeState = True
             updatePrefs = True
-        elif running_info['db_version_minor'] != prefs['counterpartyd_db_version_minor']:
+        elif running_info['db_version_minor'] != app_config['counterpartyd_db_version_minor']:
             logging.warn("counterpartyd MINOR DB version change (we built from %s.%s, counterpartyd is at %s.%s). Wiping our state data." % (
-                prefs['counterpartyd_db_version_major'], prefs['counterpartyd_db_version_minor'],
+                app_config['counterpartyd_db_version_major'], app_config['counterpartyd_db_version_minor'],
                 running_info['db_version_major'], running_info['db_version_minor']))
             wipeState = True
             updatePrefs = True
-        elif running_info.get('running_testnet', False) != prefs['counterpartyd_running_testnet']:
+        elif running_info.get('running_testnet', False) != app_config['counterpartyd_running_testnet']:
             logging.warn("counterpartyd testnet setting change (from %s to %s). Wiping our state data." % (
-                prefs['counterpartyd_running_testnet'], running_info['running_testnet']))
+                app_config['counterpartyd_running_testnet'], running_info['running_testnet']))
             wipeState = True
             updatePrefs = True
         if wipeState:
-            prefs = blow_away_db(prefs)
+            app_config = blow_away_db(app_config)
         if updatePrefs:
-            prefs['counterpartyd_db_version_major'] = running_info['db_version_major'] 
-            prefs['counterpartyd_db_version_minor'] = running_info['db_version_minor']
-            prefs['counterpartyd_running_testnet'] = running_info['running_testnet']
-            mongo_db.prefs.update({}, prefs)
+            app_config['counterpartyd_db_version_major'] = running_info['db_version_major'] 
+            app_config['counterpartyd_db_version_minor'] = running_info['db_version_minor']
+            app_config['counterpartyd_running_testnet'] = running_info['running_testnet']
+            mongo_db.app_config.update({}, app_config)
             
             #reset my latest block record
             my_latest_block = LATEST_BLOCK_INIT
@@ -195,24 +202,35 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
             for msg in block_data:
                 msg_data = json.loads(msg['bindings'])
                 
+                if msg['message_index'] != config.LAST_MESSAGE_INDEX + 1 and config.LAST_MESSAGE_INDEX != -1:
+                    logging.error("BUG: MESSAGE RECEIVED NOT WHAT WE EXPECTED. EXPECTED: %s, GOT: %s: %s (ALL MSGS IN get_messages PAYLOAD: %s)..." % (
+                        config.LAST_MESSAGE_INDEX + 1, msg['message_index'], msg, [m['message_index'] for m in block_data]))
+                    sys.exit(1) #FOR NOW
+                
+                #BUG: sometimes counterpartyd seems to return OLD messages out of the message feed. deal with those
+                if msg['message_index'] <= config.LAST_MESSAGE_INDEX:
+                    logging.warn("BUG: IGNORED old RAW message %s: %s ..." % (msg['message_index'], msg))
+                    continue
+                    
                 logging.info("Got RAW message %s: %s ..." % (msg['message_index'], msg))
                 
-                #keep out the riff raff...
+                #don't process invalid messages, but do forward them along to clients
                 status = msg_data.get('status', 'valid').lower()
-                if not status.startswith('valid') and not status.startswith('pending') and not status.startswith('completed'):
-                    #send out the message to listening clients
+                if status.startswith('invalid'):
                     event = util.create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=msg_data)
                     zmq_publisher_eventfeed.send_json(event)
+                    config.LAST_MESSAGE_INDEX = msg['message_index']
                     continue
                 
                 #HANDLE REORGS
-                if msg['category'] == 'reorg':
+                if msg['command'] == 'reorg':
                     #prune back to and including the specified message_index
                     my_latest_block = prune_my_stale_blocks(msg_data['block_index'] - 1)
                     #send out the message to listening clients
                     event = util.create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=msg_data)
                     zmq_publisher_eventfeed.send_json(event)
-                    continue
+                    config.LAST_MESSAGE_INDEX = msg['message_index']
+                    break #break out of inner loop
                 
                 #track assets
                 if msg['category'] == 'issuances':
@@ -328,8 +346,8 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                 
                 #book trades
                 if (    msg['category'] == 'order_matches'
-                    and (   (msg['command'] == 'update' and msg_data['status'] == 'completed')
-                         or (msg_data['forward_asset'] != 'BTC' and msg_data['backward_asset'] != 'BTC'))):
+                    and (   (msg['command'] == 'update' and msg_data['status'] == 'completed') #for a trade with BTC involved, but that is settled (completed)
+                         or ('forward_asset' in msg_data and msg_data['forward_asset'] != 'BTC' and msg_data['backward_asset'] != 'BTC'))): #or for a trade without BTC on either end
 
                     if msg['command'] == 'update' and msg_data['status'] == 'completed':
                         #an order is being updated to a completed status (i.e. a BTCpay has completed)
@@ -400,13 +418,12 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
             my_latest_block = new_block
             config.CURRENT_BLOCK_INDEX = cur_block_index
             logging.info("Block: %i (message_index height=%s)" % (config.CURRENT_BLOCK_INDEX,
-                config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX else '???'))
+                config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX != -1 else '???'))
         elif my_latest_block['block_index'] > last_processed_block['block_index']:
             #we have stale blocks (i.e. most likely a reorg happened in counterpartyd)?? this shouldn't happen, as we
             # should get a reorg message. Just to be on the safe side, prune back 10 blocks before what counterpartyd is saying if we see this
             logging.error("Very odd: Ahead of counterpartyd with block indexes! Pruning back 10 blocks to be safe.")
             my_latest_block = prune_my_stale_blocks(last_processed_block['block_index'] - 10)
-            continue
         else:
             #...we may be caught up (to counterpartyd), but counterpartyd may not be (to the blockchain). And if it isn't, we aren't
             config.CAUGHT_UP = running_info['db_caught_up']
@@ -414,10 +431,10 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
             #this logic here will cover a case where we shut down counterwalletd, then start it up again quickly...
             # in that case, there are no new blocks for it to parse, so LAST_MESSAGE_INDEX would otherwise remain 0.
             # With this logic, we will correctly initialize LAST_MESSAGE_INDEX to the last message ID of the last processed block
-            if config.LAST_MESSAGE_INDEX == 0 or config.CURRENT_BLOCK_INDEX == 0:
-                if config.LAST_MESSAGE_INDEX == 0: config.LAST_MESSAGE_INDEX = running_info['last_message_index']
+            if config.LAST_MESSAGE_INDEX == -1 or config.CURRENT_BLOCK_INDEX == 0:
+                if config.LAST_MESSAGE_INDEX == -1: config.LAST_MESSAGE_INDEX = running_info['last_message_index']
                 if config.CURRENT_BLOCK_INDEX == 0: config.CURRENT_BLOCK_INDEX = running_info['last_block']['block_index']
-                logging.info("Detected blocks caught up on startup. Setting last message_index to %i, and current block index to %s ..." % (
+                logging.info("Detected blocks caught up on startup. Setting last message idx to %s, current block index to %s ..." % (
                     config.LAST_MESSAGE_INDEX, config.CURRENT_BLOCK_INDEX))
             
             time.sleep(2) #counterwalletd itself is at least caught up, wait a bit to query again for the latest block from cpd

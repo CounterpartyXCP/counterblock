@@ -128,7 +128,7 @@ def create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=None):
     sent through the counterwalletd message feed to an end-client"""
     if not msg_data:
         msg_data = json.loads(msg['bindings'])
-
+    
     event = copy.deepcopy(msg_data)
     event['_message_index'] = msg['message_index']
     event['_command'] = msg['command']
@@ -145,7 +145,7 @@ def create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=None):
         bal_change = mongo_db.balance_changes.find_one({ 'address': event['address'], 'asset': event['asset'] },
             sort=[("block_time", pymongo.DESCENDING)])
         assert bal_change
-        event['_quantity_normalized'] = bal_change['quantity_normalized']
+        event['_quantity_normalized'] = abs(bal_change['quantity_normalized'])
         event['_balance'] = bal_change['new_balance']
         event['_balance_normalized'] = bal_change['new_balance_normalized']
     elif(event['_category'] in ['orders',] and event['_command'] == 'insert'):
