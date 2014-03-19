@@ -26,7 +26,7 @@ D = decimal.Decimal
 def get_block_indexes_for_dates(mongo_db, start_dt, end_dt):
     """Returns a 2 tuple (start_block, end_block) result for the block range that encompasses the given start_date
     and end_date unix timestamps"""
-    start_block = mongo_db.processed_blocks.find_one({"block_time": {"$lte": start_dt} }, sort=[("block_time", pymongo.ASCENDING)])
+    start_block = mongo_db.processed_blocks.find_one({"block_time": {"$lte": start_dt} }, sort=[("block_time", pymongo.DESCENDING)])
     end_block = mongo_db.processed_blocks.find_one({"block_time": {"$gte": end_dt} }, sort=[("block_time", pymongo.ASCENDING)])
     start_block_index = config.BLOCK_FIRST if not start_block else start_block['block_index']
     if not end_block:
@@ -79,19 +79,17 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def get_btc_block_height():
-        data = util.call_insight_api('/api/sync/', abort_on_error=True)
-        return {
-            'caught_up': data['syncPercentage'] < 100,
-            'sync_percentage': data['sync_percentage'],
-            'block_height': data['blockChainHeight'],
-        }
+        data = util.call_insight_api('/api/status?q=getInfo', abort_on_error=True)
+        return data['info']['blocks']
 
     @dispatcher.add_method
     def get_btc_address_info(addresses, with_uxtos=True, with_last_txn_hashes=4, with_block_height=False):
         if not isinstance(addresses, list):
             raise Exception("addresses must be a list of addresses, even if it just contains one address")
         results = []
-        sync_info = util.call_insight_api('/api/sync/', abort_on_error=True) if with_block_height else None
+        if with_block_height:
+            block_height_response = util.call_insight_api('/api/status?q=getInfo', abort_on_error=True)
+            block_height = block_height_response['info']['blocks'] if block_height_response else None
         for address in addresses:
             info = util.call_insight_api('/api/addr/' + address + '/', abort_on_error=True)
             txns = info['transactions']
@@ -100,7 +98,7 @@ def serve_api(mongo_db, redis_client):
             result = {}
             result['addr'] = address
             result['info'] = info
-            if sync_info: result['block_height'] = sync_info['blockChainHeight']
+            if with_block_height: result['block_height'] = block_height
             #^ yeah, hacky...it will be the same block height for each address (we do this to avoid an extra API call to get_btc_block_height)
             if with_uxtos:
                 result['uxtos'] = util.call_insight_api('/api/addr/' + address + '/utxo/', abort_on_error=True)
@@ -118,7 +116,7 @@ def serve_api(mongo_db, redis_client):
         NOTE: Does not retrieve BTC balance. Use get_btc_address_info for that.
         """
         if not isinstance(addresses, list):
-            addresses = [addresses,]
+            raise Exception("addresses must be a list of addresses, even if it just contains one address")
         if not len(addresses):
             raise Exception("Invalid address list supplied")
         
@@ -145,6 +143,7 @@ def serve_api(mongo_db, redis_client):
                     'address': o['owner'],
                     'asset': o['asset'],
                     'quantity': 0,
+                    'normalized_quantity': 0,
                     'owner': True,
                 })
             else:
@@ -177,10 +176,6 @@ def serve_api(mongo_db, redis_client):
         start_block_index, end_block_index = get_block_indexes_for_dates(mongo_db,
             datetime.datetime.utcfromtimestamp(start_ts), datetime.datetime.utcfromtimestamp(end_ts))
         
-        #get all blocks (to derive block times) between the two block indexes
-        blocks = mongo_db.processed_blocks.find(
-            {"block_index": {"$gte": start_block_index, "$lte": end_block_index} }).sort("block_index", pymongo.ASCENDING)
-        
         #make API call to counterpartyd to get all of the data for the specified address
         txns = []
         d = util.call_jsonrpc_api("get_address",
@@ -212,8 +207,8 @@ def serve_api(mongo_db, redis_client):
                     e['tx_index'] = 0 #add tx_index to all entries (so we can sort on it secondarily), since these lack it
             for e in v:
                 e['_entity'] = k
-                end_block_index = e['block_index'] if 'block_index' in e else e['tx1_block_index'] 
-                e['_block_time'] = blocks[end_block_index - start_block_index]['block_time']
+                block_index = e['block_index'] if 'block_index' in e else e['tx1_block_index']
+                e['_block_time'] = get_block_time(mongo_db, block_index)
                 e['_tx_index'] = e['tx_index'] if 'tx_index' in e else e['tx1_index']  
             txns += v
         txns = util.multikeysort(txns, ['-_block_time', '-_tx_index'])
@@ -933,7 +928,7 @@ def serve_api(mongo_db, redis_client):
          at that block time.
         """
         if not isinstance(addresses, list):
-            addresses = [addresses,]
+            raise Exception("addresses must be a list of addresses, even if it just contains one address")
             
         asset_info = mongo_db.tracked_assets.find_one({'asset': asset})
         if not asset_info:

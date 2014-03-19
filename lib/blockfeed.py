@@ -229,8 +229,13 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                     #prune back to and including the specified message_index
                     my_latest_block = prune_my_stale_blocks(msg_data['block_index'] - 1)
                     config.CURRENT_BLOCK_INDEX = msg_data['block_index'] - 1
-                    config.LAST_MESSAGE_INDEX = msg['message_index']
+
+                    #for the current last_message_index (which could have gone down after the reorg), query counterpartyd
+                    running_info = util.call_jsonrpc_api("get_running_info", abort_on_error=True)['result']
+                    config.LAST_MESSAGE_INDEX = running_info['last_message_index']
+                    
                     #send out the message to listening clients
+                    msg_data['_last_message_index'] = config.LAST_MESSAGE_INDEX 
                     event = util.create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=msg_data)
                     zmq_publisher_eventfeed.send_json(event)
                     break #break out of inner loop
@@ -422,11 +427,12 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
             config.CURRENT_BLOCK_INDEX = cur_block_index
             #get the current insight block
             if config.INSIGHT_LAST_BLOCK == 0 or config.INSIGHT_LAST_BLOCK - config.CURRENT_BLOCK_INDEX < 10:
-                #update as CURRENT_BLOCK_INDEX catches up with INSIGHT_LAST_BLOCK and/or surpasses it (i.e. if insight gets behind for some reason) 
-                data = util.call_insight_api('/api/sync/', abort_on_error=False)
-                config.INSIGHT_LAST_BLOCK = data['blockChainHeight'] if data else 0
+                #update as CURRENT_BLOCK_INDEX catches up with INSIGHT_LAST_BLOCK and/or surpasses it (i.e. if insight gets behind for some reason)
+                block_height_response = util.call_insight_api('/api/status?q=getInfo', abort_on_error=False)
+                config.INSIGHT_LAST_BLOCK = block_height_response['info']['blocks'] if block_height_response else 0
             logging.info("Block: %i (message_index height=%s) (insight block=%s)" % (config.CURRENT_BLOCK_INDEX,
-                config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX != -1 else '???', config.INSIGHT_LAST_BLOCK if config.INSIGHT_LAST_BLOCK else '???'))
+                config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX != -1 else '???',
+                config.INSIGHT_LAST_BLOCK if config.INSIGHT_LAST_BLOCK else '???'))
         elif my_latest_block['block_index'] > last_processed_block['block_index']:
             #we have stale blocks (i.e. most likely a reorg happened in counterpartyd)?? this shouldn't happen, as we
             # should get a reorg message. Just to be on the safe side, prune back 10 blocks before what counterpartyd is saying if we see this

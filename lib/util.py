@@ -140,10 +140,9 @@ def create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=None):
     event['_category'] = msg['category']
     event['_status'] = msg_data.get('status', 'valid')
 
-    if event['_status'].startswith('invalid'):
-        return event 
-    
     #insert custom fields in certain events...
+    #even invalid actions need these extra fields for proper reporting to the client (as the reporting message
+    # is produced via PendingActionViewModel.calcText)
     if(event['_category'] in ['credits', 'debits']):
         #find the last balance change on record
         bal_change = mongo_db.balance_changes.find_one({ 'address': event['address'], 'asset': event['asset'] },
