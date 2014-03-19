@@ -87,7 +87,7 @@ def serve_api(mongo_db, redis_client):
         }
 
     @dispatcher.add_method
-    def get_btc_address_info(addresses, with_uxtos=True, with_last_txn_hashes=5, with_block_height=False):
+    def get_btc_address_info(addresses, with_uxtos=True, with_last_txn_hashes=4, with_block_height=False):
         if not isinstance(addresses, list):
             raise Exception("addresses must be a list of addresses, even if it just contains one address")
         results = []
@@ -213,9 +213,10 @@ def serve_api(mongo_db, redis_client):
             for e in v:
                 e['_entity'] = k
                 end_block_index = e['block_index'] if 'block_index' in e else e['tx1_block_index'] 
-                e['_block_time'] = blocks[end_block_index - start_block_index]['block_time']  
+                e['_block_time'] = blocks[end_block_index - start_block_index]['block_time']
+                e['_tx_index'] = e['tx_index'] if 'tx_index' in e else e['tx1_index']  
             txns += v
-        txns = util.multikeysort(txns, ['-_block_time', '-tx_index'])
+        txns = util.multikeysort(txns, ['-_block_time', '-_tx_index'])
         #^ won't be a perfect sort since we don't have tx_indexes for cancellations, but better than nothing
         #txns.sort(key=operator.itemgetter('block_index'))
         return txns 

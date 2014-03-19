@@ -86,6 +86,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
 
     config.CURRENT_BLOCK_INDEX = 0 #initialize (last processed block index -- i.e. currently active block)
     config.LAST_MESSAGE_INDEX = -1 #initialize (last processed message index)
+    config.INSIGHT_LAST_BLOCK = 0 #simply for printing/alerting purposes
     
     #grab our stored preferences
     app_config_created = False
@@ -205,7 +206,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                 if msg['message_index'] != config.LAST_MESSAGE_INDEX + 1 and config.LAST_MESSAGE_INDEX != -1:
                     logging.error("BUG: MESSAGE RECEIVED NOT WHAT WE EXPECTED. EXPECTED: %s, GOT: %s: %s (ALL MSGS IN get_messages PAYLOAD: %s)..." % (
                         config.LAST_MESSAGE_INDEX + 1, msg['message_index'], msg, [m['message_index'] for m in block_data]))
-                    sys.exit(1) #FOR NOW
+                    #sys.exit(1) #FOR NOW
                 
                 #BUG: sometimes counterpartyd seems to return OLD messages out of the message feed. deal with those
                 if msg['message_index'] <= config.LAST_MESSAGE_INDEX:
@@ -224,12 +225,14 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                 
                 #HANDLE REORGS
                 if msg['command'] == 'reorg':
+                    logging.warn("Blockchain reorginization at block %s" % msg_data['block_index'])
                     #prune back to and including the specified message_index
                     my_latest_block = prune_my_stale_blocks(msg_data['block_index'] - 1)
+                    config.CURRENT_BLOCK_INDEX = msg_data['block_index'] - 1
+                    config.LAST_MESSAGE_INDEX = msg['message_index']
                     #send out the message to listening clients
                     event = util.create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=msg_data)
                     zmq_publisher_eventfeed.send_json(event)
-                    config.LAST_MESSAGE_INDEX = msg['message_index']
                     break #break out of inner loop
                 
                 #track assets
@@ -417,8 +420,13 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
             mongo_db.processed_blocks.insert(new_block)
             my_latest_block = new_block
             config.CURRENT_BLOCK_INDEX = cur_block_index
-            logging.info("Block: %i (message_index height=%s)" % (config.CURRENT_BLOCK_INDEX,
-                config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX != -1 else '???'))
+            #get the current insight block
+            if config.INSIGHT_LAST_BLOCK == 0 or config.INSIGHT_LAST_BLOCK - config.CURRENT_BLOCK_INDEX < 10:
+                #update as CURRENT_BLOCK_INDEX catches up with INSIGHT_LAST_BLOCK and/or surpasses it (i.e. if insight gets behind for some reason) 
+                data = util.call_insight_api('/api/sync/', abort_on_error=False)
+                config.INSIGHT_LAST_BLOCK = data['blockChainHeight'] if data else 0
+            logging.info("Block: %i (message_index height=%s) (insight block=%s)" % (config.CURRENT_BLOCK_INDEX,
+                config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX != -1 else '???', config.INSIGHT_LAST_BLOCK if config.INSIGHT_LAST_BLOCK else '???'))
         elif my_latest_block['block_index'] > last_processed_block['block_index']:
             #we have stale blocks (i.e. most likely a reorg happened in counterpartyd)?? this shouldn't happen, as we
             # should get a reorg message. Just to be on the safe side, prune back 10 blocks before what counterpartyd is saying if we see this
