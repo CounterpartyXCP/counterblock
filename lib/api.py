@@ -269,7 +269,7 @@ def serve_api(mongo_db, redis_client):
             {'_id': 0, 'block_index': 1, 'block_time': 1, 'unit_price': 1, 'base_quantity_normalized': 1, 'quote_quantity_normalized': 1}
         ).sort("block_time", pymongo.DESCENDING).limit(max(MARKET_PRICE_DERIVE_NUMLAST, with_last_trades))
         if not last_trades.count():
-            return False #no suitable trade data to form a market price
+            return None #no suitable trade data to form a market price (return None, NOT False here)
         last_trades = list(last_trades)
         last_trades.reverse() #from newest to oldest
         weighted_inputs = []
@@ -314,7 +314,6 @@ def serve_api(mongo_db, redis_client):
         mps_xcp_btc = _get_market_price_summary('XCP', 'BTC', with_last_trades=30)
         xcp_btc_price = mps_xcp_btc['market_price'] if mps_xcp_btc else None # == XCP/BTC
         btc_xcp_price = calc_inverse(mps_xcp_btc['market_price']) if mps_xcp_btc else None #BTC/XCP
-        
         for asset in assets:
             asset_info = mongo_db.tracked_assets.find_one({'asset': asset})
             #modify some of the properties of the returned asset_info for BTC and XCP
@@ -436,6 +435,7 @@ def serve_api(mongo_db, redis_client):
                 for i in xrange(len(_7d_history_in_btc)):
                     _7d_history_in_btc[i]['price'] = calc_inverse(_7d_history_in_btc[i]['price'])
                     _7d_history_in_btc[i]['vol'] = calc_inverse(_7d_history_in_btc[i]['vol'])
+            
             for l in [_7d_history_in_xcp, _7d_history_in_btc]:
                 for e in l: #convert our _id field out to be an epoch ts (in ms), and delete _id
                     e['when'] = time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day'], e['_id']['hour']).timetuple()) * 1000 
