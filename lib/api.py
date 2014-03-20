@@ -269,7 +269,7 @@ def serve_api(mongo_db, redis_client):
             {'_id': 0, 'block_index': 1, 'block_time': 1, 'unit_price': 1, 'base_quantity_normalized': 1, 'quote_quantity_normalized': 1}
         ).sort("block_time", pymongo.DESCENDING).limit(max(MARKET_PRICE_DERIVE_NUMLAST, with_last_trades))
         if not last_trades.count():
-            return None #no suitable trade data to form a market price
+            return False #no suitable trade data to form a market price
         last_trades = list(last_trades)
         last_trades.reverse() #from newest to oldest
         weighted_inputs = []
@@ -602,7 +602,7 @@ def serve_api(mongo_db, redis_client):
             {"$sort": {"_id.block_time": pymongo.ASCENDING}},
         ])
         if not result['ok']:
-            return None
+            return False
         if as_dict:
             result = result['result']
             for r in result:
@@ -672,6 +672,18 @@ def serve_api(mongo_db, redis_client):
         
         if not base_asset_info or not quote_asset_info:
             raise Exception("Invalid asset(s)")
+
+        open_sell_orders_filters = [
+            {"field": "get_asset", "op": "==", "value": sell_asset},
+            {"field": "give_asset", "op": "==", "value": buy_asset},
+            {'field': 'give_remaining', 'op': '!=', 'value': 0}, #don't show empty
+        ]
+        open_sell_orders = util.call_jsonrpc_api("get_orders", {
+            'filters': open_sell_orders_filters,
+            'show_expired': False,
+             'order_by': 'block_index',
+             'order_dir': 'asc',
+            }, abort_on_error=True)['result']
         
         #TODO: limit # results to 8 or so for each book (we have to sort as well to limit)
         base_bid_filters = [
@@ -684,7 +696,6 @@ def serve_api(mongo_db, redis_client):
             {"field": "give_asset", "op": "==", "value": base_asset},
             {'field': 'give_remaining', 'op': '!=', 'value': 0}, #don't show empty
         ]
-
         if base_asset == 'BTC':
             if buy_asset == 'BTC':
                 #if BTC is base asset and we're buying it, we're buying the BASE. we require a BTC fee (we're on the bid (bottom) book and we want a lower price)
@@ -781,8 +792,10 @@ def serve_api(mongo_db, redis_client):
             #add in the blocktime to help makes interfaces more user-friendly (i.e. avoid displaying block
             # indexes and display datetimes instead)
             o['block_time'] = time.mktime(get_block_time(mongo_db, o['block_index']).timetuple()) * 1000
-        
-        return {
+        for o in open_sell_orders:
+            o['block_time'] = time.mktime(get_block_time(mongo_db, o['block_index']).timetuple()) * 1000
+            
+        result = {
             'base_bid_book': base_bid_book,
             'base_ask_book': base_ask_book,
             'bid_depth': bid_depth,
@@ -790,7 +803,9 @@ def serve_api(mongo_db, redis_client):
             'bid_ask_spread': bid_ask_spread,
             'bid_ask_median': bid_ask_median,
             'raw_orders': orders,
+            'open_sell_orders': open_sell_orders
         }
+        return result
     
     @dispatcher.add_method
     def get_owned_assets(addresses):
