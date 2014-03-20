@@ -142,31 +142,27 @@ def create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=None):
 
     #insert custom fields in certain events...
     #even invalid actions need these extra fields for proper reporting to the client (as the reporting message
-    # is produced via PendingActionViewModel.calcText)
+    # is produced via PendingActionViewModel.calcText) -- however make it able to deal with the queried data not existing in this case
     if(event['_category'] in ['credits', 'debits']):
         #find the last balance change on record
         bal_change = mongo_db.balance_changes.find_one({ 'address': event['address'], 'asset': event['asset'] },
             sort=[("block_time", pymongo.DESCENDING)])
-        assert bal_change
-        event['_quantity_normalized'] = abs(bal_change['quantity_normalized'])
-        event['_balance'] = bal_change['new_balance']
-        event['_balance_normalized'] = bal_change['new_balance_normalized']
+        event['_quantity_normalized'] = abs(bal_change['quantity_normalized']) if bal_change else None
+        event['_balance'] = bal_change['new_balance'] if bal_change else None
+        event['_balance_normalized'] = bal_change['new_balance_normalized'] if bal_change else None
     elif(event['_category'] in ['orders',] and event['_command'] == 'insert'):
         get_asset_info = mongo_db.tracked_assets.find_one({'asset': event['get_asset']})
         give_asset_info = mongo_db.tracked_assets.find_one({'asset': event['give_asset']})
-        assert get_asset_info and give_asset_info
-        event['_get_asset_divisible'] = get_asset_info['divisible']
-        event['_give_asset_divisible'] = give_asset_info['divisible']
+        event['_get_asset_divisible'] = get_asset_info['divisible'] if get_asset_info else None
+        event['_give_asset_divisible'] = give_asset_info['divisible'] if give_asset_info else None
     elif(event['_category'] in ['order_matches',] and event['_command'] == 'insert'):
         forward_asset_info = mongo_db.tracked_assets.find_one({'asset': event['forward_asset']})
         backward_asset_info = mongo_db.tracked_assets.find_one({'asset': event['backward_asset']})
-        assert forward_asset_info and backward_asset_info
-        event['_forward_asset_divisible'] = forward_asset_info['divisible']
-        event['_backward_asset_divisible'] = backward_asset_info['divisible']
+        event['_forward_asset_divisible'] = forward_asset_info['divisible'] if forward_asset_info else None
+        event['_backward_asset_divisible'] = backward_asset_info['divisible'] if backward_asset_info else None
     elif(event['_category'] in ['dividends', 'sends',]):
         asset_info = mongo_db.tracked_assets.find_one({'asset': event['asset']})
-        assert asset_info
-        event['_divisible'] = asset_info['divisible']
+        event['_divisible'] = asset_info['divisible'] if asset_info else None
     elif(event['_category'] in ['issuances',]):
         event['_quantity_normalized'] = normalize_quantity(msg_data['quantity'], msg_data['divisible'])
     return event
