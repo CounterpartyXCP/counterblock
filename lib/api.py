@@ -109,6 +109,23 @@ def serve_api(mongo_db, redis_client):
         return results
 
     @dispatcher.add_method
+    def get_btc_txns_status(txn_hashes):
+        if not isinstance(txn_hashes, list):
+            raise Exception("txn_hashes must be a list of txn hashes, even if it just contains one hash")
+        results = []
+        for tx_hash in txn_hashes:
+            tx_info = util.call_insight_api('/api/tx/' + tx_hash + '/', abort_on_error=False)
+            if tx_info:
+                assert tx_info['txid'] == tx_hash
+                results.append({
+                    'tx_hash': tx_info['txid'],
+                    'blockhash': tx_info.get('blockhash', None), #not provided if not confirmed on network
+                    'confirmations': tx_info.get('confirmations', 0), #not provided if not confirmed on network
+                    'blocktime': tx_info.get('time', None),
+                })
+        return results
+
+    @dispatcher.add_method
     def get_normalized_balances(addresses):
         """
         This call augments counterpartyd's get_balances with a normalized_quantity field. It also will include any owned
@@ -978,10 +995,17 @@ def serve_api(mongo_db, redis_client):
         if not result: return False #doesn't exist
         result['last_touched'] = time.mktime(time.gmtime())
         mongo_db.chat_handles.save(result)
-        return {
+        data = {
             'handle': result['handle'],
+            'op': result.get('op', False),
             'last_updated': result.get('last_updated', None)
             } if result else {}
+        banned_until = result.get('banned_until', None) 
+        if banned_until != -1 and banned_until is not None:
+            data['banned_until'] = int(time.mktime(banned_until.timetuple())) * 1000 #convert to epoch ts in ms
+        else:
+            data['banned_until'] = banned_until #-1 or None
+        return data
 
     @dispatcher.add_method
     def store_chat_handle(wallet_id, handle):
