@@ -10,7 +10,7 @@ import logging
 import copy
 
 from logging import handlers as logging_handlers
-from gevent import wsgi
+from gevent import pywsgi
 import cherrypy
 from cherrypy.process import plugins
 from jsonrpc import JSONRPCResponseManager, dispatcher
@@ -990,6 +990,11 @@ def serve_api(mongo_db, redis_client):
         return results
 
     @dispatcher.add_method
+    def is_chat_handle_in_use(handle):
+        results = mongo_db.chat_handles.find({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
+        return True if results.count() else False 
+
+    @dispatcher.add_method
     def get_chat_handle(wallet_id):
         result = mongo_db.chat_handles.find_one({"wallet_id": wallet_id})
         if not result: return False #doesn't exist
@@ -1014,6 +1019,11 @@ def serve_api(mongo_db, redis_client):
             raise Exception("Invalid chat handle: bad data type")
         if not re.match(r'[A-Za-z0-9_-]{4,12}', handle):
             raise Exception("Invalid chat handle: bad syntax/length")
+        
+        #see if this handle already exists (case insensitive)
+        results = mongo_db.chat_handles.find({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
+        if results.count():
+            raise Exception("Chat handle already is in use")
 
         mongo_db.chat_handles.update(
             {'wallet_id': wallet_id},
@@ -1154,5 +1164,5 @@ def serve_api(mongo_db, redis_client):
     application.log.access_log.addHandler(h)
     
     #start up the API listener/handler
-    server = wsgi.WSGIServer((config.RPC_HOST, int(config.RPC_PORT)), application, log=None)
+    server = pywsgi.WSGIServer((config.RPC_HOST, int(config.RPC_PORT)), application, log=None)
     server.serve_forever()

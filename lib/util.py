@@ -9,13 +9,10 @@ import decimal
 
 import pymongo
 import grequests
-from requests import Session
 
 from . import (config,)
 
 D = decimal.Decimal
-API_SESSION = Session()
-API_INSIGHT_SESSION = Session()
 
 def assets_to_asset_pair(asset1, asset2):
     """Pair labeling rules are:
@@ -50,8 +47,7 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
         (grequests.post(endpoint,
             data=json.dumps(payload),
             headers={'content-type': 'application/json'},
-            auth=auth,
-            session=API_SESSION),)
+            auth=auth),)
     )[0]
     #^ use requests.Session to utilize connectionpool and keepalive (avoid connection setup/teardown overhead)
     if not r:
@@ -65,7 +61,7 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
     return result
 
 def call_insight_api(request_string, abort_on_error=False):
-    r = grequests.map((grequests.get(config.INSIGHT + request_string, session=API_INSIGHT_SESSION),) )[0]
+    r = grequests.map((grequests.get(config.INSIGHT + request_string),) )[0]
     #^ use requests.Session to utilize connectionpool and keepalive (avoid connection setup/teardown overhead)
     if not r and abort_on_error:
         raise Exception("Could not contact insight!")

@@ -2,6 +2,7 @@ import re
 import logging
 import datetime
 import time
+import socket
 import collections
 import json
 import zmq.green as zmq
@@ -33,6 +34,8 @@ class MessagesFeedServerNamespace(BaseNamespace):
                 #logging.info("socket.io: Sending message ID %s -- %s:%s" % (
                 #    event['_message_index'], event['_category'], event['_command']))
                 self.emit(event['_category'], event)
+        sock.shutdown(socket.SHUT_RDWR)
+        sock.close()
 
     def on_subscribe(self):
         if 'listening' not in self.socket.session:
