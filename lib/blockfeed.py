@@ -99,7 +99,10 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
     app_config_created = False
     app_config = mongo_db.app_config.find()
     assert app_config.count() in [0, 1]
-    if app_config.count() == 0 or config.REPARSE_FORCED:
+    if (   app_config.count() == 0
+        or config.REPARSE_FORCED
+        or app_config[0]['db_version'] != config.DB_VERSION
+        or app_config[0]['running_testnet'] != config.TESTNET):
         mongo_db.app_config.update({}, { #create/update default app_config object
         'db_version': config.DB_VERSION, #counterwalletd database version
         'running_testnet': config.TESTNET,
@@ -119,10 +122,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         my_latest_block = LATEST_BLOCK_INIT
 
     #see if DB version has increased and rebuild if so
-    if (   app_config_created
-        or config.REPARSE_FORCED
-        or app_config['db_version'] != config.DB_VERSION
-        or app_config['running_testnet'] != config.TESTNET):
+    if app_config_created:
         logging.warn("counterwalletd database version UPDATED (from %i to %i) or testnet setting changed (from %s to %s), or REINIT forced (%s). REBUILDING FROM SCRATCH ..." % (
             app_config['db_version'], config.DB_VERSION, app_config['running_testnet'], config.TESTNET, config.REPARSE_FORCED))
         app_config = blow_away_db(app_config)
