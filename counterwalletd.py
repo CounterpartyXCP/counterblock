@@ -395,28 +395,53 @@ if __name__ == '__main__':
             raise Exception("Could not authenticate to mongodb with the supplied username and password.")
 
     #insert mongo indexes if need-be (i.e. for newly created database)
+    #processed_blocks
     mongo_db.processed_blocks.ensure_index('block_index', unique=True)
+    #preferences
     mongo_db.preferences.ensure_index('wallet_id', unique=True)
     mongo_db.preferences.ensure_index('last_touched')
+    #chat_handles
     mongo_db.chat_handles.ensure_index('wallet_id', unique=True)
     mongo_db.chat_handles.ensure_index('handle', unique=True)
+    #chat_history
+    mongo_db.chat_history.ensure_index('when')
+    mongo_db.chat_history.ensure_index([
+        ("handle", pymongo.ASCENDING),
+        ("when", pymongo.DESCENDING),
+    ])
+    #tracked_assets
     mongo_db.tracked_assets.ensure_index('asset', unique=True)
     mongo_db.tracked_assets.ensure_index('_at_block') #for tracked asset pruning
     mongo_db.tracked_assets.ensure_index([
         ("owner", pymongo.ASCENDING),
         ("asset", pymongo.ASCENDING),
     ])
+    #trades
     mongo_db.trades.ensure_index('block_index')
     mongo_db.trades.ensure_index([
         ("base_asset", pymongo.ASCENDING),
         ("quote_asset", pymongo.ASCENDING),
         ("block_time", pymongo.DESCENDING)
     ])
+    #balance_changes
     mongo_db.balance_changes.ensure_index('block_index')
     mongo_db.balance_changes.ensure_index([
         ("address", pymongo.ASCENDING),
         ("asset", pymongo.ASCENDING),
         ("block_time", pymongo.ASCENDING)
+    ])
+    #asset_market_info
+    mongo_db.asset_market_info.ensure_index('asset', unique=True)
+    #asset_marketcap_history
+    mongo_db.asset_marketcap_history.ensure_index('block_index')
+    mongo_db.asset_marketcap_history.ensure_index([ #events.py
+        ("market_cap_as", pymongo.ASCENDING),
+        ("asset", pymongo.ASCENDING),
+        ("block_index", pymongo.DESCENDING)
+    ])
+    mongo_db.asset_marketcap_history.ensure_index([ #api.py
+        ("market_cap_as", pymongo.ASCENDING),
+        ("block_time", pymongo.DESCENDING)
     ])
     
     #Connect to redis
@@ -448,8 +473,9 @@ if __name__ == '__main__':
     logging.info("Starting up counterpartyd block feed poller...")
     gevent.spawn(blockfeed.process_cpd_blockfeed, mongo_db, zmq_publisher_eventfeed)
 
+    #start up event timers that don't depend on the feed being fully caught up
     logging.debug("Starting event timer: expire_stale_prefs")
-    gevent.spawn_later(86400, events.expire_stale_prefs)
+    gevent.spawn(events.expire_stale_prefs, mongo_db)
 
     logging.info("Starting up RPC API handler...")
     api.serve_api(mongo_db, redis_client)

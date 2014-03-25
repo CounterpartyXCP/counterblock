@@ -5,7 +5,9 @@ import time
 import socket
 import collections
 import json
+
 import zmq.green as zmq
+import pymongo
 from socketio import socketio_manage
 from socketio.mixins import BroadcastMixin
 from socketio.namespace import BaseNamespace
@@ -34,7 +36,7 @@ class MessagesFeedServerNamespace(BaseNamespace):
                 #logging.info("socket.io: Sending message ID %s -- %s:%s" % (
                 #    event['_message_index'], event['_category'], event['_command']))
                 self.emit(event['_category'], event)
-        sock.shutdown(socket.SHUT_RDWR)
+        #sock.shutdown(socket.SHUT_RDWR)
         sock.close()
 
     def on_subscribe(self):
@@ -67,6 +69,7 @@ class SocketIOMessagesFeedServer(object):
 class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
     MAX_TEXT_LEN = 500
     TIME_BETWEEN_MESSAGES = 10 #in seconds (auto-adjust this in the future based on chat speed/volume)
+    NUM_HISTORY_LINES_ON_JOIN = 100
     
     def on_set_walletid(self, wallet_id):
         """this must be the first message sent after connecting to the chat server. Based on the passed
@@ -84,7 +87,8 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
         self.socket.session['last_action'] = None
 
     def on_get_lastlines(self):
-        return list(self.request['last_chats'])
+        return list(self.request['mongo_db'].chat_history.find({}, {'_id': 0}).sort(
+            "when", pymongo.DESCENDING).limit(self.NUM_HISTORY_LINES_ON_JOIN))
     
     def on_command(self, command, args):
         """command is the command to run, args is a list of arguments to the command"""
@@ -195,8 +199,12 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             
             self.broadcast_event_not_me('emote', self.socket.session['handle'], self.socket.session['op'], text)
             self.socket.session['last_action'] = time.mktime(time.gmtime())
-            self.request['last_chats'].append({'handle': self.socket.session['handle'], 'op': self.socket.session['op'],
-                'text': text, 'when': self.socket.session['last_action']})
+            self.request['mongo_db'].chat_history.insert({
+                'handle': self.socket.session['handle'],
+                'op': self.socket.session['op'],
+                'text': text,
+                'when': self.socket.session['last_action']
+            })
         else: #spamming
             return self.error('too_fast', "Your last message was %i seconds ago (max 1 message every %i seconds)" % (
                 last_message_ago, self.TIME_BETWEEN_MESSAGES))
@@ -210,7 +218,6 @@ class SocketIOChatFeedServer(object):
         # Dummy request object to maintain state between Namespace initialization.
         self.request = {
             'mongo_db': mongo_db,
-            'last_chats': collections.deque(maxlen=100), 
         }        
             
     def __call__(self, environ, start_response):

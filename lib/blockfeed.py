@@ -12,25 +12,30 @@ import ConfigParser
 import time
 
 import pymongo
+import gevent
 
-from lib import (config, util)
+from lib import (config, util, events)
+
 D = decimal.Decimal
+
 
 def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
     LATEST_BLOCK_INIT = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
 
     def blow_away_db(app_config):
         #boom! blow away all collections in mongo
-        mongo_db.processed_blocks.remove()
-        mongo_db.balance_changes.remove()
-        mongo_db.trades.remove()
-        mongo_db.tracked_assets.remove()
+        mongo_db.processed_blocks.drop()
+        mongo_db.balance_changes.drop()
+        mongo_db.trades.drop()
+        mongo_db.tracked_assets.drop()
+        mongo_db.asset_market_info.drop()
+        mongo_db.asset_marketcap_history.drop()
         
         #Update config to state the new DB version 
         app_config['db_version'] = config.DB_VERSION
         mongo_db.app_config.update({}, app_config)
 
-        #DO NOT DELETE preferences and chat_handles
+        #DO NOT DELETE preferences and chat_handles and chat_history
         
         #create XCP and BTC assets in tracked_assets
         for asset in ['XCP', 'BTC']:
@@ -87,6 +92,8 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
     config.CURRENT_BLOCK_INDEX = 0 #initialize (last processed block index -- i.e. currently active block)
     config.LAST_MESSAGE_INDEX = -1 #initialize (last processed message index)
     config.INSIGHT_LAST_BLOCK = 0 #simply for printing/alerting purposes
+    config.CAUGHT_UP_STARTED_EVENTS = False
+    #^ set after we are caught up and start up the recurring events that depend on us being caught up with the blockchain 
     
     #grab our stored preferences
     app_config_created = False
@@ -99,6 +106,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         'counterpartyd_db_version_major': None,
         'counterpartyd_db_version_minor': None,
         'counterpartyd_running_testnet': None,
+        'last_block_assets_compiled': config.BLOCK_FIRST, #for asset data compilation in events.py (resets on reparse as well)
         }, upsert=True)
         app_config = mongo_db.app_config.find()[0]
         app_config_created = True
@@ -430,7 +438,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                 #update as CURRENT_BLOCK_INDEX catches up with INSIGHT_LAST_BLOCK and/or surpasses it (i.e. if insight gets behind for some reason)
                 block_height_response = util.call_insight_api('/api/status?q=getInfo', abort_on_error=False)
                 config.INSIGHT_LAST_BLOCK = block_height_response['info']['blocks'] if block_height_response else 0
-            logging.info("Block: %i (message_index height=%s) (insight block=%s)" % (config.CURRENT_BLOCK_INDEX,
+            logging.info("Block: %i (message_index height=%s) (insight latest block=%s)" % (config.CURRENT_BLOCK_INDEX,
                 config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX != -1 else '???',
                 config.INSIGHT_LAST_BLOCK if config.INSIGHT_LAST_BLOCK else '???'))
         elif my_latest_block['block_index'] > last_processed_block['block_index']:
@@ -450,5 +458,13 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                 if config.CURRENT_BLOCK_INDEX == 0: config.CURRENT_BLOCK_INDEX = running_info['last_block']['block_index']
                 logging.info("Detected blocks caught up on startup. Setting last message idx to %s, current block index to %s ..." % (
                     config.LAST_MESSAGE_INDEX, config.CURRENT_BLOCK_INDEX))
+            
+            if config.CAUGHT_UP and not config.CAUGHT_UP_STARTED_EVENTS:
+                #start up recurring events that depend on us being fully caught up with the blockchain to run
+                logging.debug("Starting event timer: compile_asset_market_info")
+                gevent.spawn(events.compile_asset_market_info, mongo_db)
+
+                config.CAUGHT_UP_STARTED_EVENTS = True
+                
             
             time.sleep(2) #counterwalletd itself is at least caught up, wait a bit to query again for the latest block from cpd
