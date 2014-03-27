@@ -10,6 +10,8 @@ import gevent
 from lib import (config, util)
 
 D = decimal.Decimal
+COMPILE_ASSET_MARKET_INFO_PERIOD = 10 * 60 #in seconds (this is every 10 minutes currently)
+
 
 def expire_stale_prefs(mongo_db):
     """
@@ -339,6 +341,11 @@ def compile_asset_market_info(mongo_db):
             }
         return asset_data
     
+    if not config.CAUGHT_UP:
+        logging.warn("Not updating asset market info as CAUGHT_UP is false.")
+        gevent.spawn_later(COMPILE_ASSET_MARKET_INFO_PERIOD, compile_asset_market_info, mongo_db)
+        return
+    
     #grab the last block # we processed assets data off of
     last_block_assets_compiled = mongo_db.app_config.find_one()['last_block_assets_compiled']
     last_block_time_assets_compiled = util.get_block_time(mongo_db, last_block_assets_compiled)
@@ -348,7 +355,7 @@ def compile_asset_market_info(mongo_db):
     
     if current_block_index == last_block_assets_compiled:
         #all caught up -- call again in 10 minutes
-        gevent.spawn_later(10 * 60, compile_asset_market_info, mongo_db)
+        gevent.spawn_later(COMPILE_ASSET_MARKET_INFO_PERIOD, compile_asset_market_info, mongo_db)
         return
         
     #get assets that were traded since the last check on ANY pair that the asset was involved in (even if the pair did not involve XCP or BTC)
@@ -405,9 +412,8 @@ def compile_asset_market_info(mongo_db):
                         'market_cap_as': market_cap_as,
                     })
                     logging.info("Block %i -- Calculated market cap history point for %s as %s" % (t['block_index'], asset, market_cap_as))
-                            
-    #call again in 10 minutes
-    gevent.spawn_later(10 * 60, compile_asset_market_info, mongo_db)
-    
+
+    #all done for this run...call again in a bit                            
+    gevent.spawn_later(COMPILE_ASSET_MARKET_INFO_PERIOD, compile_asset_market_info, mongo_db)
     mongo_db.app_config.update({}, {'$set': {'last_block_assets_compiled': current_block_index}})
     

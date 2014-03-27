@@ -273,3 +273,8 @@ def get_btc_supply(normalize=False, at_block_index=None):
             blocks_remaining = 0
             
     return total_supply if normalize else int(total_supply * config.UNIT)
+
+def is_caught_up_well_enough_for_government_work():
+    """We don't want to give users 525 errors or login errors if counterwalletd/counterpartyd is in the process of
+    getting caught up, but we DO if counterwallet is either clearly out of date with the blockchain, or reinitializing its database"""
+    return config.CAUGHT_UP or (config.INSIGHT_LAST_BLOCK and config.CURRENT_BLOCK_INDEX >= config.INSIGHT_LAST_BLOCK - 1)

@@ -36,9 +36,8 @@ def serve_api(mongo_db, redis_client):
         """this method used by the client to check if the server is alive, caught up, and ready to accept requests.
         If the server is NOT caught up, a 525 error will be returned actually before hitting this point. Thus,
         if we actually return data from this function, it should always be true. (may change this behaviour later)"""
-        assert config.CAUGHT_UP
         return {
-            'caught_up': config.CAUGHT_UP,
+            'caught_up': util.is_caught_up_well_enough_for_government_work(),
             'last_message_index': config.LAST_MESSAGE_INDEX, 
             'testnet': config.TESTNET 
         }
@@ -547,12 +546,13 @@ def serve_api(mongo_db, redis_client):
         return result
     
     @dispatcher.add_method
-    def get_order_book_simple(base_asset, quote_asset, min_pct_fee_provided=None, min_pct_fee_required=None):
+    def get_order_book_simple(asset1, asset2, min_pct_fee_provided=None, max_pct_fee_required=None):
+        base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
         result = _get_order_book(base_asset, quote_asset,
             bid_book_min_pct_fee_provided=min_pct_fee_provided,
-            bid_book_min_pct_fee_required=min_pct_fee_required,
+            bid_book_max_pct_fee_required=max_pct_fee_required,
             ask_book_min_pct_fee_provided=min_pct_fee_provided,
-            ask_book_min_pct_fee_required=min_pct_fee_required)
+            ask_book_max_pct_fee_required=max_pct_fee_required)
         return result
 
     @dispatcher.add_method
@@ -599,21 +599,13 @@ def serve_api(mongo_db, redis_client):
             ask_book_min_pct_fee_provided=ask_book_min_pct_fee_provided,
             ask_book_min_pct_fee_required=ask_book_min_pct_fee_required,
             ask_book_max_pct_fee_required=ask_book_max_pct_fee_required)
-
-        open_sell_orders_filters = [
-            {"field": "get_asset", "op": "==", "value": sell_asset},
-            {"field": "give_asset", "op": "==", "value": buy_asset},
-            {'field': 'give_remaining', 'op': '!=', 'value': 0}, #don't show empty
-        ]
-        open_sell_orders = util.call_jsonrpc_api("get_orders", {
-            'filters': open_sell_orders_filters,
-            'show_expired': False,
-             'order_by': 'block_index',
-             'order_dir': 'asc',
-            }, abort_on_error=True)['result']
-        for o in open_sell_orders:
-            o['block_time'] = time.mktime(util.get_block_time(mongo_db, o['block_index']).timetuple()) * 1000
-        result['open_sell_orders'] = open_sell_orders
+        
+        #filter down raw_orders to be only open sell orders
+        open_sell_orders = []
+        for o in result['raw_orders']:
+            if o['give_asset'] == sell_asset:
+                open_sell_orders.append(o)
+        result['raw_orders'] = open_sell_orders
         return result
     
     @dispatcher.add_method
@@ -935,7 +927,7 @@ def serve_api(mongo_db, redis_client):
                 return
             
             #don't do jack if we're not caught up
-            if not config.CAUGHT_UP:
+            if not util.is_caught_up_well_enough_for_government_work():
                 raise cherrypy.HTTPError(525, 'Server is not caught up. Please try again later.')
                 #^ 525 is a custom response code we use for this one purpose
             try:

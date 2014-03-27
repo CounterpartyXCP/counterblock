@@ -22,7 +22,7 @@ D = decimal.Decimal
 def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
     LATEST_BLOCK_INIT = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
 
-    def blow_away_db(app_config):
+    def blow_away_db():
         #boom! blow away all collections in mongo
         mongo_db.processed_blocks.drop()
         mongo_db.balance_changes.drop()
@@ -31,10 +31,17 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         mongo_db.asset_market_info.drop()
         mongo_db.asset_marketcap_history.drop()
         
-        #Update config to state the new DB version 
-        app_config['db_version'] = config.DB_VERSION
-        mongo_db.app_config.update({}, app_config)
-
+        #create/update default app_config object
+        mongo_db.app_config.update({}, {
+        'db_version': config.DB_VERSION, #counterwalletd database version
+        'running_testnet': config.TESTNET,
+        'counterpartyd_db_version_major': None,
+        'counterpartyd_db_version_minor': None,
+        'counterpartyd_running_testnet': None,
+        'last_block_assets_compiled': config.BLOCK_FIRST, #for asset data compilation in events.py (resets on reparse as well)
+        }, upsert=True)
+        app_config = mongo_db.app_config.find()[0]
+        
         #DO NOT DELETE preferences and chat_handles and chat_history
         
         #create XCP and BTC assets in tracked_assets
@@ -49,6 +56,10 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                 '_history': [] #to allow for block rollbacks
             }
             mongo_db.tracked_assets.insert(base_asset)
+            
+        #reinitialize some internal counters
+        config.CURRENT_BLOCK_INDEX = 0
+        config.LAST_MESSAGE_INDEX = -1
         
         return app_config
         
@@ -95,43 +106,28 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
     config.CAUGHT_UP_STARTED_EVENTS = False
     #^ set after we are caught up and start up the recurring events that depend on us being caught up with the blockchain 
     
-    #grab our stored preferences
-    app_config_created = False
+    #grab our stored preferences, and rebuild the database if necessary
     app_config = mongo_db.app_config.find()
     assert app_config.count() in [0, 1]
     if (   app_config.count() == 0
         or config.REPARSE_FORCED
         or app_config[0]['db_version'] != config.DB_VERSION
         or app_config[0]['running_testnet'] != config.TESTNET):
-        mongo_db.app_config.update({}, { #create/update default app_config object
-        'db_version': config.DB_VERSION, #counterwalletd database version
-        'running_testnet': config.TESTNET,
-        'counterpartyd_db_version_major': None,
-        'counterpartyd_db_version_minor': None,
-        'counterpartyd_running_testnet': None,
-        'last_block_assets_compiled': config.BLOCK_FIRST, #for asset data compilation in events.py (resets on reparse as well)
-        }, upsert=True)
-        app_config = mongo_db.app_config.find()[0]
-        app_config_created = True
+        if app_config.count():
+            logging.warn("counterwalletd database version UPDATED (from %i to %i) or testnet setting changed (from %s to %s), or REINIT forced (%s). REBUILDING FROM SCRATCH ..." % (
+                app_config[0]['db_version'], config.DB_VERSION, app_config[0]['running_testnet'], config.TESTNET, config.REPARSE_FORCED))
+        else:
+            logging.warn("counterwalletd database app_config collection doesn't exist. BUILDING FROM SCRATCH...")
+        app_config = blow_away_db()
+        my_latest_block = LATEST_BLOCK_INIT
     else:
         app_config = app_config[0]
-        
-    #get the last processed block out of mongo
-    my_latest_block = mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)])
-    if not my_latest_block:
-        my_latest_block = LATEST_BLOCK_INIT
-
-    #see if DB version has increased and rebuild if so
-    if app_config_created:
-        logging.warn("counterwalletd database version UPDATED (from %i to %i) or testnet setting changed (from %s to %s), or REINIT forced (%s). REBUILDING FROM SCRATCH ..." % (
-            app_config['db_version'], config.DB_VERSION, app_config['running_testnet'], config.TESTNET, config.REPARSE_FORCED))
-        app_config = blow_away_db(app_config)
-        my_latest_block = LATEST_BLOCK_INIT
-    else:
+        #get the last processed block out of mongo
+        my_latest_block = mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)]) or LATEST_BLOCK_INIT
         #remove any data we have for blocks higher than this (would happen if counterwalletd or mongo died
         # or errored out while processing a block)
         my_latest_block = prune_my_stale_blocks(my_latest_block['block_index'])
-    
+
     #start polling counterpartyd for new blocks    
     while True:
         try:
@@ -165,7 +161,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
             wipeState = True
             updatePrefs = True
         if wipeState:
-            app_config = blow_away_db(app_config)
+            app_config = blow_away_db()
         if updatePrefs:
             app_config['counterpartyd_db_version_major'] = running_info['db_version_major'] 
             app_config['counterpartyd_db_version_minor'] = running_info['db_version_minor']
