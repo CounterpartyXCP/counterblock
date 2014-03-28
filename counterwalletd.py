@@ -395,20 +395,10 @@ if __name__ == '__main__':
             raise Exception("Could not authenticate to mongodb with the supplied username and password.")
 
     #insert mongo indexes if need-be (i.e. for newly created database)
+    
+    ##COLLECTIONS THAT ARE PURGED AS A RESULT OF A REPARSE
     #processed_blocks
     mongo_db.processed_blocks.ensure_index('block_index', unique=True)
-    #preferences
-    mongo_db.preferences.ensure_index('wallet_id', unique=True)
-    mongo_db.preferences.ensure_index('last_touched')
-    #chat_handles
-    mongo_db.chat_handles.ensure_index('wallet_id', unique=True)
-    mongo_db.chat_handles.ensure_index('handle', unique=True)
-    #chat_history
-    mongo_db.chat_history.ensure_index('when')
-    mongo_db.chat_history.ensure_index([
-        ("handle", pymongo.ASCENDING),
-        ("when", pymongo.DESCENDING),
-    ])
     #tracked_assets
     mongo_db.tracked_assets.ensure_index('asset', unique=True)
     mongo_db.tracked_assets.ensure_index('_at_block') #for tracked asset pruning
@@ -443,6 +433,23 @@ if __name__ == '__main__':
         ("market_cap_as", pymongo.ASCENDING),
         ("block_time", pymongo.DESCENDING)
     ])
+    #btc_open_orders
+    mongo_db.btc_open_orders.ensure_index('when_created')
+    mongo_db.btc_open_orders.ensure_index('order_tx_hash', unique=True)
+    
+    ##COLLECTIONS THAT ARE *NOT* PURGED AS A RESULT OF A REPARSE
+    #preferences
+    mongo_db.preferences.ensure_index('wallet_id', unique=True)
+    mongo_db.preferences.ensure_index('last_touched')
+    #chat_handles
+    mongo_db.chat_handles.ensure_index('wallet_id', unique=True)
+    mongo_db.chat_handles.ensure_index('handle', unique=True)
+    #chat_history
+    mongo_db.chat_history.ensure_index('when')
+    mongo_db.chat_history.ensure_index([
+        ("handle", pymongo.ASCENDING),
+        ("when", pymongo.DESCENDING),
+    ])
     
     #Connect to redis
     if config.REDIS_ENABLE_APICACHE:
@@ -476,6 +483,8 @@ if __name__ == '__main__':
     #start up event timers that don't depend on the feed being fully caught up
     logging.debug("Starting event timer: expire_stale_prefs")
     gevent.spawn(events.expire_stale_prefs, mongo_db)
+    logging.debug("Starting event timer: expire_stale_btc_open_order_records")
+    gevent.spawn(events.expire_stale_btc_open_order_records, mongo_db)
 
     logging.info("Starting up RPC API handler...")
     api.serve_api(mongo_db, redis_client)

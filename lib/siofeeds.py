@@ -12,6 +12,8 @@ from socketio import socketio_manage
 from socketio.mixins import BroadcastMixin
 from socketio.namespace import BaseNamespace
 
+onlineClients = {} #key = walletID, value = datetime when connected
+#^ tracks "online status" via the chat feed
 
 class MessagesFeedServerNamespace(BaseNamespace):
     def __init__(self, *args, **kwargs):
@@ -44,9 +46,10 @@ class MessagesFeedServerNamespace(BaseNamespace):
             self.socket.session['listening'] = True
             self.spawn(self.listener)
             
-    def recv_disconnect(self):
-        """Triggered when we receive a disconnection from the client side (e.g. client closes their browser)"""
-        self._running = False            
+    def disconnect(self, silent=False):
+        """Triggered when the client disconnects (e.g. client closes their browser)"""
+        self._running = False
+        return super(MessagesFeedServerNamespace, self).disconnect(silent=silent)
 
         
 class SocketIOMessagesFeedServer(object):
@@ -71,18 +74,45 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
     TIME_BETWEEN_MESSAGES = 10 #in seconds (auto-adjust this in the future based on chat speed/volume)
     NUM_HISTORY_LINES_ON_JOIN = 100
     
-    def on_set_walletid(self, wallet_id):
+    def disconnect(self, silent=False):
+        """Triggered when the client disconnects (e.g. client closes their browser)"""
+        #record the client as offline
+        if 'wallet_id' not in self.socket.session:
+            logging.warn("wallet_id not found in socket session: %s" % socket.session)
+            return super(ChatFeedServerNamespace, self).disconnect(silent=silent)
+        if self.socket.session['wallet_id'] in onlineClients:
+            del onlineClients[self.socket.session['wallet_id']]
+        return super(ChatFeedServerNamespace, self).disconnect(silent=silent)
+    
+    def on_ping(self, wallet_id):
+        """used to force a triggering of the connection tracking""" 
+        #record the client as online
+        self.socket.session['wallet_id'] = wallet_id
+        onlineClients[wallet_id] = {'when': datetime.datetime.utcnow(), 'state': self}
+        return True
+    
+    def on_start_chatting(self, wallet_id, is_primary_server):
         """this must be the first message sent after connecting to the chat server. Based on the passed
-        wallet ID, it will retrieve the chat handle the user initially registered with"""
-        #set the wallet ID and derive the handle from that
+        wallet ID, it will retrieve the chat handle the user initially registered with.
+        
+        If is_primary_server is specified as True, the user is designating this server as its primary chat server. This means
+        that it will be this server that will rebroadcast chat lines to the user (other, non-primary servers will not)
+        """
+        #normally, wallet ID should be set from on_ping, however if the server goes down and comes back up, this will
+        # not be the case for clients already logged in and chatting
+        if 'wallet_id' not in self.socket.session: #we specify wallet
+            self.socket.session['wallet_id'] = wallet_id
+        else:
+            assert self.socket.session['wallet_id'] == wallet_id
+
         #lookup the walletid and ensure that it has a handle match for chat
-        chat_profile =  self.request['mongo_db'].chat_handles.find_one({"wallet_id": wallet_id})
+        chat_profile =  self.request['mongo_db'].chat_handles.find_one({"wallet_id": self.socket.session['wallet_id']})
         handle = chat_profile['handle'] if chat_profile else None
         if not handle:
-            return self.error('invalid_id', "No handle is defined for wallet ID %s" % wallet_id)
-        self.socket.session['wallet_id'] = wallet_id
+            return self.error('invalid_id', "No handle is defined for wallet ID %s" % self.socket.session['wallet_id'])
+        self.socket.session['is_primary_server'] = is_primary_server
         self.socket.session['handle'] = handle
-        self.socket.session['op'] = chat_profile.get('op', False)
+        self.socket.session['is_op'] = chat_profile.get('is_op', False)
         self.socket.session['banned_until'] = chat_profile.get('banned_until', None)
         self.socket.session['last_action'] = None
 
@@ -92,24 +122,51 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
     
     def on_command(self, command, args):
         """command is the command to run, args is a list of arguments to the command"""
-        if 'op' not in self.socket.session:
+        if 'is_op' not in self.socket.session:
             return self.error('invalid_state', "Invalid state") #this will trigger the client to auto re-establish state
-        if not self.socket.session['op']:
-            return self.error('invalid_access', "Must be an op to use commands")
-        if command in ['op', 'unop']: #/op|unop <handle>
+        if command not in ['online', 'msg', 'op', 'unop', 'ban', 'unban', 'handle', 'help']:
+            return self.error('invalid_command', "Unknown command: %s. Try /help for help." % command)
+        if command not in ['online', 'msg', 'help'] and not self.socket.session['is_op']:
+            return self.error('invalid_access', "Must be an op to use this command")
+        
+        if command == 'online': #/online <handle>
+            if not self.socket.session['is_primary_server']: return
+            if len(args) != 1:
+                return self.error('invalid_args', "USAGE: /online {handle to see if online}")
+            handle = args[0]
+            p = self.request['mongo_db'].chat_handles.find_one({"handle": handle})
+            if not p:
+                return self.error('invalid_args', "Handle '%s' not found" % handle)
+            return self.emit("online_status", handle, p['wallet_id'] in onlineClients)
+        elif command == 'msg': #/msg <handle> <message text>
+            if not self.socket.session['is_primary_server']: return
+            if len(args) < 2:
+                return self.error('invalid_args', "USAGE: /msg {handle} {private message to send}")
+            handle = args[0]
+            message = ' '.join(args[1:])
+            if handle == self.socket.session['handle']:
+                return self.error('invalid_args', "Don't be cray cray and try to message yourself, %s" % handle)
+            p = self.request['mongo_db'].chat_handles.find_one({"handle": handle})
+            if not p:
+                return self.error('invalid_args', "Handle '%s' not found" % handle)
+            if p['wallet_id'] not in onlineClients:
+                return self.error('invalid_args', "Handle '%s' is not online" % handle)
+            onlineClients[p['wallet_id']]['state'].emit("emote", self.socket.session['handle'], message, self.socket.session['is_op'], True)
+        elif command in ['op', 'unop']: #/op|unop <handle>
             if len(args) != 1:
                 return self.error('invalid_args', "USAGE: /op|unop {handle to op/unop}")
             handle = args[0]
             p = self.request['mongo_db'].chat_handles.find_one({"handle": handle})
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
-            p['op'] = command == 'op'
+            p['is_op'] = command == 'op'
             self.request['mongo_db'].chat_handles.save(p)
             #make the change active immediately
             for sessid, socket in self.socket.server.sockets.iteritems():
                 if socket.session.get('handle', None) == handle:
-                    socket.session['op'] = p['op']
-            self.broadcast_event("oped" if command == "op" else "unoped", self.socket.session['handle'], handle)
+                    socket.session['is_op'] = p['is_op']
+            if self.socket.session['is_primary_server']: #let all users know
+                self.broadcast_event("oped" if command == "op" else "unoped", self.socket.session['handle'], handle)
         elif command == 'ban': #/ban <handle> <time length in seconds>
             if len(args) != 2:
                 return self.error('invalid_args', "USAGE: /ban {handle to ban} {ban_period in sec | -1}")
@@ -130,8 +187,9 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             for sessid, socket in self.socket.server.sockets.iteritems():
                 if socket.session.get('handle', None) == handle:
                     socket.session['banned_until'] = p['banned_until']
-            self.broadcast_event("banned", self.socket.session['handle'], handle, ban_period,
-                int(time.mktime(p['banned_until'].timetuple()))*1000 if p['banned_until'] != -1 else -1);
+            if self.socket.session['is_primary_server']: #let all users know
+                self.broadcast_event("banned", self.socket.session['handle'], handle, ban_period,
+                    int(time.mktime(p['banned_until'].timetuple()))*1000 if p['banned_until'] != -1 else -1);
         elif command == 'unban': #/unban <handle>
             if len(args) != 1:
                 return self.error('invalid_args', "USAGE: /unban {handle to unban}")
@@ -145,7 +203,8 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             for sessid, socket in self.socket.server.sockets.iteritems():
                 if socket.session.get('handle', None) == handle:
                     socket.session['banned_until'] = None
-            self.broadcast_event("unbanned", self.socket.session['handle'], handle)
+            if self.socket.session['is_primary_server']:  #let all users know
+                self.broadcast_event("unbanned", self.socket.session['handle'], handle)
         elif command == 'handle': #/handle <oldhandle> <newhandle>
             if len(args) != 2:
                 return self.error('invalid_args', "USAGE: /handle {oldhandle} {newhandle}")
@@ -168,14 +227,18 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             for sessid, socket in self.socket.server.sockets.iteritems():
                 if socket.session.get('handle', None) == handle:
                     socket.session['handle'] = new_handle
-            self.broadcast_event("handle_changed", self.socket.session['handle'], handle, new_handle)
+            if self.socket.session['is_primary_server']: #let all users know
+                self.broadcast_event("handle_changed", self.socket.session['handle'], handle, new_handle)
         elif command == 'help':
-            return self.error('invalid_args', "Valid commands: '/op', '/unop', '/ban', '/unban', '/handle'. Type a command alone to see the usage.")
-        else:
-            return self.error('invalid_command', "Unknown command: %s" % command)
+            if self.socket.session['is_op']:
+                return self.emit('emote', None, "Valid commands: '/op', '/unop', '/ban', '/unban', '/handle', '/online'. Type a command alone (i.e. with no arguments) to see the usage.", False, False)
+            else:
+                return self.emit('emote', None, "Valid commands: '/online', '/msg'. Type a command alone (i.e. with no arguments) to see the usage.", False, False)
+        else: assert False #handled earlier
+            
     
     def on_emote(self, text):
-        if 'wallet_id' not in self.socket.session:
+        if 'handle' not in self.socket.session:
             return self.error('invalid_state', "Invalid state") #this will trigger the client to auto re-establish state
         
         now = datetime.datetime.utcnow()
@@ -191,17 +254,17 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
         else:
             last_message_ago = None
         
-        if self.socket.session['op'] or (last_message_ago is None or last_message_ago >= self.TIME_BETWEEN_MESSAGES):
+        if self.socket.session['is_op'] or (last_message_ago is None or last_message_ago >= self.TIME_BETWEEN_MESSAGES):
             #not spamming, or an op
             #clean up text
             text = text[:self.MAX_TEXT_LEN] #truncate to max allowed
             #TODO: filter out other stuff?
-            
-            self.broadcast_event_not_me('emote', self.socket.session['handle'], self.socket.session['op'], text)
+            if self.socket.session['is_primary_server']:
+                self.broadcast_event_not_me('emote', self.socket.session['handle'], text, self.socket.session['is_op'], False)
             self.socket.session['last_action'] = time.mktime(time.gmtime())
             self.request['mongo_db'].chat_history.insert({
                 'handle': self.socket.session['handle'],
-                'op': self.socket.session['op'],
+                'is_op': self.socket.session['is_op'],
                 'text': text,
                 'when': self.socket.session['last_action']
             })

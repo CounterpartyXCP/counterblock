@@ -19,12 +19,23 @@ def expire_stale_prefs(mongo_db):
     """
     min_last_updated = time.mktime((datetime.datetime.utcnow() - datetime.timedelta(days=30)).timetuple())
     
-    num_stale_prefs = mongo_db.preferences.find({'last_touched': {'$lte': min_last_updated}}).count()
-    mongo_db.preferences.remove({'last_touched': {'$lte': min_last_updated}})
-    logging.warn("REMOVED %i stale preferences objects" % num_stale_prefs)
+    num_stale_records = mongo_db.preferences.find({'last_touched': {'$lt': min_last_updated}}).count()
+    mongo_db.preferences.remove({'last_touched': {'$lt': min_last_updated}})
+    if num_stale_records: logging.warn("REMOVED %i stale preferences objects" % num_stale_records)
     
     #call again in 1 day
     gevent.spawn_later(86400, expire_stale_prefs, mongo_db)
+
+
+def expire_stale_btc_open_order_records(mongo_db):
+    min_when_created = time.mktime((datetime.datetime.utcnow() - datetime.timedelta(days=15)).timetuple())
+    
+    num_stale_records = mongo_db.btc_open_orders.find({'when_created': {'$lt': min_when_created}}).count()
+    mongo_db.btc_open_orders.remove({'when_created': {'$lt': min_when_created}})
+    if num_stale_records: logging.warn("REMOVED %i stale BTC open order objects" % num_stale_records)
+    
+    #call again in 1 day
+    gevent.spawn_later(86400, expire_stale_btc_open_order_records, mongo_db)
 
 
 def compile_asset_market_info(mongo_db):
@@ -372,46 +383,64 @@ def compile_asset_market_info(mongo_db):
         mongo_db.asset_market_info.update( {'asset': asset}, {"$set": asset_info}, upsert=True)
         
     #next, compile market cap historicals
+    #NOTE: this algoritm still needs to be fleshed out some...I'm not convinced it's laid out/optimized like it should be
     #start by getting all trades from when we last compiled this data
     trades = mongo_db.trades.find({'block_index': {'$gt': last_block_assets_compiled}}).sort('block_index', pymongo.ASCENDING)
-    trades_block_mapping = {} #tracks assets compiled per block, as we only want to analyze any given asset once per block
+    trades_by_block = [] #tracks assets compiled per block, as we only want to analyze any given asset once per block
+    trades_by_block_mapping = {} 
+    #organize trades by block
     for t in trades:
-        #ensure that we only process an asset that hasn't already been processed for this block
-        # (as there could be multiple trades in a single block for any specific asset)
-        assets = []
-        trades_block_mapping.setdefault(t['block_index'], {})
-        if t['base_asset'] not in trades_block_mapping[t['block_index']]:
-            assets.append(t['base_asset'])
-        if t['quote_asset'] not in trades_block_mapping[t['block_index']]:
-            assets.append(t['quote_asset'])
-        if not len(assets): continue
+        if t['block_index'] in trades_by_block_mapping:
+            assert trades_by_block_mapping[t['block_index']]['block_index'] == t['block_index']
+            assert trades_by_block_mapping[t['block_index']]['block_time'] == t['block_time']
+            trades_by_block_mapping[t['block_index']]['trades'].append(t)
+        else:
+            e = {'block_index': t['block_index'], 'block_time': t['block_time'], 'trades': [t,]}
+            trades_by_block.append(e)
+            trades_by_block_mapping[t['block_index']] = e  
 
-        mps_xcp_btc, xcp_btc_price, btc_xcp_price = get_price_primatives(end_dt=t['block_time'])        
-        for asset in assets:
-            #recalculate the market cap for the asset this trade is for
-            asset_info = get_asset_info(asset, at_dt=t['block_time'])
-            (price_summary_in_xcp, price_summary_in_btc, price_in_xcp, price_in_btc, aggregated_price_in_xcp, aggregated_price_in_btc
-            ) = get_xcp_btc_price_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price, with_last_trades=0, end_dt=t['block_time'])
-            market_cap_in_xcp, market_cap_in_btc = calc_market_cap(asset_info, price_in_xcp, price_in_btc)
-            #^ this will get price data from the block time of this trade back the standard number of days and trades
-            # to determine our standard market price, relative (anchored) to the time of this trade
+    for t_block in trades_by_block:
+        #reverse the tradelist per block, and ensure that we only process an asset that hasn't already been processed for this block
+        # (as there could be multiple trades in a single block for any specific asset). we reverse the list because
+        # we'd rather process a later trade for a given asset, as the market price for that will take into account
+        # the earlier trades on that same block for that asset, and we don't want/need multiple cap points per block
+        assets_in_block = {}
+        mps_xcp_btc, xcp_btc_price, btc_xcp_price = get_price_primatives(end_dt=t_block['block_time'])
+        for t in reversed(t_block['trades']):
+            assets = []
+            if t['base_asset'] not in assets_in_block:
+                assets.append(t['base_asset'])
+                assets_in_block[t['base_asset']] = True
+            if t['quote_asset'] not in assets_in_block:
+                assets.append(t['quote_asset'])
+                assets_in_block[t['quote_asset']] = True
+            if not len(assets): continue
     
-            for market_cap_as in ('XCP', 'BTC'):
-                market_cap = market_cap_in_xcp if market_cap_as == 'XCP' else market_cap_in_btc
-                #if there is a previously stored market cap for this asset, add a new history point only if the two caps differ
-                prev_market_cap_history = mongo_db.asset_marketcap_history.find({'market_cap_as': market_cap_as, 'asset': asset,
-                    'block_index': {'$lt': t['block_index']}}).sort('block_index', pymongo.DESCENDING).limit(1)
-                prev_market_cap_history = list(prev_market_cap_history)[0] if prev_market_cap_history.count() == 1 else None
-                
-                if market_cap and (not prev_market_cap_history or prev_market_cap_history['market_cap'] != market_cap):
-                    mongo_db.asset_marketcap_history.insert({
-                        'block_index': t['block_index'],
-                        'block_time': t['block_time'],
-                        'asset': asset,
-                        'market_cap': market_cap,
-                        'market_cap_as': market_cap_as,
-                    })
-                    logging.info("Block %i -- Calculated market cap history point for %s as %s" % (t['block_index'], asset, market_cap_as))
+            for asset in assets:
+                #recalculate the market cap for the asset this trade is for
+                asset_info = get_asset_info(asset, at_dt=t['block_time'])
+                (price_summary_in_xcp, price_summary_in_btc, price_in_xcp, price_in_btc, aggregated_price_in_xcp, aggregated_price_in_btc
+                ) = get_xcp_btc_price_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price, with_last_trades=0, end_dt=t['block_time'])
+                market_cap_in_xcp, market_cap_in_btc = calc_market_cap(asset_info, price_in_xcp, price_in_btc)
+                #^ this will get price data from the block time of this trade back the standard number of days and trades
+                # to determine our standard market price, relative (anchored) to the time of this trade
+        
+                for market_cap_as in ('XCP', 'BTC'):
+                    market_cap = market_cap_in_xcp if market_cap_as == 'XCP' else market_cap_in_btc
+                    #if there is a previously stored market cap for this asset, add a new history point only if the two caps differ
+                    prev_market_cap_history = mongo_db.asset_marketcap_history.find({'market_cap_as': market_cap_as, 'asset': asset,
+                        'block_index': {'$lt': t['block_index']}}).sort('block_index', pymongo.DESCENDING).limit(1)
+                    prev_market_cap_history = list(prev_market_cap_history)[0] if prev_market_cap_history.count() == 1 else None
+                    
+                    if market_cap and (not prev_market_cap_history or prev_market_cap_history['market_cap'] != market_cap):
+                        mongo_db.asset_marketcap_history.insert({
+                            'block_index': t['block_index'],
+                            'block_time': t['block_time'],
+                            'asset': asset,
+                            'market_cap': market_cap,
+                            'market_cap_as': market_cap_as,
+                        })
+                        logging.info("Block %i -- Calculated market cap history point for %s as %s (mID: %s)" % (t['block_index'], asset, market_cap_as, t['message_index']))
 
     #all done for this run...call again in a bit                            
     gevent.spawn_later(COMPILE_ASSET_MARKET_INFO_PERIOD, compile_asset_market_info, mongo_db)

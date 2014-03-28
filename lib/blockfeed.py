@@ -25,11 +25,12 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
     def blow_away_db():
         #boom! blow away all collections in mongo
         mongo_db.processed_blocks.drop()
-        mongo_db.balance_changes.drop()
-        mongo_db.trades.drop()
         mongo_db.tracked_assets.drop()
+        mongo_db.trades.drop()
+        mongo_db.balance_changes.drop()
         mongo_db.asset_market_info.drop()
         mongo_db.asset_marketcap_history.drop()
+        mongo_db.btc_open_orders.drop()
         
         #create/update default app_config object
         mongo_db.app_config.update({}, {

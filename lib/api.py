@@ -17,7 +17,7 @@ from jsonrpc import JSONRPCResponseManager, dispatcher
 import pymongo
 from bson import json_util
 
-from . import (config, util)
+from . import (config, siofeeds, util)
 
 PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
 D = decimal.Decimal
@@ -533,7 +533,16 @@ def serve_api(mongo_db, redis_client):
             #add in the blocktime to help makes interfaces more user-friendly (i.e. avoid displaying block
             # indexes and display datetimes instead)
             o['block_time'] = time.mktime(util.get_block_time(mongo_db, o['block_index']).timetuple()) * 1000
-        
+            
+        #for orders where BTC is the give asset, also return online status of the user (if they are using counterwallet)
+        if base_asset == 'BTC' or quote_asset == 'BTC': 
+            for o in orders:
+                if o['give_asset'] == 'BTC':
+                    r = mongo_db.btc_open_orders.find_one({'order_tx_hash': o['tx_hash']})
+                    o['_is_online'] = (r['wallet_id'] in siofeeds.onlineClients) if r else False
+                else:
+                    o['_is_online'] = None
+
         result = {
             'base_bid_book': base_bid_book,
             'base_ask_book': base_ask_book,
@@ -600,10 +609,10 @@ def serve_api(mongo_db, redis_client):
             ask_book_min_pct_fee_required=ask_book_min_pct_fee_required,
             ask_book_max_pct_fee_required=ask_book_max_pct_fee_required)
         
-        #filter down raw_orders to be only open sell orders
+        #filter down raw_orders to be only open sell orders for what the caller is buying
         open_sell_orders = []
         for o in result['raw_orders']:
-            if o['give_asset'] == sell_asset:
+            if o['give_asset'] == buy_asset:
                 open_sell_orders.append(o)
         result['raw_orders'] = open_sell_orders
         return result
@@ -737,6 +746,28 @@ def serve_api(mongo_db, redis_client):
         return final_history
 
     @dispatcher.add_method
+    def record_btc_open_order(wallet_id, order_tx_hash):
+        """Records an association between a wallet ID and order TX ID for a trade where BTC is being SOLD, to allow
+        buyers to see which sellers of the BTC are "online" (which can lead to a better result as a BTCpay will be required
+        to complete any trades where BTC is involved, and the seller (or at least their wallet) must be online for this to happen"""
+        #ensure the wallet_id exists
+        result =  mongo_db.preferences.find_one({"wallet_id": wallet_id})
+        if not result: raise Exception("WalletID does not exist")
+        
+        mongo_db.btc_open_orders.insert({
+            'wallet_id': wallet_id,
+            'order_tx_hash': order_tx_hash,
+            'when_created': datetime.datetime.utcnow()
+        })
+        return True
+
+    @dispatcher.add_method
+    def cancel_btc_open_order(wallet_id, order_tx_hash):
+        mongo_db.btc_open_orders.remove({'order_tx_hash': order_tx_hash, 'wallet_id': wallet_id})
+        #^ wallet_id is used more for security here so random folks can't remove orders from this collection just by tx hash
+        return True
+    
+    @dispatcher.add_method
     def get_balance_history(asset, addresses, normalize=True, start_ts=None, end_ts=None):
         """Retrieves the ordered balance history for a given address (or list of addresses) and asset pair, within the specified date range
         @param normalize: If set to True, return quantities that (if the asset is divisible) have been divided by 100M (satoshi). 
@@ -786,7 +817,7 @@ def serve_api(mongo_db, redis_client):
         mongo_db.chat_handles.save(result)
         data = {
             'handle': result['handle'],
-            'op': result.get('op', False),
+            'is_op': result.get('is_op', False),
             'last_updated': result.get('last_updated', None)
             } if result else {}
         banned_until = result.get('banned_until', None) 
