@@ -124,7 +124,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
         """command is the command to run, args is a list of arguments to the command"""
         if 'is_op' not in self.socket.session:
             return self.error('invalid_state', "Invalid state") #this will trigger the client to auto re-establish state
-        if command not in ['online', 'msg', 'op', 'unop', 'ban', 'unban', 'handle', 'help']:
+        if command not in ['online', 'msg', 'op', 'unop', 'ban', 'unban', 'handle', 'help', 'disextinfo', 'enextinfo']:
             return self.error('invalid_command', "Unknown command: %s. Try /help for help." % command)
         if command not in ['online', 'msg', 'help'] and not self.socket.session['is_op']:
             return self.error('invalid_access', "Must be an op to use this command")
@@ -132,7 +132,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
         if command == 'online': #/online <handle>
             if not self.socket.session['is_primary_server']: return
             if len(args) != 1:
-                return self.error('invalid_args', "USAGE: /online {handle to see if online}")
+                return self.error('invalid_args', "USAGE: /online {handle=}<br/>Desc: Determines whether a specific user is online")
             handle = args[0]
             p = self.request['mongo_db'].chat_handles.find_one({"handle": handle})
             if not p:
@@ -141,11 +141,19 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
         elif command == 'msg': #/msg <handle> <message text>
             if not self.socket.session['is_primary_server']: return
             if len(args) < 2:
-                return self.error('invalid_args', "USAGE: /msg {handle} {private message to send}")
+                return self.error('invalid_args', "USAGE: /msg {handle} {private message to send}<br/>Desc: Sends a private message to a specific user")
             handle = args[0]
             message = ' '.join(args[1:])
             if handle == self.socket.session['handle']:
                 return self.error('invalid_args', "Don't be cray cray and try to message yourself, %s" % handle)
+            
+            now = datetime.datetime.utcnow()
+            if self.socket.session['banned_until'] == -1:
+                return self.error('banned', "Your handle is banned from chat indefinitely.")
+            if self.socket.session['banned_until'] and self.socket.session['banned_until'] >= now:
+                return self.error('banned', "Your handle is still banned from chat for %s more seconds."
+                    % int((self.socket.session['banned_until'] - now).total_seconds()))
+            
             p = self.request['mongo_db'].chat_handles.find_one({"handle": handle})
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
@@ -154,7 +162,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             onlineClients[p['wallet_id']]['state'].emit("emote", self.socket.session['handle'], message, self.socket.session['is_op'], True)
         elif command in ['op', 'unop']: #/op|unop <handle>
             if len(args) != 1:
-                return self.error('invalid_args', "USAGE: /op|unop {handle to op/unop}")
+                return self.error('invalid_args', "USAGE: /op|unop {handle to op/unop}<br/>Desc: Gives/removes operator priveledges from a specific user")
             handle = args[0]
             p = self.request['mongo_db'].chat_handles.find_one({"handle": handle})
             if not p:
@@ -169,7 +177,8 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                 self.broadcast_event("oped" if command == "op" else "unoped", self.socket.session['handle'], handle)
         elif command == 'ban': #/ban <handle> <time length in seconds>
             if len(args) != 2:
-                return self.error('invalid_args', "USAGE: /ban {handle to ban} {ban_period in sec | -1}")
+                return self.error('invalid_args', "USAGE: /ban {handle to ban} {ban_period in sec | -1}<br/>" +
+                    "Desc: Ban a specific user from chatting for a specified period of time, or -1 for unlimited.")
             handle = args[0]
             try:
                 ban_period = int(args[1])
@@ -192,7 +201,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                     int(time.mktime(p['banned_until'].timetuple()))*1000 if p['banned_until'] != -1 else -1);
         elif command == 'unban': #/unban <handle>
             if len(args) != 1:
-                return self.error('invalid_args', "USAGE: /unban {handle to unban}")
+                return self.error('invalid_args', "USAGE: /unban {handle to unban}<br/>Desc: Unban a specific banned user")
             handle = args[0]
             p = self.request['mongo_db'].chat_handles.find_one({"handle": handle})
             if not p:
@@ -207,7 +216,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                 self.broadcast_event("unbanned", self.socket.session['handle'], handle)
         elif command == 'handle': #/handle <oldhandle> <newhandle>
             if len(args) != 2:
-                return self.error('invalid_args', "USAGE: /handle {oldhandle} {newhandle}")
+                return self.error('invalid_args', "USAGE: /handle {oldhandle} {newhandle}<br/>Desc: Change a user's handle to something else")
             handle = args[0]
             new_handle = args[1]
             if handle == new_handle:
@@ -229,9 +238,20 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                     socket.session['handle'] = new_handle
             if self.socket.session['is_primary_server']: #let all users know
                 self.broadcast_event("handle_changed", self.socket.session['handle'], handle, new_handle)
+        elif command in ['enextinfo', 'disextinfo']:
+            if len(args) != 1:
+                return self.error('invalid_args', "USAGE: /%s {asset}<br/>Desc: %s" % (command,
+                    "Disables extended asset information from showing" if command == 'disextinfo' else "(Re)enables extended asset information"))
+            asset = args[0].upper()
+            asset_info = self.request['mongo_db'].asset_extended_info.find_one({'asset': asset})
+            if not asset_info:
+                return self.error('invalid_args', "Asset '%s' has no extended info" % (asset))
+            asset_info['disabled'] = command == 'disextinfo'
+            self.request['mongo_db'].asset_extended_info.save(asset_info)
+            return self.emit("emote", None, "Asset '%s' extended info %s" % (asset, 'disabled' if command == 'disextinfo' else 'enabled'))
         elif command == 'help':
             if self.socket.session['is_op']:
-                return self.emit('emote', None, "Valid commands: '/op', '/unop', '/ban', '/unban', '/handle', '/online'. Type a command alone (i.e. with no arguments) to see the usage.", False, False)
+                return self.emit('emote', None, "Valid commands: '/op', '/unop', '/ban', '/unban', '/handle', '/online', '/enextinfo', '/disextinfo'. Type a command alone (i.e. with no arguments) to see the usage.", False, False)
             else:
                 return self.emit('emote', None, "Valid commands: '/online', '/msg'. Type a command alone (i.e. with no arguments) to see the usage.", False, False)
         else: assert False #handled earlier

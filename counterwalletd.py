@@ -407,12 +407,17 @@ if __name__ == '__main__':
         ("asset", pymongo.ASCENDING),
     ])
     #trades
-    mongo_db.trades.ensure_index('block_index')
     mongo_db.trades.ensure_index([
         ("base_asset", pymongo.ASCENDING),
         ("quote_asset", pymongo.ASCENDING),
         ("block_time", pymongo.DESCENDING)
     ])
+    mongo_db.trades.ensure_index([ #events.py and elsewhere (for singlular block_index index access)
+        ("block_index", pymongo.ASCENDING),
+        ("base_asset", pymongo.ASCENDING),
+        ("quote_asset", pymongo.ASCENDING)
+    ])
+
     #balance_changes
     mongo_db.balance_changes.ensure_index('block_index')
     mongo_db.balance_changes.ensure_index([
@@ -436,6 +441,8 @@ if __name__ == '__main__':
     #btc_open_orders
     mongo_db.btc_open_orders.ensure_index('when_created')
     mongo_db.btc_open_orders.ensure_index('order_tx_hash', unique=True)
+    #asset_extended_info
+    mongo_db.asset_extended_info.ensure_index('asset', unique=True)
     
     ##COLLECTIONS THAT ARE *NOT* PURGED AS A RESULT OF A REPARSE
     #preferences

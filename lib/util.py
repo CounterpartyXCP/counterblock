@@ -7,6 +7,7 @@ import time
 import copy
 import decimal
 
+import numpy
 import pymongo
 import grequests
 
@@ -103,6 +104,10 @@ def multikeysort(items, columns):
             return 0
     return sorted(items, cmp=comparer)
 
+def moving_average(interval, window_size):
+    window = numpy.ones(int(window_size))/float(window_size)
+    return numpy.convolve(interval, window, 'same')
+
 def weighted_average(value_weight_list):
     """Takes a list of tuples (value, weight) and returns weighted average as
     calculated by Sum of all values * weights / Sum of all weights
@@ -146,14 +151,18 @@ def get_block_time(mongo_db, block_index):
     if not block: return None
     return block['block_time']
 
+def get_market_price(data):
+    assert len(data) <= config.MARKET_PRICE_DERIVE_NUM_POINTS
+    weighted_inputs = []
+    for i in xrange(min(len(data), config.MARKET_PRICE_DERIVE_NUM_POINTS)):
+        weighted_inputs.append([data[i], config.MARKET_PRICE_DERIVE_WEIGHTS[i]])
+    market_price = weighted_average(weighted_inputs)
+    return market_price
+
 def get_market_price_summary(mongo_db, asset1, asset2, with_last_trades=0, start_dt=None, end_dt=None):
     """Gets a synthesized trading "market price" for a specified asset pair (if available), as well as additional info.
     If no price is available, False is returned.
     """
-    MARKET_PRICE_DERIVE_NUMLAST = 6 #number of last trades over which to derive the market price
-    MARKET_PRICE_DERIVE_WEIGHTS = [1, .9, .72, .6, .4, .3] #good first guess...maybe
-    assert(len(MARKET_PRICE_DERIVE_WEIGHTS) == MARKET_PRICE_DERIVE_NUMLAST) #sanity check
-    
     if not end_dt:
         end_dt = datetime.datetime.utcnow()
     if not start_dt:
@@ -176,15 +185,12 @@ def get_market_price_summary(mongo_db, asset1, asset2, with_last_trades=0, start
             'block_time': { "$gte": start_dt, "$lte": end_dt }
         },
         {'_id': 0, 'block_index': 1, 'block_time': 1, 'unit_price': 1, 'base_quantity_normalized': 1, 'quote_quantity_normalized': 1}
-    ).sort("block_time", pymongo.DESCENDING).limit(max(MARKET_PRICE_DERIVE_NUMLAST, with_last_trades))
+    ).sort("block_time", pymongo.DESCENDING).limit(max(config.MARKET_PRICE_DERIVE_NUM_POINTS, with_last_trades))
     if not last_trades.count():
         return None #no suitable trade data to form a market price (return None, NOT False here)
     last_trades = list(last_trades)
     last_trades.reverse() #from newest to oldest
-    weighted_inputs = []
-    for i in xrange(min(len(last_trades), MARKET_PRICE_DERIVE_NUMLAST)):
-        weighted_inputs.append([last_trades[i]['unit_price'], MARKET_PRICE_DERIVE_WEIGHTS[i]])
-    market_price = weighted_average(weighted_inputs)
+    market_price = get_market_price([last_trades[i]['unit_price'] for i in xrange(min(len(last_trades), config.MARKET_PRICE_DERIVE_NUM_POINTS))])
     result = {
         'market_price': float(D(market_price).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN)),
         'base_asset': base_asset,

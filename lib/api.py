@@ -16,6 +16,7 @@ from cherrypy.process import plugins
 from jsonrpc import JSONRPCResponseManager, dispatcher
 import pymongo
 from bson import json_util
+from bson.son import SON
 
 from . import (config, siofeeds, util)
 
@@ -36,9 +37,12 @@ def serve_api(mongo_db, redis_client):
         """this method used by the client to check if the server is alive, caught up, and ready to accept requests.
         If the server is NOT caught up, a 525 error will be returned actually before hitting this point. Thus,
         if we actually return data from this function, it should always be true. (may change this behaviour later)"""
+        
+        insightInfo = util.call_insight_api('/api/status?q=getInfo', abort_on_error=True)
         return {
             'caught_up': util.is_caught_up_well_enough_for_government_work(),
-            'last_message_index': config.LAST_MESSAGE_INDEX, 
+            'last_message_index': config.LAST_MESSAGE_INDEX,
+            'block_height': insightInfo['info']['blocks'], 
             'testnet': config.TESTNET 
         }
     
@@ -284,11 +288,23 @@ def serve_api(mongo_db, redis_client):
                     'data': sorted(data[market_cap_as][asset], key=operator.itemgetter(0))})
         return results 
 
-
     @dispatcher.add_method
     def get_market_info(assets):
-        assets_market_info = mongo_db.asset_market_info.find({'asset': {'$in': assets}}, {'_id': 0})
-        return list(assets_market_info)
+        assets_market_info = list(mongo_db.asset_market_info.find({'asset': {'$in': assets}}, {'_id': 0}))
+        extended_asset_info = mongo_db.asset_extended_info.find({'asset': {'$in': assets}})
+        extended_asset_info_dict = {}
+        for e in extended_asset_info:
+            if not e.get('disabled', False): #skip assets marked disabled
+                extended_asset_info_dict[e['asset']] = e
+        for a in assets_market_info:
+            if a['asset'] in extended_asset_info_dict:
+                extended_info = extended_asset_info_dict[a['asset']]
+                a['extended_image'] = bool(extended_info['image'])
+                a['extended_description'] = extended_info['description']
+                a['extended_website'] = extended_info['website']
+            else:
+                a['extended_image'] = a['extended_description'] = a['extended_website'] = ''
+        return assets_market_info
 
     @dispatcher.add_method
     def get_market_info_leaderboard(limit=100):
@@ -297,17 +313,36 @@ def serve_api(mongo_db, redis_client):
         # but with little or no XCP trading activity, for instance if we just did one query
         assets_market_info_xcp = list(mongo_db.asset_market_info.find({}, {'_id': 0}).sort('market_cap_in_xcp', pymongo.DESCENDING).limit(limit))
         assets_market_info_btc = list(mongo_db.asset_market_info.find({}, {'_id': 0}).sort('market_cap_in_btc', pymongo.DESCENDING).limit(limit))
-        return {
+        assets_market_info = {
             'xcp': [a for a in assets_market_info_xcp if a['price_in_xcp']],
             'btc': [a for a in assets_market_info_btc if a['price_in_btc']]
         }
+        #throw on extended info, if it exists for a given asset
+        assets = list(set([a['asset'] for a in assets_market_info['xcp']] + [a['asset'] for a in assets_market_info['btc']]))
+        extended_asset_info = mongo_db.asset_extended_info.find({'asset': {'$in': assets}})
+        extended_asset_info_dict = {}
+        for e in extended_asset_info:
+            if not e.get('disabled', False): #skip assets marked disabled
+                extended_asset_info_dict[e['asset']] = e
+        for r in (assets_market_info['xcp'], assets_market_info['btc']):
+            for a in r:
+                if a['asset'] in extended_asset_info_dict:
+                    extended_info = extended_asset_info_dict[a['asset']]
+                    a['extended_image'] = bool(extended_info['image'])
+                    a['extended_description'] = extended_info['description']
+                    a['extended_website'] = extended_info['website']
+                else:
+                    a['extended_image'] = a['extended_description'] = a['extended_website'] = ''
+        return assets_market_info
 
     @dispatcher.add_method
     def get_market_price_history(asset1, asset2, start_ts=None, end_ts=None, as_dict=False):
         """Return block-by-block aggregated market history data for the specified asset pair, within the specified date range.
         @returns List of lists (or list of dicts, if as_dict is specified).
             * If as_dict is False, each embedded list has 8 elements [block time (epoch in MS), open, high, low, close, volume, # trades in block, block index]
-            * If as_dict is True, each dict in the list has the keys: block_time (epoch in MS), block_index, open, high, low, close, vol, count 
+            * If as_dict is True, each dict in the list has the keys: block_time (epoch in MS), block_index, open, high, low, close, vol, count
+            
+        Aggregate on an an hourly basis 
         """
         if not end_ts: #default to current datetime
             end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
@@ -326,13 +361,16 @@ def serve_api(mongo_db, redis_client):
                 }
             }},
             {"$project": {
-                "block_time": 1,
+                "year":  {"$year": "$block_time"},
+                "month": {"$month": "$block_time"},
+                "day":   {"$dayOfMonth": "$block_time"},
+                "hour":  {"$hour": "$block_time"},
                 "block_index": 1,
                 "unit_price": 1,
                 "base_quantity_normalized": 1 #to derive volume
             }},
             {"$group": {
-                "_id":   {"block_time": "$block_time", "block_index": "$block_index"},
+                "_id":   {"year": "$year", "month": "$month", "day": "$day", "hour": "$hour"},
                 "open":  {"$first": "$unit_price"},
                 "high":  {"$max": "$unit_price"},
                 "low":   {"$min": "$unit_price"},
@@ -340,23 +378,35 @@ def serve_api(mongo_db, redis_client):
                 "vol":   {"$sum": "$base_quantity_normalized"},
                 "count": {"$sum": 1},
             }},
-            {"$sort": {"_id.block_time": pymongo.ASCENDING}},
+            {"$sort": SON([("_id.year", pymongo.ASCENDING), ("_id.month", pymongo.ASCENDING), ("_id.day", pymongo.ASCENDING), ("_id.hour", pymongo.ASCENDING)])},
         ])
-        if not result['ok']:
+        if not result['ok'] or not len(result['result']):
             return False
+        result = result['result']
+        
+        #add in smoothed price (running average of last 7 samples)
+        interval = [((r['high'] + r['low']) / 2.0) for r in result]
+        movavg_7s = util.moving_average(interval, 7)
+        for i in xrange(len(movavg_7s)):
+            movavg_7s[i] = round(movavg_7s[i], 8)
+                
         if as_dict:
-            result = result['result']
-            for r in result:
-                r['block_time'] = r['_id']['block_time']
-                r['block_index'] = r['_id']['block_index']
-                del r['_id']
+            for i in xrange(len(result)):
+                result[i]['interval_time'] = int(time.mktime(datetime.datetime(
+                    result[i]['_id']['year'], result[i]['_id']['month'], result[i]['_id']['day'], result[i]['_id']['hour']).timetuple()) * 1000)
+                result[i]['movavg_7s'] = movavg_7s[i]
+                del result[i]['_id']
+            return result
         else:
-            result = [
-                [r['_id']['block_time'],
-                 r['open'], r['high'], r['low'], r['close'], r['vol'],
-                 r['count'], r['_id']['block_index']] for r in result['result']
-            ]
-        return result
+            list_result = []
+            for i in xrange(len(result)):
+                list_result.append([
+                    int(time.mktime(datetime.datetime(
+                        result[i]['_id']['year'], result[i]['_id']['month'], result[i]['_id']['day'], result[i]['_id']['hour']).timetuple()) * 1000),
+                    result[i]['open'], result[i]['high'], result[i]['low'], result[i]['close'], result[i]['vol'],
+                    result[i]['count'], movavg_7s[i]
+                ])
+            return list_result
     
     @dispatcher.add_method
     def get_trade_history(asset1, asset2, last_trades=50):
@@ -418,13 +468,20 @@ def serve_api(mongo_db, redis_client):
         base_bid_filters = [
             {"field": "get_asset", "op": "==", "value": base_asset},
             {"field": "give_asset", "op": "==", "value": quote_asset},
-            {'field': 'give_remaining', 'op': '!=', 'value': 0}, #don't show empty
+            {'field': 'status', 'op': '==', 'value': 'open'},
         ]
         base_ask_filters = [
             {"field": "get_asset", "op": "==", "value": quote_asset},
             {"field": "give_asset", "op": "==", "value": base_asset},
-            {'field': 'give_remaining', 'op': '!=', 'value': 0}, #don't show empty
+            {'field': 'status', 'op': '==', 'value': 'open'},
         ]
+        if base_asset == 'BTC' or quote_asset == 'BTC':
+            extra_filters = [
+                {'field': 'give_remaining', 'op': '>', 'value': 0}, #don't show empty BTC orders
+                {'field': 'get_remaining', 'op': '>', 'value': 0}, #don't show empty BTC orders
+            ]
+            base_bid_filters += extra_filters
+            base_ask_filters += extra_filters
         
         base_bid_orders = util.call_jsonrpc_api("get_orders", {
             'filters': base_bid_filters,
@@ -452,9 +509,9 @@ def serve_api(mongo_db, redis_client):
             return pct_fee_provided, pct_fee_required
 
         #filter results by pct_fee_provided and pct_fee_required for BTC pairs as appropriate
-        filtered_base_bid_orders = []
-        filtered_base_ask_orders = []
         if base_asset == 'BTC' or quote_asset == 'BTC':
+            filtered_base_bid_orders = []
+            filtered_base_ask_orders = []
             for o in base_bid_orders:
                 pct_fee_provided, pct_fee_required = get_o_pct(o)
                 addToBook = True
@@ -475,9 +532,9 @@ def serve_api(mongo_db, redis_client):
                 if ask_book_max_pct_fee_required is not None and pct_fee_required is not None and pct_fee_required > ask_book_max_pct_fee_required:
                     addToBook = False
                 if addToBook: filtered_base_ask_orders.append(o)
-        base_bid_orders = filtered_base_bid_orders
-        base_ask_orders = filtered_base_ask_orders
-        
+            base_bid_orders = filtered_base_bid_orders
+            base_ask_orders = filtered_base_ask_orders
+
         def make_book(orders, isBidBook):
             book = {}
             for o in orders:
@@ -535,13 +592,12 @@ def serve_api(mongo_db, redis_client):
             o['block_time'] = time.mktime(util.get_block_time(mongo_db, o['block_index']).timetuple()) * 1000
             
         #for orders where BTC is the give asset, also return online status of the user (if they are using counterwallet)
-        if base_asset == 'BTC' or quote_asset == 'BTC': 
-            for o in orders:
-                if o['give_asset'] == 'BTC':
-                    r = mongo_db.btc_open_orders.find_one({'order_tx_hash': o['tx_hash']})
-                    o['_is_online'] = (r['wallet_id'] in siofeeds.onlineClients) if r else False
-                else:
-                    o['_is_online'] = None
+        for o in orders:
+            if o['give_asset'] == 'BTC':
+                r = mongo_db.btc_open_orders.find_one({'order_tx_hash': o['tx_hash']})
+                o['_is_online'] = (r['wallet_id'] in siofeeds.onlineClients) if r else False
+            else:
+                o['_is_online'] = None #does not apply in this case
 
         result = {
             'base_bid_book': base_bid_book,
@@ -967,7 +1023,7 @@ def serve_api(mongo_db, redis_client):
                 raise cherrypy.HTTPError(400, 'Invalid JSON document')
             response = JSONRPCResponseManager.handle(data, dispatcher)
             return json.dumps(response.data, default=util.json_dthandler).encode()
-    
+
     cherrypy.config.update({
         'log.screen': False,
         "environment": "embedded",
@@ -979,6 +1035,11 @@ def serve_api(mongo_db, redis_client):
         '/': {
             'tools.trailing_slash.on': False,
         },
+        '/asset_img': {
+            'tools.staticdir.on': True,
+            'tools.staticdir.dir': os.path.join(config.data_dir, 'asset_img'),
+            'tools.staticdir.content_types': {'png': 'image/png'}
+        }
     }
     application = cherrypy.Application(API(), script_name="/api", config=app_config)
 

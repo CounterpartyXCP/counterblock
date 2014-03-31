@@ -1,16 +1,23 @@
+import os
+import re
 import logging
 import datetime
 import time
 import copy
 import decimal
+import json
+import StringIO
 
+import grequests
 import pymongo
 import gevent
+from PIL import Image
+from bson.binary import Binary
 
 from lib import (config, util)
 
 D = decimal.Decimal
-COMPILE_ASSET_MARKET_INFO_PERIOD = 10 * 60 #in seconds (this is every 10 minutes currently)
+COMPILE_ASSET_MARKET_INFO_PERIOD = 30 * 60 #in seconds (this is every 30 minutes currently)
 
 
 def expire_stale_prefs(mongo_db):
@@ -36,6 +43,84 @@ def expire_stale_btc_open_order_records(mongo_db):
     
     #call again in 1 day
     gevent.spawn_later(86400, expire_stale_btc_open_order_records, mongo_db)
+
+
+def compile_extended_asset_info(mongo_db):
+    #create directory if it doesn't exist
+    imageDir = os.path.join(config.data_dir, config.SUBDIR_ASSET_IMAGES)
+    if not os.path.exists(imageDir):
+        os.makedirs(imageDir)
+        
+    assets_info = mongo_db.asset_extended_info.find()
+    for asset_info in assets_info:
+        if asset_info.get('disabled', False):
+            logging.info("ExtendedAssetInfo: Skipping disabled asset %s" % asset_info['asset'])
+            continue
+        
+        assert re.match(config.RE_JSON_URL, asset_info['url'])
+        #try to get the data at the specified URL
+        data = {}
+        raw_image_data = None
+        assert 'url' in asset_info and re.match(config.RE_URL, asset_info['url'])
+        try:
+            #TODO: Right now this loop makes one request at a time. Fully utilize grequests to make batch requests
+            # at the same time (using map() and throttling) 
+            r = grequests.map((grequests.get(asset_info['url'], timeout=1, stream=True),), stream=True)[0]
+            if not r: raise Exception("Invalid response")
+            if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
+            #read up to 4KB and try to convert to JSON
+            raw_data = r.raw.read(4 * 1024, decode_content=True)
+            r.raw.release_conn()
+            data = json.loads(raw_data)
+            #if here, we have valid json data
+            if 'asset' not in data:
+                raise Exception("Missing asset field")
+            if 'description' not in data:
+                data['description'] = ''
+            if 'image' not in data:
+                data['image'] = ''
+            if 'website' not in data:
+                data['website'] = ''
+                
+            if data['asset'] != asset_info['asset']:
+                raise Exception("asset field is invalid (is: '%s', should be: '%s')" % (data['asset'], asset_info['asset']))
+            if data['image'] and not re.match(config.RE_URL, data['image']):
+                raise Exception("'image' field is not valid URL")
+            if data['website'] and not re.match(config.RE_URL, data['website']):
+                raise Exception("'website' field is not valid URL")
+            
+            if data['image']:
+                #fetch the image data (must be 32x32 png, max 20KB size)
+                r = grequests.map((grequests.get(data['image'], timeout=1, stream=True),), stream=True)[0]
+                if not r: raise Exception("Invalid response")
+                if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
+                #read up to 20KB and try to convert to JSON
+                raw_image_data = r.raw.read(20 * 1024, decode_content=True)
+                r.raw.release_conn()
+                try:
+                    image = Image.open(StringIO.StringIO(raw_image_data))
+                except:
+                    raise Exception("Unable to parse image data at: %s" % data['image'])
+                if image.format != 'PNG': raise Exception("Image is not a PNG: %s (got %s)" % (data['image'], image.format))
+                if image.size != (48, 48): raise Exception("Image size is not 48x48: %s (got %s)" % (data['image'], image.size))
+                if image.mode not in ['RGB', 'RGBA']: raise Exception("Image mode is not RGB/RGBA: %s (got %s)" % (data['image'], image.mode))
+        except Exception, e:
+            logging.info("ExtendedAssetInfo: Skipped asset %s: %s" % (asset_info['asset'], e))
+        else:
+            asset_info['description'] = data['description']
+            asset_info['website'] = data['website']
+            asset_info['image'] = data['image']
+            if data['image'] and raw_image_data:
+                #save the image to disk
+                f = open(os.path.join(imageDir, data['asset'] + '.png'), 'wb')
+                f.write(raw_image_data)
+                f.close()
+                #asset_info['image_data'] = Binary(StringIO.StringIO(raw_image_data), subtype=0)
+            mongo_db.asset_extended_info.save(asset_info)
+            logging.info("ExtendedAssetInfo: Compiled data for asset %s" % asset_info['asset'])
+        
+    #call again in 60 minutes
+    gevent.spawn_later(60 * 60, compile_extended_asset_info, mongo_db)
 
 
 def compile_asset_market_info(mongo_db):
@@ -152,57 +237,150 @@ def compile_asset_market_info(mongo_db):
             D('.00000000'), rounding=decimal.ROUND_HALF_EVEN) ) if price_in_btc else None
         return market_cap_in_xcp, market_cap_in_btc
     
-    def compile_market_info(assets):        
+
+    def compile_summary_market_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price):        
         """Returns information related to capitalization, volume, etc for the supplied asset(s)
-        
         NOTE: in_btc == base asset is BTC, in_xcp == base asset is XCP
-        
         @param assets: A list of one or more assets
         """
+        asset_info = get_asset_info(asset)
+        (price_summary_in_xcp, price_summary_in_btc, price_in_xcp, price_in_btc, aggregated_price_in_xcp, aggregated_price_in_btc
+        ) = get_xcp_btc_price_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price, with_last_trades=30)
+        market_cap_in_xcp, market_cap_in_btc = calc_market_cap(asset_info, price_in_xcp, price_in_btc)
+        return {
+            'price_in_xcp': price_in_xcp, #current price of asset vs XCP (e.g. how many units of asset for 1 unit XCP)
+            'price_in_btc': price_in_btc, #current price of asset vs BTC (e.g. how many units of asset for 1 unit BTC)
+            'price_as_xcp': calc_inverse(price_in_xcp) if price_in_xcp else None, #current price of asset AS XCP
+            'price_as_btc': calc_inverse(price_in_btc) if price_in_btc else None, #current price of asset AS BTC
+            'aggregated_price_in_xcp': aggregated_price_in_xcp, 
+            'aggregated_price_in_btc': aggregated_price_in_btc,
+            'aggregated_price_as_xcp': calc_inverse(aggregated_price_in_xcp) if aggregated_price_in_xcp else None, 
+            'aggregated_price_as_btc': calc_inverse(aggregated_price_in_btc) if aggregated_price_in_btc else None,
+            'total_supply': asset_info['total_issued_normalized'], 
+            'market_cap_in_xcp': market_cap_in_xcp,
+            'market_cap_in_btc': market_cap_in_btc,
+        }
+
+    def compile_24h_market_info(asset):        
         asset_data = {}
         start_dt_1d = datetime.datetime.utcnow() - datetime.timedelta(days=1)
-        start_dt_7d = datetime.datetime.utcnow() - datetime.timedelta(days=7)
-        mps_xcp_btc, xcp_btc_price, btc_xcp_price = get_price_primatives()
-        for asset in assets:
-            asset_info = get_asset_info(asset)
 
-            (price_summary_in_xcp, price_summary_in_btc, price_in_xcp, price_in_btc, aggregated_price_in_xcp, aggregated_price_in_btc
-            ) = get_xcp_btc_price_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price, with_last_trades=30)
+        #perform aggregation to get 24h statistics
+        #TOTAL volume and count across all trades for the asset (on ALL markets, not just XCP and BTC pairings)
+        _24h_vols = {'vol': 0, 'count': 0}
+        _24h_vols_as_base = mongo_db.trades.aggregate([
+            {"$match": {
+                "base_asset": asset,
+                "block_time": {"$gte": start_dt_1d } }},
+            {"$project": {
+                "base_quantity_normalized": 1 #to derive volume
+            }},
+            {"$group": {
+                "_id":   1,
+                "vol":   {"$sum": "$base_quantity_normalized"},
+                "count": {"$sum": 1},
+            }}
+        ])
+        _24h_vols_as_base = {} if not _24h_vols_as_base['ok'] \
+            or not len(_24h_vols_as_base['result']) else _24h_vols_as_base['result'][0]
+        _24h_vols_as_quote = mongo_db.trades.aggregate([
+            {"$match": {
+                "quote_asset": asset,
+                "block_time": {"$gte": start_dt_1d } }},
+            {"$project": {
+                "quote_quantity_normalized": 1 #to derive volume
+            }},
+            {"$group": {
+                "_id":   1,
+                "vol":   {"$sum": "quote_quantity_normalized"},
+                "count": {"$sum": 1},
+            }}
+        ])
+        _24h_vols_as_quote = {} if not _24h_vols_as_quote['ok'] \
+            or not len(_24h_vols_as_quote['result']) else _24h_vols_as_quote['result'][0]
+        _24h_vols['vol'] = _24h_vols_as_base.get('vol', 0) + _24h_vols_as_quote.get('vol', 0) 
+        _24h_vols['count'] = _24h_vols_as_base.get('count', 0) + _24h_vols_as_quote.get('count', 0) 
+        
+        #XCP market volume with stats
+        if asset != 'XCP':
+            _24h_ohlc_in_xcp = mongo_db.trades.aggregate([
+                {"$match": {
+                    "base_asset": "XCP",
+                    "quote_asset": asset,
+                    "block_time": {"$gte": start_dt_1d } }},
+                {"$project": {
+                    "unit_price": 1,
+                    "base_quantity_normalized": 1 #to derive volume
+                }},
+                {"$group": {
+                    "_id":   1,
+                    "open":  {"$first": "$unit_price"},
+                    "high":  {"$max": "$unit_price"},
+                    "low":   {"$min": "$unit_price"},
+                    "close": {"$last": "$unit_price"},
+                    "vol":   {"$sum": "$base_quantity_normalized"},
+                    "count": {"$sum": 1},
+                }}
+            ])
+            _24h_ohlc_in_xcp = {} if not _24h_ohlc_in_xcp['ok'] \
+                or not len(_24h_ohlc_in_xcp['result']) else _24h_ohlc_in_xcp['result'][0]
+            if _24h_ohlc_in_xcp: del _24h_ohlc_in_xcp['_id']
+        else:
+            _24h_ohlc_in_xcp = {}
             
-            #get XCP and BTC market summarized trades over a 7d period (quantize to hour long slots)
-            _7d_history_in_xcp = None # xcp/asset market (or xcp/btc for xcp or btc)
-            _7d_history_in_btc = None # btc/asset market (or btc/xcp for xcp or btc)
-            if asset not in ['BTC', 'XCP']:
-                for a in ['XCP', 'BTC']:
-                    _7d_history = mongo_db.trades.aggregate([
-                        {"$match": {
-                            "base_asset": a,
-                            "quote_asset": asset,
-                            "block_time": {"$gte": start_dt_7d }
-                        }},
-                        {"$project": {
-                            "year":  {"$year": "$block_time"},
-                            "month": {"$month": "$block_time"},
-                            "day":   {"$dayOfMonth": "$block_time"},
-                            "hour":  {"$hour": "$block_time"},
-                            "unit_price": 1,
-                            "base_quantity_normalized": 1 #to derive volume
-                        }},
-                        {"$sort": {"block_time": pymongo.ASCENDING}},
-                        {"$group": {
-                            "_id":   {"year": "$year", "month": "$month", "day": "$day", "hour": "$hour"},
-                            "price": {"$avg": "$unit_price"},
-                            "vol":   {"$sum": "$base_quantity_normalized"},
-                        }},
-                    ])
-                    _7d_history = [] if not _7d_history['ok'] else _7d_history['result']
-                    if a == 'XCP': _7d_history_in_xcp = _7d_history
-                    else: _7d_history_in_btc = _7d_history
-            else: #get the XCP/BTC market and invert for BTC/XCP (_7d_history_in_btc)
+        #BTC market volume with stats
+        if asset != 'BTC':
+            _24h_ohlc_in_btc = mongo_db.trades.aggregate([
+                {"$match": {
+                    "base_asset": "BTC",
+                    "quote_asset": asset,
+                    "block_time": {"$gte": start_dt_1d } }},
+                {"$project": {
+                    "unit_price": 1,
+                    "base_quantity_normalized": 1 #to derive volume
+                }},
+                {"$group": {
+                    "_id":   1,
+                    "open":  {"$first": "$unit_price"},
+                    "high":  {"$max": "$unit_price"},
+                    "low":   {"$min": "$unit_price"},
+                    "close": {"$last": "$unit_price"},
+                    "vol":   {"$sum": "$base_quantity_normalized"},
+                    "count": {"$sum": 1},
+                }}
+            ])
+            _24h_ohlc_in_btc = {} if not _24h_ohlc_in_btc['ok'] \
+                or not len(_24h_ohlc_in_btc['result']) else _24h_ohlc_in_btc['result'][0]
+            if _24h_ohlc_in_btc: del _24h_ohlc_in_btc['_id']
+        else:
+            _24h_ohlc_in_btc = {}
+            
+        return {
+            '24h_summary': _24h_vols,
+            #^ total quantity traded of that asset in all markets in last 24h
+            '24h_ohlc_in_xcp': _24h_ohlc_in_xcp,
+            #^ quantity of asset traded with BTC in last 24h
+            '24h_ohlc_in_btc': _24h_ohlc_in_btc,
+            #^ quantity of asset traded with XCP in last 24h
+            '24h_vol_price_change_in_xcp': calc_price_change(_24h_ohlc_in_xcp['open'], _24h_ohlc_in_xcp['close'])
+                if _24h_ohlc_in_xcp else None,
+            #^ aggregated price change from 24h ago to now, expressed as a signed float (e.g. .54 is +54%, -1.12 is -112%)
+            '24h_vol_price_change_in_btc': calc_price_change(_24h_ohlc_in_btc['open'], _24h_ohlc_in_btc['close'])
+                if _24h_ohlc_in_btc else None,
+        }
+    
+    def compile_7d_market_info(asset):        
+        start_dt_7d = datetime.datetime.utcnow() - datetime.timedelta(days=7)
+
+        #get XCP and BTC market summarized trades over a 7d period (quantize to hour long slots)
+        _7d_history_in_xcp = None # xcp/asset market (or xcp/btc for xcp or btc)
+        _7d_history_in_btc = None # btc/asset market (or btc/xcp for xcp or btc)
+        if asset not in ['BTC', 'XCP']:
+            for a in ['XCP', 'BTC']:
                 _7d_history = mongo_db.trades.aggregate([
                     {"$match": {
-                        "base_asset": 'XCP',
-                        "quote_asset": 'BTC',
+                        "base_asset": a,
+                        "quote_asset": asset,
                         "block_time": {"$gte": start_dt_7d }
                     }},
                     {"$project": {
@@ -221,137 +399,47 @@ def compile_asset_market_info(mongo_db):
                     }},
                 ])
                 _7d_history = [] if not _7d_history['ok'] else _7d_history['result']
-                _7d_history_in_xcp = _7d_history
-                _7d_history_in_btc = copy.deepcopy(_7d_history_in_xcp)
-                for i in xrange(len(_7d_history_in_btc)):
-                    _7d_history_in_btc[i]['price'] = calc_inverse(_7d_history_in_btc[i]['price'])
-                    _7d_history_in_btc[i]['vol'] = calc_inverse(_7d_history_in_btc[i]['vol'])
-            
-            for l in [_7d_history_in_xcp, _7d_history_in_btc]:
-                for e in l: #convert our _id field out to be an epoch ts (in ms), and delete _id
-                    e['when'] = time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day'], e['_id']['hour']).timetuple()) * 1000 
-                    del e['_id']
-
-            #perform aggregation to get 24h statistics
-            #TOTAL volume and count across all trades for the asset (on ALL markets, not just XCP and BTC pairings)
-            _24h_vols = {'vol': 0, 'count': 0}
-            _24h_vols_as_base = mongo_db.trades.aggregate([
+                if a == 'XCP': _7d_history_in_xcp = _7d_history
+                else: _7d_history_in_btc = _7d_history
+        else: #get the XCP/BTC market and invert for BTC/XCP (_7d_history_in_btc)
+            _7d_history = mongo_db.trades.aggregate([
                 {"$match": {
-                    "base_asset": asset,
-                    "block_time": {"$gte": start_dt_1d } }},
+                    "base_asset": 'XCP',
+                    "quote_asset": 'BTC',
+                    "block_time": {"$gte": start_dt_7d }
+                }},
                 {"$project": {
+                    "year":  {"$year": "$block_time"},
+                    "month": {"$month": "$block_time"},
+                    "day":   {"$dayOfMonth": "$block_time"},
+                    "hour":  {"$hour": "$block_time"},
+                    "unit_price": 1,
                     "base_quantity_normalized": 1 #to derive volume
                 }},
+                {"$sort": {"block_time": pymongo.ASCENDING}},
                 {"$group": {
-                    "_id":   1,
+                    "_id":   {"year": "$year", "month": "$month", "day": "$day", "hour": "$hour"},
+                    "price": {"$avg": "$unit_price"},
                     "vol":   {"$sum": "$base_quantity_normalized"},
-                    "count": {"$sum": 1},
-                }}
-            ])
-            _24h_vols_as_base = {} if not _24h_vols_as_base['ok'] \
-                or not len(_24h_vols_as_base['result']) else _24h_vols_as_base['result'][0]
-            _24h_vols_as_quote = mongo_db.trades.aggregate([
-                {"$match": {
-                    "quote_asset": asset,
-                    "block_time": {"$gte": start_dt_1d } }},
-                {"$project": {
-                    "quote_quantity_normalized": 1 #to derive volume
                 }},
-                {"$group": {
-                    "_id":   1,
-                    "vol":   {"$sum": "quote_quantity_normalized"},
-                    "count": {"$sum": 1},
-                }}
             ])
-            _24h_vols_as_quote = {} if not _24h_vols_as_quote['ok'] \
-                or not len(_24h_vols_as_quote['result']) else _24h_vols_as_quote['result'][0]
-            _24h_vols['vol'] = _24h_vols_as_base.get('vol', 0) + _24h_vols_as_quote.get('vol', 0) 
-            _24h_vols['count'] = _24h_vols_as_base.get('count', 0) + _24h_vols_as_quote.get('count', 0) 
-            
-            #XCP market volume with stats
-            if asset != 'XCP' and price_summary_in_xcp is not None and len(price_summary_in_xcp['last_trades']):
-                _24h_ohlc_in_xcp = mongo_db.trades.aggregate([
-                    {"$match": {
-                        "base_asset": "XCP",
-                        "quote_asset": asset,
-                        "block_time": {"$gte": start_dt_1d } }},
-                    {"$project": {
-                        "unit_price": 1,
-                        "base_quantity_normalized": 1 #to derive volume
-                    }},
-                    {"$group": {
-                        "_id":   1,
-                        "open":  {"$first": "$unit_price"},
-                        "high":  {"$max": "$unit_price"},
-                        "low":   {"$min": "$unit_price"},
-                        "close": {"$last": "$unit_price"},
-                        "vol":   {"$sum": "$base_quantity_normalized"},
-                        "count": {"$sum": 1},
-                    }}
-                ])
-                _24h_ohlc_in_xcp = {} if not _24h_ohlc_in_xcp['ok'] \
-                    or not len(_24h_ohlc_in_xcp['result']) else _24h_ohlc_in_xcp['result'][0]
-                if _24h_ohlc_in_xcp: del _24h_ohlc_in_xcp['_id']
-            else:
-                _24h_ohlc_in_xcp = {}
-                
-            #BTC market volume with stats
-            if asset != 'BTC' and price_summary_in_btc and len(price_summary_in_btc['last_trades']):
-                _24h_ohlc_in_btc = mongo_db.trades.aggregate([
-                    {"$match": {
-                        "base_asset": "BTC",
-                        "quote_asset": asset,
-                        "block_time": {"$gte": start_dt_1d } }},
-                    {"$project": {
-                        "unit_price": 1,
-                        "base_quantity_normalized": 1 #to derive volume
-                    }},
-                    {"$group": {
-                        "_id":   1,
-                        "open":  {"$first": "$unit_price"},
-                        "high":  {"$max": "$unit_price"},
-                        "low":   {"$min": "$unit_price"},
-                        "close": {"$last": "$unit_price"},
-                        "vol":   {"$sum": "$base_quantity_normalized"},
-                        "count": {"$sum": 1},
-                    }}
-                ])
-                _24h_ohlc_in_btc = {} if not _24h_ohlc_in_btc['ok'] \
-                    or not len(_24h_ohlc_in_btc['result']) else _24h_ohlc_in_btc['result'][0]
-                if _24h_ohlc_in_btc: del _24h_ohlc_in_btc['_id']
-            else:
-                _24h_ohlc_in_btc = {}
-            
-            market_cap_in_xcp, market_cap_in_btc = calc_market_cap(asset_info, price_in_xcp, price_in_btc)
-            asset_data[asset] = {
-                'asset': asset,
-                'price_in_xcp': price_in_xcp, #current price of asset vs XCP (e.g. how many units of asset for 1 unit XCP)
-                'price_in_btc': price_in_btc, #current price of asset vs BTC (e.g. how many units of asset for 1 unit BTC)
-                'price_as_xcp': calc_inverse(price_in_xcp) if price_in_xcp else None, #current price of asset AS XCP
-                'price_as_btc': calc_inverse(price_in_btc) if price_in_btc else None, #current price of asset AS BTC
-                'aggregated_price_in_xcp': aggregated_price_in_xcp, 
-                'aggregated_price_in_btc': aggregated_price_in_btc,
-                'aggregated_price_as_xcp': calc_inverse(aggregated_price_in_xcp) if aggregated_price_in_xcp else None, 
-                'aggregated_price_as_btc': calc_inverse(aggregated_price_in_btc) if aggregated_price_in_btc else None,
-                'total_supply': asset_info['total_issued_normalized'], 
-                'market_cap_in_xcp': market_cap_in_xcp,
-                'market_cap_in_btc': market_cap_in_btc,
-                '24h_summary': _24h_vols,
-                #^ total quantity traded of that asset in all markets in last 24h
-                '24h_ohlc_in_xcp': _24h_ohlc_in_xcp,
-                #^ quantity of asset traded with BTC in last 24h
-                '24h_ohlc_in_btc': _24h_ohlc_in_btc,
-                #^ quantity of asset traded with XCP in last 24h
-                '24h_vol_price_change_in_xcp': calc_price_change(_24h_ohlc_in_xcp['open'], _24h_ohlc_in_xcp['close'])
-                    if _24h_ohlc_in_xcp else None,
-                #^ aggregated price change from 24h ago to now, expressed as a signed float (e.g. .54 is +54%, -1.12 is -112%)
-                '24h_vol_price_change_in_btc': calc_price_change(_24h_ohlc_in_btc['open'], _24h_ohlc_in_btc['close'])
-                    if _24h_ohlc_in_btc else None,
-                '7d_history_in_xcp': [[e['when'], e['price']] for e in _7d_history_in_xcp],
-                '7d_history_in_btc': [[e['when'], e['price']] for e in _7d_history_in_btc],
-            }
-        return asset_data
-    
+            _7d_history = [] if not _7d_history['ok'] else _7d_history['result']
+            _7d_history_in_xcp = _7d_history
+            _7d_history_in_btc = copy.deepcopy(_7d_history_in_xcp)
+            for i in xrange(len(_7d_history_in_btc)):
+                _7d_history_in_btc[i]['price'] = calc_inverse(_7d_history_in_btc[i]['price'])
+                _7d_history_in_btc[i]['vol'] = calc_inverse(_7d_history_in_btc[i]['vol'])
+        
+        for l in [_7d_history_in_xcp, _7d_history_in_btc]:
+            for e in l: #convert our _id field out to be an epoch ts (in ms), and delete _id
+                e['when'] = time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day'], e['_id']['hour']).timetuple()) * 1000 
+                del e['_id']
+
+        return {
+            '7d_history_in_xcp': [[e['when'], e['price']] for e in _7d_history_in_xcp],
+            '7d_history_in_btc': [[e['when'], e['price']] for e in _7d_history_in_btc],
+        }
+
     if not config.CAUGHT_UP:
         logging.warn("Not updating asset market info as CAUGHT_UP is false.")
         gevent.spawn_later(COMPILE_ASSET_MARKET_INFO_PERIOD, compile_asset_market_info, mongo_db)
@@ -363,26 +451,71 @@ def compile_asset_market_info(mongo_db):
     #logging.debug("Comping info for assets traded since block %i" % last_block_assets_compiled)
     current_block_index = config.CURRENT_BLOCK_INDEX #store now as it may change as we are compiling asset data :)
     current_block_time = util.get_block_time(mongo_db, current_block_index)
-    
+
     if current_block_index == last_block_assets_compiled:
         #all caught up -- call again in 10 minutes
         gevent.spawn_later(COMPILE_ASSET_MARKET_INFO_PERIOD, compile_asset_market_info, mongo_db)
         return
-        
-    #get assets that were traded since the last check on ANY pair that the asset was involved in (even if the pair did not involve XCP or BTC)
-    # this is important because compiled market info has a 24h vol parameter that designates total volume for the asset across ALL pairings
-    distinct_base = mongo_db.trades.find({'block_index': {'$gt': last_block_assets_compiled}},
-        {'base_asset': 1, '_id': 0}).distinct('base_asset')
-    distinct_quote = mongo_db.trades.find({'block_index': {'$gt': last_block_assets_compiled}},
-        {'quote_asset': 1, '_id': 0}).distinct('quote_asset')
-    traded_assets = list(set(distinct_base + distinct_quote)) #convert to set to uniquify
+
+    mps_xcp_btc, xcp_btc_price, btc_xcp_price = get_price_primatives()
+    all_traded_assets = list(set(list(['BTC', 'XCP']) + list(mongo_db.trades.find({}, {'quote_asset': 1, '_id': 0}).distinct('quote_asset'))))
+    
+    #######################
+    #get a list of all assets with a trade within the last 24h (not necessarily just against XCP and BTC)
+    # ^ this is important because compiled market info has a 24h vol parameter that designates total volume for the asset across ALL pairings
+    start_dt_1d = datetime.datetime.utcnow() - datetime.timedelta(days=1)
+    
+    assets = list(set(
+          list(mongo_db.trades.find({'block_time': {'$gte': start_dt_1d}}).distinct('quote_asset'))
+        + list(mongo_db.trades.find({'block_time': {'$gte': start_dt_1d}}).distinct('base_asset'))
+    ))
+    for asset in assets:
+        market_info_24h = compile_24h_market_info(asset)
+        mongo_db.asset_market_info.update({'asset': asset}, {"$set": market_info_24h})
+    #for all others (i.e. no trade in the last 24 hours), zero out the 24h trade data
+    non_traded_assets = list(set(all_traded_assets) - set(assets))
+    mongo_db.asset_market_info.update( {'asset': {'$in': non_traded_assets}}, {"$set": {
+            '24h_summary': {'vol': 0, 'count': 0},
+            '24h_ohlc_in_xcp': {},
+            '24h_ohlc_in_btc': {},
+            '24h_vol_price_change_in_xcp': None,
+            '24h_vol_price_change_in_btc': None,
+    }}, multi=True)
+    logging.info("Block: %s -- Calculated 24h stats for: %s" % (current_block_index, ', '.join(assets)))
+    
+    #######################
+    #get a list of all assets with a trade within the last 7d up against XCP and BTC
+    start_dt_7d = datetime.datetime.utcnow() - datetime.timedelta(days=7)
+    assets = list(set(
+          list(mongo_db.trades.find({'block_time': {'$gte': start_dt_7d}, 'base_asset': {'$in': ['XCP', 'BTC']}}).distinct('quote_asset'))
+        + list(mongo_db.trades.find({'block_time': {'$gte': start_dt_7d}}).distinct('base_asset'))
+    ))
+    for asset in assets:
+        market_info_7d = compile_7d_market_info(asset)
+        mongo_db.asset_market_info.update({'asset': asset}, {"$set": market_info_7d})
+    non_traded_assets = list(set(all_traded_assets) - set(assets))
+    mongo_db.asset_market_info.update( {'asset': {'$in': non_traded_assets}}, {"$set": {
+            '7d_history_in_xcp': [],
+            '7d_history_in_btc': [],
+    }}, multi=True)
+    logging.info("Block: %s -- Calculated 7d stats for: %s" % (current_block_index, ', '.join(assets)))
+
+    #######################
+    #update summary market data for assets traded since last_block_assets_compiled
+    #get assets that were traded since the last check with either BTC or XCP, and update their market summary data
+    assets = list(set(
+          list(mongo_db.trades.find({'block_index': {'$gt': last_block_assets_compiled}, 'base_asset': {'$in': ['XCP', 'BTC']}}).distinct('quote_asset'))
+        + list(mongo_db.trades.find({'block_index': {'$gt': last_block_assets_compiled}}).distinct('base_asset'))
+    ))
     #update our storage of the latest market info in mongo
-    compiled_assets_info = compile_market_info(traded_assets)
-    for asset, asset_info in compiled_assets_info.iteritems():
+    for asset in assets:
         logging.info("Block: %s -- Updating asset market info for %s ..." % (current_block_index, asset))
-        mongo_db.asset_market_info.update( {'asset': asset}, {"$set": asset_info}, upsert=True)
-        
-    #next, compile market cap historicals
+        summary_info = compile_summary_market_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price)
+        mongo_db.asset_market_info.update( {'asset': asset}, {"$set": summary_info}, upsert=True)
+
+    
+    #######################
+    #next, compile market cap historicals (and get the market price data that we can use to update assets with new trades)
     #NOTE: this algoritm still needs to be fleshed out some...I'm not convinced it's laid out/optimized like it should be
     #start by getting all trades from when we last compiled this data
     trades = mongo_db.trades.find({'block_index': {'$gt': last_block_assets_compiled}}).sort('block_index', pymongo.ASCENDING)

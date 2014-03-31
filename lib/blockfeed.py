@@ -1,6 +1,7 @@
 """
 blockfeed: sync with and process new blocks from counterpartyd
 """
+import re
 import os
 import sys
 import json
@@ -31,6 +32,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         mongo_db.asset_market_info.drop()
         mongo_db.asset_marketcap_history.drop()
         mongo_db.btc_open_orders.drop()
+        mongo_db.asset_extended_info.drop()
         
         #create/update default app_config object
         mongo_db.app_config.update({}, {
@@ -72,9 +74,10 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         (which will get a new last_processed_block from counterpartyd and resume as appropriate)   
         """
         logging.warn("Pruning to block %i ..." % (max_block_index))        
+        mongo_db.processed_blocks.remove({"block_index": {"$gt": max_block_index}})
         mongo_db.balance_changes.remove({"block_index": {"$gt": max_block_index}})
         mongo_db.trades.remove({"block_index": {"$gt": max_block_index}})
-        mongo_db.processed_blocks.remove({"block_index": {"$gt": max_block_index}})
+        mongo_db.asset_marketcap_history.remove({"block_index": {"$gt": max_block_index}})
         
         #to roll back the state of the tracked asset, dive into the history object for each asset that has
         # been updated on or after the block that we are pruning back to
@@ -100,6 +103,21 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         config.CAUGHT_UP = False
         latest_block = mongo_db.processed_blocks.find_one({"block_index": max_block_index}) or LATEST_BLOCK_INIT
         return latest_block
+    
+    def modify_extended_asset_info(asset, description):
+        """adds an asset to asset_extended_info collection if the description is a valid json link. or, if the link
+        is not a valid json link, will remove the asset entry from the table if it exists"""
+        if re.match(config.RE_JSON_URL, description):
+            mongo_db.asset_extended_info.update({'asset': asset},
+                {'$set': {'url': description}}, upsert=True)
+            #additional fields will be added later in events, once the asset info is pulled
+        else:
+            mongo_db.asset_extended_info.remove({ 'asset': asset })
+            #remove any saved asset image data
+            imagePath = os.path.join(config.data_dir, config.SUBDIR_ASSET_IMAGES, asset + '.png')
+            if os.path.exists(imagePath):
+                os.remove(imagePath)
+
 
     config.CURRENT_BLOCK_INDEX = 0 #initialize (last processed block index -- i.e. currently active block)
     config.LAST_MESSAGE_INDEX = -1 #initialize (last processed message index)
@@ -284,6 +302,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                                 'description': msg_data['description'],
                              },
                              "$push": {'_history': tracked_asset } }, upsert=False)
+                        modify_extended_asset_info(msg_data['asset'], msg_data['description'])
                     else: #issue new asset or issue addition qty of an asset
                         if not tracked_asset: #new issuance
                             tracked_asset = {
@@ -303,6 +322,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                                 '_history': [] #to allow for block rollbacks
                             }
                             mongo_db.tracked_assets.insert(tracked_asset)
+                            modify_extended_asset_info(msg_data['asset'], msg_data['description'])
                         else: #issuing additional of existing asset
                             assert tracked_asset
                             mongo_db.tracked_assets.update(
@@ -458,6 +478,9 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
             
             if config.CAUGHT_UP and not config.CAUGHT_UP_STARTED_EVENTS:
                 #start up recurring events that depend on us being fully caught up with the blockchain to run
+                logging.debug("Starting event timer: compile_extended_asset_info")
+                gevent.spawn(events.compile_extended_asset_info, mongo_db)
+                
                 logging.debug("Starting event timer: compile_asset_market_info")
                 gevent.spawn(events.compile_asset_market_info, mongo_db)
 
