@@ -344,6 +344,9 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                     actionName = 'credit' if msg['category'] == 'credits' else 'debit'
                     address = msg_data['address']
                     asset_info = mongo_db.tracked_assets.find_one({ 'asset': msg_data['asset'] })
+                    if asset_info is None:
+                        logging.warn("Credit/debit of %s where asset ('%s') does not exist. Ignoring..." % (msg_data['quantity'], msg_data['asset']))
+                        continue
                     quantity = msg_data['quantity'] if msg['category'] == 'credits' else -msg_data['quantity']
                     quantity_normalized = util.normalize_quantity(quantity, asset_info['divisible'])
 
