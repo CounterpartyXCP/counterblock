@@ -479,6 +479,8 @@ def serve_api(mongo_db, redis_client):
             extra_filters = [
                 {'field': 'give_remaining', 'op': '>', 'value': 0}, #don't show empty BTC orders
                 {'field': 'get_remaining', 'op': '>', 'value': 0}, #don't show empty BTC orders
+                {'field': 'fee_required_remaining', 'op': '>=', 'value': 0},
+                {'field': 'fee_provided_remaining', 'op': '>=', 'value': 0},
             ]
             base_bid_filters += extra_filters
             base_ask_filters += extra_filters
