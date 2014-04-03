@@ -558,7 +558,7 @@ def serve_api(mongo_db, redis_client):
                 book[id]['quantity'] += remaining #base quantity outstanding
                 book[id]['count'] += 1 #num orders at this price level
             book = sorted(book.itervalues(), key=operator.itemgetter('unit_price'), reverse=isBidBook)
-            #^ sort -- bid book = descending, ask book = ascending
+            #^ convert to list and sort -- bid book = descending, ask book = ascending
             return book
         
         #compile into a single book, at volume tiers
@@ -574,14 +574,16 @@ def serve_api(mongo_db, redis_client):
                             D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
         else: bid_ask_median = 0
         
-        #compose depth
+        #compose depth and round out quantities
         bid_depth = D(0)
         for o in base_bid_book:
+            o['quantity'] = float(D(o['quantity']).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
             bid_depth += D(o['quantity'])
             o['depth'] = float(bid_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
         bid_depth = float(bid_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
         ask_depth = D(0)
         for o in base_ask_book:
+            o['quantity'] = float(D(o['quantity']).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
             ask_depth += D(o['quantity'])
             o['depth'] = float(ask_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
         ask_depth = float(ask_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
