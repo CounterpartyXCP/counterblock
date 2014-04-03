@@ -12,7 +12,7 @@ import grequests
 import pymongo
 import gevent
 from PIL import Image
-from bson.binary import Binary
+import lxml.html
 
 from lib import (config, util)
 
@@ -107,7 +107,9 @@ def compile_extended_asset_info(mongo_db):
         except Exception, e:
             logging.info("ExtendedAssetInfo: Skipped asset %s: %s" % (asset_info['asset'], e))
         else:
-            asset_info['description'] = data['description']
+            #sanitize any text in description to remove potential attack vector
+            sanitized_description = lxml.html.document_fromstring(data['description']).text_content()
+            asset_info['description'] = sanitized_description
             asset_info['website'] = data['website']
             asset_info['image'] = data['image']
             if data['image'] and raw_image_data:
@@ -115,7 +117,6 @@ def compile_extended_asset_info(mongo_db):
                 f = open(os.path.join(imageDir, data['asset'] + '.png'), 'wb')
                 f.write(raw_image_data)
                 f.close()
-                #asset_info['image_data'] = Binary(StringIO.StringIO(raw_image_data), subtype=0)
             mongo_db.asset_extended_info.save(asset_info)
             logging.info("ExtendedAssetInfo: Compiled data for asset %s" % asset_info['asset'])
         
