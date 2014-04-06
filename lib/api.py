@@ -1009,13 +1009,8 @@ def serve_api(mongo_db, redis_client):
     class API(object):
         @cherrypy.expose
         def index(self):
-            cherrypy.response.headers["Content-Type"] = 'application/json' 
-            cherrypy.response.headers["Access-Control-Allow-Origin"] = '*'
-            cherrypy.response.headers["Access-Control-Allow-Methods"] = 'POST, GET, OPTIONS'
-            cherrypy.response.headers["Access-Control-Allow-Headers"] = 'Origin, X-Requested-With, Content-Type, Accept'
-
-            if cherrypy.request.method == "OPTIONS": #web client will send us this before making a request
-                return
+            cherrypy.response.headers["Content-Type"] = 'application/json'
+            #CORS logic is handled in the nginx config 
             
             #don't do jack if we're not caught up
             if not util.is_caught_up_well_enough_for_government_work():

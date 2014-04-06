@@ -236,7 +236,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                     logging.warn("BUG: IGNORED old RAW message %s: %s ..." % (msg['message_index'], msg))
                     continue
                     
-                logging.info("Got RAW message %s: %s ..." % (msg['message_index'], msg))
+                logging.info("Received message %s: %s ..." % (msg['message_index'], msg))
                 
                 #don't process invalid messages, but do forward them along to clients
                 status = msg_data.get('status', 'valid').lower()

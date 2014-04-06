@@ -90,7 +90,6 @@ def get_address_cols_for_entity(entity):
     else:
         raise Exception("Unknown entity type: %s" % entity)
 
-
 def multikeysort(items, columns):
     """http://stackoverflow.com/a/1144405"""
     from operator import itemgetter

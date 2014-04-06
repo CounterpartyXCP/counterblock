@@ -135,17 +135,17 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             if len(args) != 1:
                 return self.error('invalid_args', "USAGE: /online {handle=}<br/>Desc: Determines whether a specific user is online")
             handle = args[0]
-            p = self.request['mongo_db'].chat_handles.find_one({"handle": handle})
+            p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
-            return self.emit("online_status", handle, p['wallet_id'] in onlineClients)
+            return self.emit("online_status", p['handle'], p['wallet_id'] in onlineClients)
         elif command == 'msg': #/msg <handle> <message text>
             if not self.socket.session['is_primary_server']: return
             if len(args) < 2:
                 return self.error('invalid_args', "USAGE: /msg {handle} {private message to send}<br/>Desc: Sends a private message to a specific user")
             handle = args[0]
             message = ' '.join(args[1:])
-            if handle == self.socket.session['handle']:
+            if handle.lower() == self.socket.session['handle'].lower():
                 return self.error('invalid_args', "Don't be cray cray and try to message yourself, %s" % handle)
             
             now = datetime.datetime.utcnow()
@@ -155,11 +155,11 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                 return self.error('banned', "Your handle is still banned from chat for %s more seconds."
                     % int((self.socket.session['banned_until'] - now).total_seconds()))
             
-            p = self.request['mongo_db'].chat_handles.find_one({"handle": handle})
+            p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
             if p['wallet_id'] not in onlineClients:
-                return self.error('invalid_args', "Handle '%s' is not online" % handle)
+                return self.error('invalid_args', "Handle '%s' is not online" % p['handle'])
             
             #truncate to max allowed and strip out HTML
             message = lxml.html.document_fromstring(message[:self.MAX_TEXT_LEN]).text_content()
@@ -169,17 +169,18 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             if len(args) != 1:
                 return self.error('invalid_args', "USAGE: /op|unop {handle to op/unop}<br/>Desc: Gives/removes operator priveledges from a specific user")
             handle = args[0]
-            p = self.request['mongo_db'].chat_handles.find_one({"handle": handle})
+            p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
             p['is_op'] = command == 'op'
             self.request['mongo_db'].chat_handles.save(p)
             #make the change active immediately
+            handle_lower = handle.lower()
             for sessid, socket in self.socket.server.sockets.iteritems():
-                if socket.session.get('handle', None) == handle:
+                if socket.session.get('handle', None).lower() == handle_lower:
                     socket.session['is_op'] = p['is_op']
             if self.socket.session['is_primary_server']: #let all users know
-                self.broadcast_event("oped" if command == "op" else "unoped", self.socket.session['handle'], handle)
+                self.broadcast_event("oped" if command == "op" else "unoped", self.socket.session['handle'], p['handle'])
         elif command == 'ban': #/ban <handle> <time length in seconds>
             if len(args) != 2:
                 return self.error('invalid_args', "USAGE: /ban {handle to ban} {ban_period in sec | -1}<br/>" +
@@ -191,34 +192,36 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             except:
                 return self.error('invalid_args', "Invalid ban_period value: '%s'" % ban_period)
                 
-            p = self.request['mongo_db'].chat_handles.find_one({"handle": handle})
+            p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
             p['banned_until'] = datetime.datetime.utcnow() + datetime.timedelta(seconds=ban_period) if ban_period != -1 else -1
             #^ can be the special value of -1 to mean "ban indefinitely"
             self.request['mongo_db'].chat_handles.save(p)
             #make the change active immediately
+            handle_lower = handle.lower()
             for sessid, socket in self.socket.server.sockets.iteritems():
-                if socket.session.get('handle', None) == handle:
+                if socket.session.get('handle', None).lower() == handle_lower:
                     socket.session['banned_until'] = p['banned_until']
             if self.socket.session['is_primary_server']: #let all users know
-                self.broadcast_event("banned", self.socket.session['handle'], handle, ban_period,
+                self.broadcast_event("banned", self.socket.session['handle'], p['handle'], ban_period,
                     int(time.mktime(p['banned_until'].timetuple()))*1000 if p['banned_until'] != -1 else -1);
         elif command == 'unban': #/unban <handle>
             if len(args) != 1:
                 return self.error('invalid_args', "USAGE: /unban {handle to unban}<br/>Desc: Unban a specific banned user")
             handle = args[0]
-            p = self.request['mongo_db'].chat_handles.find_one({"handle": handle})
+            p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
             p['banned_until'] = None
             self.request['mongo_db'].chat_handles.save(p)
             #make the change active immediately
+            handle_lower = handle.lower()
             for sessid, socket in self.socket.server.sockets.iteritems():
-                if socket.session.get('handle', None) == handle:
+                if socket.session.get('handle', None).lower() == handle_lower:
                     socket.session['banned_until'] = None
             if self.socket.session['is_primary_server']:  #let all users know
-                self.broadcast_event("unbanned", self.socket.session['handle'], handle)
+                self.broadcast_event("unbanned", self.socket.session['handle'], p['handle'])
         elif command == 'handle': #/handle <oldhandle> <newhandle>
             if len(args) != 2:
                 return self.error('invalid_args', "USAGE: /handle {oldhandle} {newhandle}<br/>Desc: Change a user's handle to something else")
@@ -229,7 +232,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                     "The new handle ('%s') must be different than the current handle ('%s')" % (new_handle, handle))
             if not re.match(r'[A-Za-z0-9_-]{4,12}', new_handle):            
                 return self.error('invalid_args', "New handle ('%s') contains invalid characters or is not between 4 and 12 characters" % new_handle)
-            p = self.request['mongo_db'].chat_handles.find_one({"handle": handle})
+            p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
             new_handle_p = self.request['mongo_db'].chat_handles.find_one({"handle": new_handle})
@@ -238,11 +241,12 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             p['handle'] = new_handle
             self.request['mongo_db'].chat_handles.save(p)
             #make the change active immediately
+            handle_lower = handle.lower()
             for sessid, socket in self.socket.server.sockets.iteritems():
-                if socket.session.get('handle', None) == handle:
+                if socket.session.get('handle', None).lower() == handle_lower:
                     socket.session['handle'] = new_handle
             if self.socket.session['is_primary_server']: #let all users know
-                self.broadcast_event("handle_changed", self.socket.session['handle'], handle, new_handle)
+                self.broadcast_event("handle_changed", self.socket.session['handle'], p['handle'], new_handle)
         elif command in ['enextinfo', 'disextinfo']:
             if len(args) != 1:
                 return self.error('invalid_args', "USAGE: /%s {asset}<br/>Desc: %s" % (command,
