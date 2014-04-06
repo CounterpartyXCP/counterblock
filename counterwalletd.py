@@ -372,18 +372,26 @@ if __name__ == '__main__':
     pidf.write(pid)
     pidf.close()    
 
-    #Set up logging
-    logging.basicConfig(filename=config.LOG,
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format='%(asctime)s %(message)s',
-        datefmt='%Y-%m-%d-T%H:%M:%S%z')
-    # Log also to stderr.
+    # Logging (to file and console).
+    logger = logging.getLogger() #get root logger
+    logger.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+    #Console logging
     console = logging.StreamHandler()
-    console.setLevel(logging.INFO)
+    console.setLevel(logging.DEBUG if args.verbose else logging.INFO)
     formatter = logging.Formatter('%(asctime)s :: %(levelname)s :: %(message)s')
     console.setFormatter(formatter)
-    logging.getLogger('').addHandler(console)
-
+    logger.addHandler(console)
+    #File logging (rotated)
+    max_log_size = 20 * 1024 * 1024 #max log size of 20 MB before rotation (make configurable later)
+    if os.name == 'nt':
+        fileh = util_windows.SanitizedRotatingFileHandler(config.LOG, maxBytes=max_log_size, backupCount=5)
+    else:
+        fileh = logging.handlers.RotatingFileHandler(config.LOG, maxBytes=max_log_size, backupCount=5)
+    fileh.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+    formatter = logging.Formatter('%(asctime)s %(message)s', '%Y-%m-%d-T%H:%M:%S%z')
+    fileh.setFormatter(formatter)
+    logger.addHandler(fileh)
+    #API requests logging (don't show on console in normal operation)
     requests_log = logging.getLogger("requests")
     requests_log.setLevel(logging.DEBUG if args.verbose else logging.WARNING)
 
