@@ -89,16 +89,17 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                 prev_ver = asset['_history'].pop()
                 if prev_ver['_at_block'] <= max_block_index:
                     break
-            if prev_ver['_at_block'] > max_block_index:
-                #even the first history version is newer than max_block_index.
-                #in this case, just remove the asset tracking record itself
-                mongo_db.tracked_assets.remove({'asset': asset['asset']})
-            else:
-                #if here, we were able to find a previous version that was saved at or before max_block_index
-                # (which should be prev_ver ... restore asset's values to its values
-                prev_ver['_id'] = asset['_id']
-                prev_ver['_history'] = asset['_history']
-                mongo_db.tracked_assets.save(prev_ver)
+            if prev_ver:
+                if prev_ver['_at_block'] > max_block_index:
+                    #even the first history version is newer than max_block_index.
+                    #in this case, just remove the asset tracking record itself
+                    mongo_db.tracked_assets.remove({'asset': asset['asset']})
+                else:
+                    #if here, we were able to find a previous version that was saved at or before max_block_index
+                    # (which should be prev_ver ... restore asset's values to its values
+                    prev_ver['_id'] = asset['_id']
+                    prev_ver['_history'] = asset['_history']
+                    mongo_db.tracked_assets.save(prev_ver)
 
         config.CAUGHT_UP = False
         latest_block = mongo_db.processed_blocks.find_one({"block_index": max_block_index}) or LATEST_BLOCK_INIT
