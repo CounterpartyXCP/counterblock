@@ -534,8 +534,6 @@ def serve_api(mongo_db, redis_client):
                 if ask_book_max_pct_fee_required is not None and pct_fee_required is not None and pct_fee_required > ask_book_max_pct_fee_required:
                     addToBook = False
                 if addToBook: filtered_base_ask_orders.append(o)
-            base_bid_orders = filtered_base_bid_orders
-            base_ask_orders = filtered_base_ask_orders
 
         def make_book(orders, isBidBook):
             book = {}
@@ -562,8 +560,8 @@ def serve_api(mongo_db, redis_client):
             return book
         
         #compile into a single book, at volume tiers
-        base_bid_book = make_book(base_bid_orders, True)
-        base_ask_book = make_book(base_ask_orders, False)
+        base_bid_book = make_book(filtered_base_bid_orders, True)
+        base_ask_book = make_book(filtered_base_ask_orders, False)
         #get stats like the spread and median
         if base_bid_book and base_ask_book:
             bid_ask_spread = float(( D(base_ask_book[0]['unit_price']) - D(base_bid_book[0]['unit_price']) ).quantize(
