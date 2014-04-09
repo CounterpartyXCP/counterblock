@@ -587,7 +587,7 @@ def serve_api(mongo_db, redis_client):
         ask_depth = float(ask_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
         
         #compose raw orders
-        orders = base_bid_orders + base_ask_orders
+        orders = filtered_base_bid_orders + filtered_base_ask_orders
         for o in orders:
             #add in the blocktime to help makes interfaces more user-friendly (i.e. avoid displaying block
             # indexes and display datetimes instead)
