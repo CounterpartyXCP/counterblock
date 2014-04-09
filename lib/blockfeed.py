@@ -85,6 +85,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         for asset in assets_to_prune:
             logging.info("Pruning asset %s (last modified @ block %i, pruning to state at block %i)" % (
                 asset['asset'], asset['_at_block'], max_block_index))
+            prev_ver = None
             while len(asset['_history']):
                 prev_ver = asset['_history'].pop()
                 if prev_ver['_at_block'] <= max_block_index:
