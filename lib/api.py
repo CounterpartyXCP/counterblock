@@ -511,9 +511,9 @@ def serve_api(mongo_db, redis_client):
             return pct_fee_provided, pct_fee_required
 
         #filter results by pct_fee_provided and pct_fee_required for BTC pairs as appropriate
-        if base_asset == 'BTC' or quote_asset == 'BTC':
-            filtered_base_bid_orders = []
-            filtered_base_ask_orders = []
+        filtered_base_bid_orders = []
+        filtered_base_ask_orders = []
+        if base_asset == 'BTC' or quote_asset == 'BTC':      
             for o in base_bid_orders:
                 pct_fee_provided, pct_fee_required = get_o_pct(o)
                 addToBook = True
