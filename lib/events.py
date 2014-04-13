@@ -57,11 +57,10 @@ def compile_extended_asset_info(mongo_db):
             logging.info("ExtendedAssetInfo: Skipping disabled asset %s" % asset_info['asset'])
             continue
         
-        assert re.match(config.RE_JSON_URL, asset_info['url'])
         #try to get the data at the specified URL
+        assert 'url' in asset_info and util.is_valid_url(asset_info['url'], suffix='.json')
         data = {}
         raw_image_data = None
-        assert 'url' in asset_info and re.match(config.RE_URL, asset_info['url'])
         try:
             #TODO: Right now this loop makes one request at a time. Fully utilize grequests to make batch requests
             # at the same time (using map() and throttling) 
@@ -84,9 +83,9 @@ def compile_extended_asset_info(mongo_db):
                 
             if data['asset'] != asset_info['asset']:
                 raise Exception("asset field is invalid (is: '%s', should be: '%s')" % (data['asset'], asset_info['asset']))
-            if data['image'] and not re.match(config.RE_URL, data['image']):
+            if data['image'] and not util.is_valid_url(data['image']):
                 raise Exception("'image' field is not valid URL")
-            if data['website'] and not re.match(config.RE_URL, data['website']):
+            if data['website'] and not util.is_valid_url(data['website']):
                 raise Exception("'website' field is not valid URL")
             
             if data['image']:

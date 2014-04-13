@@ -109,7 +109,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
     def modify_extended_asset_info(asset, description):
         """adds an asset to asset_extended_info collection if the description is a valid json link. or, if the link
         is not a valid json link, will remove the asset entry from the table if it exists"""
-        if re.match(config.RE_JSON_URL, description):
+        if util.is_valid_url(description, suffix='.json'):
             mongo_db.asset_extended_info.update({'asset': asset},
                 {'$set': {'url': description}}, upsert=True)
             #additional fields will be added later in events, once the asset info is pulled

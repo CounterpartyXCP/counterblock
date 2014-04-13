@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import base64
 import logging
@@ -14,6 +15,16 @@ import grequests
 from . import (config,)
 
 D = decimal.Decimal
+
+def is_valid_url(url, suffix=''):
+    regex = re.compile(
+        r'^https?://'  # http:// or https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
+        r'localhost|'  # localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})' # ...or ip
+        r'(?::\d+)?'  # optional port
+        r'(?:/?|[/?]\S+)%s$' % (re.escape('%s') % suffix if suffix else ''), re.IGNORECASE)
+    return url is not None and regex.search(url)
 
 def assets_to_asset_pair(asset1, asset2):
     """Pair labeling rules are:
