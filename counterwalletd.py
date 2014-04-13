@@ -74,6 +74,8 @@ if __name__ == '__main__':
     parser.add_argument('--socketio-chat-host', help='the interface on which to host the counterwalletd socket.io chat API')
     parser.add_argument('--socketio-chat-port', type=int, help='port on which to provide the counterwalletd socket.io chat API')
 
+    parser.add_argument('--allow-cors', action='store_true', default=False, help='Allow ajax cross domain request')
+
     args = parser.parse_args()
 
     # Data directory
@@ -365,6 +367,14 @@ if __name__ == '__main__':
         config.PID = configfile.get('Default', 'pid-file')
     else:
         config.PID = os.path.join(config.data_dir, 'counterwalletd.pid')
+
+     # CORS
+    if args.allow_cors:
+        config.ALLOW_CORS = args.allow_cors
+    elif has_config and configfile.has_option('Default', 'allow-cors'):
+        config.ALLOW_CORS = configfile.getboolean('Default', 'allow-cors')
+    else:
+        config.ALLOW_CORS = False
     
     #Create/update pid file
     pid = str(os.getpid())
