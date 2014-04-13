@@ -158,6 +158,11 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
             time.sleep(3)
             continue
         
+        if running_info['last_message_index'] == -1: #last_message_index not set yet (due to no messages in counterpartyd DB yet)
+            logging.warn("No last_message_index returned. Waiting until counterpartyd has messages...")
+            time.sleep(10)
+            continue
+        
         #wipe our state data if necessary, if counterpartyd has moved on to a new DB version
         wipeState = False
         updatePrefs = False
