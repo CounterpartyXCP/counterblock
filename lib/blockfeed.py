@@ -109,7 +109,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
     def modify_extended_asset_info(asset, description):
         """adds an asset to asset_extended_info collection if the description is a valid json link. or, if the link
         is not a valid json link, will remove the asset entry from the table if it exists"""
-        if re.match(config.RE_JSON_URL, description):
+        if util.is_valid_url(description, suffix='.json'):
             mongo_db.asset_extended_info.update({'asset': asset},
                 {'$set': {'url': description}}, upsert=True)
             #additional fields will be added later in events, once the asset info is pulled
@@ -156,6 +156,11 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         except Exception, e:
             logging.warn(str(e) + " Waiting 3 seconds before trying again...")
             time.sleep(3)
+            continue
+        
+        if running_info['last_message_index'] == -1: #last_message_index not set yet (due to no messages in counterpartyd DB yet)
+            logging.warn("No last_message_index returned. Waiting until counterpartyd has messages...")
+            time.sleep(10)
             continue
         
         #wipe our state data if necessary, if counterpartyd has moved on to a new DB version
