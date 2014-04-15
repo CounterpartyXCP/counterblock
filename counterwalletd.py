@@ -374,7 +374,7 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'allow-cors'):
         config.ALLOW_CORS = configfile.getboolean('Default', 'allow-cors')
     else:
-        config.ALLOW_CORS = False
+        config.ALLOW_CORS = True
     
     #Create/update pid file
     pid = str(os.getpid())
