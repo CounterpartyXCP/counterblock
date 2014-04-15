@@ -361,7 +361,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                     last_bal_change = mongo_db.balance_changes.find_one({
                         'address': address,
                         'asset': asset_info['asset']
-                    }, sort=[("block_time", pymongo.DESCENDING)])
+                    }, sort=[("block_index", pymongo.DESCENDING), ("_id", pymongo.DESCENDING)])
                     
                     if     last_bal_change \
                        and last_bal_change['block_index'] == cur_block_index:
