@@ -298,8 +298,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                                 'owner': msg_data['issuer'],
                              },
                              "$push": {'_history': tracked_asset } }, upsert=False)
-                    elif msg_data['quantity'] == 0: #change description
-                        assert tracked_asset is not None
+                    elif msg_data['quantity'] == 0 and tracked_asset is not None: #change description
                         mongo_db.tracked_assets.update(
                             {'asset': msg_data['asset']},
                             {"$set": {
