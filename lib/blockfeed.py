@@ -277,7 +277,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                     #^ pulls the tracked asset without the _id and history fields. This may be None
                     
                     if msg_data['locked']: #lock asset
-                        assert tracked_asset
+                        assert tracked_asset is not none
                         mongo_db.tracked_assets.update(
                             {'asset': msg_data['asset']},
                             {"$set": {
@@ -288,7 +288,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                              },
                              "$push": {'_history': tracked_asset } }, upsert=False)
                     elif msg_data['transfer']: #transfer asset
-                        assert tracked_asset
+                        assert tracked_asset is not none
                         mongo_db.tracked_assets.update(
                             {'asset': msg_data['asset']},
                             {"$set": {
@@ -299,7 +299,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                              },
                              "$push": {'_history': tracked_asset } }, upsert=False)
                     elif msg_data['quantity'] == 0: #change description
-                        assert tracked_asset
+                        assert tracked_asset is not none
                         mongo_db.tracked_assets.update(
                             {'asset': msg_data['asset']},
                             {"$set": {
@@ -331,7 +331,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                             mongo_db.tracked_assets.insert(tracked_asset)
                             modify_extended_asset_info(msg_data['asset'], msg_data['description'])
                         else: #issuing additional of existing asset
-                            assert tracked_asset
+                            assert tracked_asset is not none
                             mongo_db.tracked_assets.update(
                                 {'asset': msg_data['asset']},
                                 {"$set": {
