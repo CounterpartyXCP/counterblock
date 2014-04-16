@@ -1011,7 +1011,6 @@ def serve_api(mongo_db, redis_client):
             
             if config.ALLOW_CORS:
                 cherrypy.response.headers['Access-Control-Allow-Origin'] = '*'
-                cherrypy.response.headers['Access-Control-Allow-Credentials'] = 'true'
                 cherrypy.response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
                 cherrypy.response.headers['Access-Control-Allow-Headers'] = 'DNT,X-Mx-ReqToken,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type';            
                 if cherrypy.request.method=="OPTIONS":
