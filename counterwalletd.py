@@ -7,6 +7,7 @@ counterwalletd server
 import gevent
 from gevent import monkey; monkey.patch_all()
 
+import sys
 import os
 import argparse
 import json
@@ -18,6 +19,7 @@ import time
 import appdirs
 import pymongo
 import zmq.green as zmq
+import rollbar
 import redis
 import redis.connection
 redis.connection.socket = gevent.socket #make redis play well with gevent
@@ -39,6 +41,7 @@ if __name__ == '__main__':
     parser.add_argument('--data-dir', help='specify to explicitly override the directory in which to keep the config file and log file')
     parser.add_argument('--config-file', help='the location of the configuration file')
     parser.add_argument('--log-file', help='the location of the log file')
+    parser.add_argument('--tx-log-file', help='the location of the transaction log file')
     parser.add_argument('--pid-file', help='the location of the pid file')
 
     #THINGS WE CONNECT TO
@@ -75,6 +78,9 @@ if __name__ == '__main__':
     parser.add_argument('--socketio-chat-port', type=int, help='port on which to provide the counterwalletd socket.io chat API')
 
     parser.add_argument('--allow-cors', action='store_true', default=False, help='Allow ajax cross domain request')
+    
+    parser.add_argument('--rollbar-token', help='the API token to use with rollbar (leave blank to disable rollbar integration)')
+    parser.add_argument('--rollbar-env', help='the environment name for the rollbar integration (if enabled). Defaults to \'production\'')
 
     args = parser.parse_args()
 
@@ -359,6 +365,14 @@ if __name__ == '__main__':
         config.LOG = configfile.get('Default', 'log-file')
     else:
         config.LOG = os.path.join(config.data_dir, 'counterwalletd.log')
+        
+    if args.tx_log_file:
+        config.TX_LOG = args.tx_log_file
+    elif has_config and configfile.has_option('Default', 'tx-log-file'):
+        config.TX_LOG = configfile.get('Default', 'tx-log-file')
+    else:
+        config.TX_LOG = os.path.join(config.data_dir, 'counterwalletd-tx.log')
+    
 
     # PID
     if args.pid_file:
@@ -376,6 +390,21 @@ if __name__ == '__main__':
     else:
         config.ALLOW_CORS = True
     
+     # ROLLBAR INTEGRATION
+    if args.rollbar_token:
+        config.ROLLBAR_TOKEN = args.rollbar_token
+    elif has_config and configfile.has_option('Default', 'rollbar-token'):
+        config.ROLLBAR_TOKEN = configfile.get('Default', 'rollbar-token')
+    else:
+        config.ROLLBAR_TOKEN = None #disable rollbar integration
+
+    if args.rollbar_env:
+        config.ROLLBAR_ENV = args.rollbar_env
+    elif has_config and configfile.has_option('Default', 'rollbar-env'):
+        config.ROLLBAR_ENV = configfile.get('Default', 'rollbar-env')
+    else:
+        config.ROLLBAR_ENV = 'counterwalletd-production'
+
     #Create/update pid file
     pid = str(os.getpid())
     pidf = open(config.PID, 'w')
@@ -383,6 +412,8 @@ if __name__ == '__main__':
     pidf.close()    
 
     # Logging (to file and console).
+    MAX_LOG_SIZE = 20 * 1024 * 1024 #max log size of 20 MB before rotation (make configurable later)
+    MAX_LOG_COUNT = 5
     logger = logging.getLogger() #get root logger
     logger.setLevel(logging.DEBUG if args.verbose else logging.INFO)
     #Console logging
@@ -392,11 +423,10 @@ if __name__ == '__main__':
     console.setFormatter(formatter)
     logger.addHandler(console)
     #File logging (rotated)
-    max_log_size = 20 * 1024 * 1024 #max log size of 20 MB before rotation (make configurable later)
     if os.name == 'nt':
-        fileh = util_windows.SanitizedRotatingFileHandler(config.LOG, maxBytes=max_log_size, backupCount=5)
+        fileh = util_windows.SanitizedRotatingFileHandler(config.LOG, maxBytes=MAX_LOG_SIZE, backupCount=MAX_LOG_COUNT)
     else:
-        fileh = logging.handlers.RotatingFileHandler(config.LOG, maxBytes=max_log_size, backupCount=5)
+        fileh = logging.handlers.RotatingFileHandler(config.LOG, maxBytes=MAX_LOG_SIZE, backupCount=MAX_LOG_COUNT)
     fileh.setLevel(logging.DEBUG if args.verbose else logging.INFO)
     formatter = logging.Formatter('%(asctime)s %(message)s', '%Y-%m-%d-T%H:%M:%S%z')
     fileh.setFormatter(formatter)
@@ -404,6 +434,27 @@ if __name__ == '__main__':
     #API requests logging (don't show on console in normal operation)
     requests_log = logging.getLogger("requests")
     requests_log.setLevel(logging.DEBUG if args.verbose else logging.WARNING)
+    #Transaction log
+    tx_logger = logging.getLogger("transaction_log") #get transaction logger
+    tx_logger.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+    if os.name == 'nt':
+        tx_fileh = util_windows.SanitizedRotatingFileHandler(config.TX_LOG, maxBytes=MAX_LOG_SIZE, backupCount=MAX_LOG_COUNT)
+    else:
+        tx_fileh = logging.handlers.RotatingFileHandler(config.TX_LOG, maxBytes=MAX_LOG_SIZE, backupCount=MAX_LOG_COUNT)
+    tx_fileh.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+    tx_formatter = logging.Formatter('%(asctime)s %(message)s', '%Y-%m-%d-T%H:%M:%S%z')
+    tx_fileh.setFormatter(tx_formatter)
+    tx_logger.addHandler(tx_fileh)
+    
+    #rollbar integration
+    if config.ROLLBAR_TOKEN:
+        logging.info("Rollbar support enabled. Logging for environment: %s" % config.ROLLBAR_ENV)
+        rollbar.init(config.ROLLBAR_TOKEN, config.ROLLBAR_ENV, allow_logging_basic_config=False)
+        
+        def report_errors(ex_cls, ex, tb):
+            rollbar.report_exc_info((ex_cls, ex, tb))
+            raise ex #re-raise
+        sys.excepthook = report_errors
 
     #Connect to mongodb
     mongo_client = pymongo.MongoClient(config.MONGODB_CONNECT, config.MONGODB_PORT)
@@ -413,7 +464,6 @@ if __name__ == '__main__':
             raise Exception("Could not authenticate to mongodb with the supplied username and password.")
 
     #insert mongo indexes if need-be (i.e. for newly created database)
-    
     ##COLLECTIONS THAT ARE PURGED AS A RESULT OF A REPARSE
     #processed_blocks
     mongo_db.processed_blocks.ensure_index('block_index', unique=True)

@@ -31,6 +31,7 @@ def serve_api(mongo_db, redis_client):
     # whatever data they need
     
     DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD = 60 #in seconds
+    tx_logger = logging.getLogger("transaction_log") #get transaction logger
     
     @dispatcher.add_method
     def is_ready():
@@ -1022,11 +1023,21 @@ def serve_api(mongo_db, redis_client):
                 raise cherrypy.HTTPError(525, 'Server is not caught up. Please try again later.')
                 #^ 525 is a custom response code we use for this one purpose
             try:
-                data = cherrypy.request.body.read().decode('utf-8')
+                data_json = cherrypy.request.body.read().decode('utf-8')
             except ValueError:
                 raise cherrypy.HTTPError(400, 'Invalid JSON document')
-            response = JSONRPCResponseManager.handle(data, dispatcher)
-            return json.dumps(response.data, default=util.json_dthandler).encode()
+            response = JSONRPCResponseManager.handle(data_json, dispatcher)
+            response_json = json.dumps(response.data, default=util.json_dthandler).encode()
+            
+            #log the request data to mongo
+            try:
+                data = json.loads(data_json)
+                assert 'method' in data
+                tx_logger.info("TRANSACTION --- %s ||| REQUEST: %s ||| RESPONSE: %s" % (data['method'], data_json, response_json))
+            except Exception, e:
+                logging.info("Could not log transaction: Invalid format: %s" % e)
+            
+            return response_json
 
     cherrypy.config.update({
         'log.screen': False,
