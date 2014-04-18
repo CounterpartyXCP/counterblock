@@ -433,7 +433,8 @@ if __name__ == '__main__':
     logger.addHandler(fileh)
     #API requests logging (don't show on console in normal operation)
     requests_log = logging.getLogger("requests")
-    requests_log.setLevel(logging.DEBUG if args.verbose else logging.WARNING)
+    requests_log.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+    requests_log.propagate = False
     #Transaction log
     tx_logger = logging.getLogger("transaction_log") #get transaction logger
     tx_logger.setLevel(logging.DEBUG if args.verbose else logging.INFO)
@@ -445,6 +446,7 @@ if __name__ == '__main__':
     tx_formatter = logging.Formatter('%(asctime)s %(message)s', '%Y-%m-%d-T%H:%M:%S%z')
     tx_fileh.setFormatter(tx_formatter)
     tx_logger.addHandler(tx_fileh)
+    tx_logger.propagate = False
     
     #rollbar integration
     if config.ROLLBAR_TOKEN:

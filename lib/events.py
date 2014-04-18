@@ -113,11 +113,11 @@ def compile_extended_asset_info(mongo_db):
             asset_info['image'] = data['image']
             if data['image'] and raw_image_data:
                 #save the image to disk
-                f = open(os.path.join(imageDir, data['asset'] + '.png'), 'wb')
-                f.write(raw_image_data)
-                f.close()
+                imagePath = os.path.join(imageDir, data['asset'] + '.png')
+                image.save(imagePath)
+                os.system("exiftool -q -all= %s" % imagePath) #strip all metadata, just in case
             mongo_db.asset_extended_info.save(asset_info)
-            logging.debug("ExtendedAssetInfo: Compiled data for asset %s" % asset_info['asset'])
+            logging.info("ExtendedAssetInfo: Compiled data for asset %s" % asset_info['asset'])
         
     #call again in 60 minutes
     gevent.spawn_later(60 * 60, compile_extended_asset_info, mongo_db)

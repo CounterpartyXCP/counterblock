@@ -1008,15 +1008,26 @@ def serve_api(mongo_db, redis_client):
     class API(object):
         @cherrypy.expose
         def index(self):
-            cherrypy.response.headers["Content-Type"] = 'application/json'
+            if cherrypy.request.headers.get("Content-Type", None) == 'application/csp-report':
+                try:
+                    data_json = cherrypy.request.body.read().decode('utf-8')
+                    data = json.loads(data_json)
+                    assert 'csp-report' in data
+                except Exception, e:
+                    raise cherrypy.HTTPError(400, 'Invalid JSON document')
+                tx_logger.info("***CSP SECURITY --- %s" % data_json)
+                cherrypy.response.status = 200
+                return ""
             
+            cherrypy.response.headers["Content-Type"] = 'application/json'
+
             if config.ALLOW_CORS:
                 cherrypy.response.headers['Access-Control-Allow-Origin'] = '*'
                 cherrypy.response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
                 cherrypy.response.headers['Access-Control-Allow-Headers'] = 'DNT,X-Mx-ReqToken,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type';            
                 if cherrypy.request.method=="OPTIONS":
                     cherrypy.response.status = 204
-                    return ""		
+                    return ""
             
             #don't do jack if we're not caught up
             if not util.is_caught_up_well_enough_for_government_work():
@@ -1036,9 +1047,9 @@ def serve_api(mongo_db, redis_client):
                 tx_logger.info("TRANSACTION --- %s ||| REQUEST: %s ||| RESPONSE: %s" % (data['method'], data_json, response_json))
             except Exception, e:
                 logging.info("Could not log transaction: Invalid format: %s" % e)
-            
+                
             return response_json
-
+        
     cherrypy.config.update({
         'log.screen': False,
         "environment": "embedded",

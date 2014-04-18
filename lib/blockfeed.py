@@ -406,6 +406,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
 
                     forward_asset_info = mongo_db.tracked_assets.find_one({'asset': order_match['forward_asset']})
                     backward_asset_info = mongo_db.tracked_assets.find_one({'asset': order_match['backward_asset']})
+                    assert forward_asset_info and backward_asset_info
                     base_asset, quote_asset = util.assets_to_asset_pair(order_match['forward_asset'], order_match['backward_asset'])
 
                     #take divisible trade quantities to floating point
