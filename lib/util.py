@@ -87,7 +87,7 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
 def call_insight_api(request_string, abort_on_error=False):
     r = grequests.map((grequests.get(config.INSIGHT + request_string),) )[0]
     #^ use requests.Session to utilize connectionpool and keepalive (avoid connection setup/teardown overhead)
-    if not r and abort_on_error:
+    if (not r or not hasattr(r, 'status_code')) and abort_on_error:
         raise Exception("Could not contact insight!")
     elif r.status_code != 200 and abort_on_error:
         raise Exception("Bad status code returned from insight: '%s'. result body: '%s'." % (r.status_code, r.text))
