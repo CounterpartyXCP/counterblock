@@ -51,7 +51,7 @@ def serve_api(mongo_db, redis_client):
     def get_reflected_host_info():
         """Allows the requesting host to get some info about itself, such as its IP. Used for troubleshooting."""
         return {
-            'ip': cherrypy.request.headers.get('X-Real-Ip', cherrypy.request.headers['Remote-Addr']),
+            'ip': cherrypy.request.headers.get('X-Real-Ip', cherrypy.request.headers.get('Remote-Addr', '')),
             'cookie': cherrypy.request.headers.get('Cookie', '')
         }
     
@@ -347,8 +347,8 @@ def serve_api(mongo_db, redis_client):
         """
         if not end_ts: #default to current datetime
             end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
-        if not start_ts: #default to 30 days before the end date
-            start_ts = end_ts - (30 * 24 * 60 * 60) 
+        if not start_ts: #default to 180 days before the end date
+            start_ts = end_ts - (180 * 24 * 60 * 60) 
         base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
         
         #get ticks -- open, high, low, close, volume
@@ -385,17 +385,12 @@ def serve_api(mongo_db, redis_client):
             return False
         result = result['result']
         
-        #add in smoothed price (running average of last 7 samples)
-        interval = [((r['high'] + r['low']) / 2.0) for r in result]
-        movavg_7s = util.moving_average(interval, 7)
-        for i in xrange(len(movavg_7s)):
-            movavg_7s[i] = round(movavg_7s[i], 8)
-                
+        midline = [((r['high'] + r['low']) / 2.0) for r in result]
         if as_dict:
             for i in xrange(len(result)):
                 result[i]['interval_time'] = int(time.mktime(datetime.datetime(
                     result[i]['_id']['year'], result[i]['_id']['month'], result[i]['_id']['day'], result[i]['_id']['hour']).timetuple()) * 1000)
-                result[i]['movavg_7s'] = movavg_7s[i]
+                result[i]['midline'] = midline[i]
                 del result[i]['_id']
             return result
         else:
@@ -405,7 +400,7 @@ def serve_api(mongo_db, redis_client):
                     int(time.mktime(datetime.datetime(
                         result[i]['_id']['year'], result[i]['_id']['month'], result[i]['_id']['day'], result[i]['_id']['hour']).timetuple()) * 1000),
                     result[i]['open'], result[i]['high'], result[i]['low'], result[i]['close'], result[i]['vol'],
-                    result[i]['count'], movavg_7s[i]
+                    result[i]['count'], midline[i]
                 ])
             return list_result
     
@@ -862,6 +857,11 @@ def serve_api(mongo_db, redis_client):
                     ) for r in result]
             })
         return results
+
+    @dispatcher.add_method
+    def get_num_users_online():
+        #gets the current number of users attached to the server's chat feed
+        return len(siofeeds.onlineClients) 
 
     @dispatcher.add_method
     def is_chat_handle_in_use(handle):

@@ -11,7 +11,6 @@ import pymongo
 from socketio import socketio_manage
 from socketio.mixins import BroadcastMixin
 from socketio.namespace import BaseNamespace
-import lxml.html
 
 onlineClients = {} #key = walletID, value = datetime when connected
 #^ tracks "online status" via the chat feed
@@ -161,8 +160,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             if p['wallet_id'] not in onlineClients:
                 return self.error('invalid_args', "Handle '%s' is not online" % p['handle'])
             
-            #truncate to max allowed and strip out HTML
-            message = lxml.html.document_fromstring(message[:self.MAX_TEXT_LEN]).text_content()
+            message = util.sanitize_l337ness(message[:self.MAX_TEXT_LEN]) #truncate to max allowed and sanitize
             onlineClients[p['wallet_id']]['state'].emit("emote", self.socket.session['handle'],
                 message, self.socket.session['is_op'], True)
         elif command in ['op', 'unop']: #/op|unop <handle>
@@ -285,9 +283,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
         
         if self.socket.session['is_op'] or (last_message_ago is None or last_message_ago >= self.TIME_BETWEEN_MESSAGES):
             #not spamming, or an op
-            #clean up text (truncate and remove all HTML tags)
-            text = lxml.html.document_fromstring(text[:self.MAX_TEXT_LEN]).text_content()
-            #TODO: filter out other stuff?
+            text = util.sanitize_l337ness(text[:self.MAX_TEXT_LEN]) #sanitize
             if self.socket.session['is_primary_server']:
                 self.broadcast_event_not_me('emote', self.socket.session['handle'], text, self.socket.session['is_op'], False)
             self.socket.session['last_action'] = time.mktime(time.gmtime())

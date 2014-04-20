@@ -7,14 +7,21 @@ import datetime
 import time
 import copy
 import decimal
+import cgi
 
 import numpy
 import pymongo
 import grequests
+import lxml.html
 
 from . import (config,)
 
 D = decimal.Decimal
+
+def sanitize_l337ness(text):
+    #strip out html data to avoid XSS-vectors
+    return cgi.escape(lxml.html.document_fromstring(text).text_content())
+    #^ wrap in cgi.escape - see https://github.com/mitotic/graphterm/issues/5
 
 def is_valid_url(url, suffix='', allow_localhost=False):
     regex = re.compile(
@@ -119,9 +126,10 @@ def multikeysort(items, columns):
             return 0
     return sorted(items, cmp=comparer)
 
-def moving_average(interval, window_size):
-    window = numpy.ones(int(window_size))/float(window_size)
-    return numpy.convolve(interval, window, 'same')
+def moving_average(samples, n=3) :
+    ret = numpy.cumsum(samples, dtype=float)
+    ret[n:] = ret[n:] - ret[:-n]
+    return ret[n - 1:] / n
 
 def weighted_average(value_weight_list):
     """Takes a list of tuples (value, weight) and returns weighted average as
