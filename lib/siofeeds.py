@@ -134,7 +134,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
         if command == 'online': #/online <handle>
             if not self.socket.session['is_primary_server']: return
             if len(args) != 1:
-                return self.error('invalid_args', "USAGE: /online {handle=}<br/>Desc: Determines whether a specific user is online")
+                return self.error('invalid_args', "USAGE: /online {handle=} -- Desc: Determines whether a specific user is online")
             handle = args[0]
             p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
@@ -143,7 +143,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
         elif command == 'msg': #/msg <handle> <message text>
             if not self.socket.session['is_primary_server']: return
             if len(args) < 2:
-                return self.error('invalid_args', "USAGE: /msg {handle} {private message to send}<br/>Desc: Sends a private message to a specific user")
+                return self.error('invalid_args', "USAGE: /msg {handle} {private message to send} -- Desc: Sends a private message to a specific user")
             handle = args[0]
             message = ' '.join(args[1:])
             if handle.lower() == self.socket.session['handle'].lower():
@@ -167,7 +167,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                 message, self.socket.session['is_op'], True)
         elif command in ['op', 'unop']: #/op|unop <handle>
             if len(args) != 1:
-                return self.error('invalid_args', "USAGE: /op|unop {handle to op/unop}<br/>Desc: Gives/removes operator priveledges from a specific user")
+                return self.error('invalid_args', "USAGE: /op|unop {handle to op/unop} -- Desc: Gives/removes operator priveledges from a specific user")
             handle = args[0]
             p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
@@ -183,7 +183,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                 self.broadcast_event("oped" if command == "op" else "unoped", self.socket.session['handle'], p['handle'])
         elif command == 'ban': #/ban <handle> <time length in seconds>
             if len(args) != 2:
-                return self.error('invalid_args', "USAGE: /ban {handle to ban} {ban_period in sec | -1}<br/>" +
+                return self.error('invalid_args', "USAGE: /ban {handle to ban} {ban_period in sec | -1} -- " +
                     "Desc: Ban a specific user from chatting for a specified period of time, or -1 for unlimited.")
             handle = args[0]
             try:
@@ -208,7 +208,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                     int(time.mktime(p['banned_until'].timetuple()))*1000 if p['banned_until'] != -1 else -1);
         elif command == 'unban': #/unban <handle>
             if len(args) != 1:
-                return self.error('invalid_args', "USAGE: /unban {handle to unban}<br/>Desc: Unban a specific banned user")
+                return self.error('invalid_args', "USAGE: /unban {handle to unban} -- Desc: Unban a specific banned user")
             handle = args[0]
             p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
@@ -224,7 +224,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                 self.broadcast_event("unbanned", self.socket.session['handle'], p['handle'])
         elif command == 'handle': #/handle <oldhandle> <newhandle>
             if len(args) != 2:
-                return self.error('invalid_args', "USAGE: /handle {oldhandle} {newhandle}<br/>Desc: Change a user's handle to something else")
+                return self.error('invalid_args', "USAGE: /handle {oldhandle} {newhandle} -- Desc: Change a user's handle to something else")
             handle = args[0]
             new_handle = args[1]
             if handle == new_handle:
@@ -235,9 +235,10 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
-            new_handle_p = self.request['mongo_db'].chat_handles.find_one({"handle": new_handle})
+            new_handle_p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % new_handle, '$options': 'i' } })
             if new_handle_p:
-                return self.error('invalid_args', "Hanle '%s' already exists" % new_handle)
+                return self.error('invalid_args', "Handle '%s' already exists" % new_handle)
+            old_handle = p['handle'] #has the right capitalization (instead of using 'handle' var)
             p['handle'] = new_handle
             self.request['mongo_db'].chat_handles.save(p)
             #make the change active immediately
@@ -246,10 +247,10 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                 if socket.session.get('handle', None).lower() == handle_lower:
                     socket.session['handle'] = new_handle
             if self.socket.session['is_primary_server']: #let all users know
-                self.broadcast_event("handle_changed", self.socket.session['handle'], p['handle'], new_handle)
+                self.broadcast_event("handle_changed", self.socket.session['handle'], old_handle, new_handle)
         elif command in ['enextinfo', 'disextinfo']:
             if len(args) != 1:
-                return self.error('invalid_args', "USAGE: /%s {asset}<br/>Desc: %s" % (command,
+                return self.error('invalid_args', "USAGE: /%s {asset} -- Desc: %s" % (command,
                     "Disables extended asset information from showing" if command == 'disextinfo' else "(Re)enables extended asset information"))
             asset = args[0].upper()
             asset_info = self.request['mongo_db'].asset_extended_info.find_one({'asset': asset})
