@@ -153,6 +153,167 @@ def serve_api(mongo_db, redis_client):
                 mappings[o['owner'] + o['asset']]['owner'] = False
         return data
 
+    def _get_address_history(address, start_block=None, end_block=None):
+        address_dict = {}
+        
+        address_dict['balances'] = util.call_jsonrpc_api("get_balances",
+            { 'filters': [{'field': 'address', 'op': '==', 'value': address},],
+            }, abort_on_error=True)['result']
+        
+        address_dict['debits'] = util.call_jsonrpc_api("get_debits",
+            { 'filters': [{'field': 'address', 'op': '==', 'value': address},],
+              'order_by': 'block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+        
+        address_dict['credits'] = util.call_jsonrpc_api("get_credits",
+            { 'filters': [{'field': 'address', 'op': '==', 'value': address},],
+              'order_by': 'block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+    
+        address_dict['burns'] = util.call_jsonrpc_api("get_burns",
+            { 'filters': [{'field': 'source', 'op': '==', 'value': address},],
+              'order_by': 'block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+    
+        address_dict['sends'] = util.call_jsonrpc_api("get_sends",
+            { 'filters': [{'field': 'source', 'op': '==', 'value': address}, {'field': 'destination', 'op': '==', 'value': address}],
+              'filterop': 'or',
+              'order_by': 'block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+        #^ with filterop == 'or', we get all sends where this address was the source OR destination 
+        
+        address_dict['orders'] = util.call_jsonrpc_api("get_orders",
+            { 'filters': [{'field': 'source', 'op': '==', 'value': address},],
+              'order_by': 'block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+
+        address_dict['order_matches'] = util.call_jsonrpc_api("get_order_matches",
+            { 'filters': [{'field': 'tx0_address', 'op': '==', 'value': address}, {'field': 'tx1_address', 'op': '==', 'value': address},],
+              'filterop': 'or',
+              'order_by': 'tx0_block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+        
+        address_dict['btcpays'] = util.call_jsonrpc_api("get_btcpays",
+            { 'filters': [{'field': 'source', 'op': '==', 'value': address}, {'field': 'destination', 'op': '==', 'value': address}],
+              'filterop': 'or',
+              'order_by': 'block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+        
+        address_dict['issuances'] = util.call_jsonrpc_api("get_issuances",
+            { 'filters': [{'field': 'issuer', 'op': '==', 'value': address}, {'field': 'source', 'op': '==', 'value': address}],
+              'filterop': 'or',
+              'order_by': 'block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+        
+        address_dict['broadcasts'] = util.call_jsonrpc_api("get_broadcasts",
+            { 'filters': [{'field': 'source', 'op': '==', 'value': address},],
+              'order_by': 'block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+
+        address_dict['bets'] = util.call_jsonrpc_api("get_bets",
+            { 'filters': [{'field': 'source', 'op': '==', 'value': address},],
+              'order_by': 'block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+        
+        address_dict['bet_matches'] = util.call_jsonrpc_api("get_bet_matches",
+            { 'filters': [{'field': 'tx0_address', 'op': '==', 'value': address}, {'field': 'tx1_address', 'op': '==', 'value': address},],
+              'filterop': 'or',
+              'order_by': 'tx0_block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+        
+        address_dict['dividends'] = util.call_jsonrpc_api("get_dividends",
+            { 'filters': [{'field': 'source', 'op': '==', 'value': address},],
+              'order_by': 'block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+        
+        address_dict['cancels'] = util.call_jsonrpc_api("get_cancels",
+            { 'filters': [{'field': 'source', 'op': '==', 'value': address},],
+              'order_by': 'block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+    
+        address_dict['callbacks'] = util.call_jsonrpc_api("get_callbacks",
+            { 'filters': [{'field': 'source', 'op': '==', 'value': address},],
+              'order_by': 'block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+    
+        address_dict['bet_expirations'] = util.call_jsonrpc_api("get_bet_expirations",
+            { 'filters': [{'field': 'source', 'op': '==', 'value': address},],
+              'order_by': 'block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+    
+        address_dict['order_expirations'] = util.call_jsonrpc_api("get_order_expirations",
+            { 'filters': [{'field': 'source', 'op': '==', 'value': address},],
+              'order_by': 'block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+    
+        address_dict['bet_match_expirations'] = util.call_jsonrpc_api("get_bet_match_expirations",
+            { 'filters': [{'field': 'tx0_address', 'op': '==', 'value': address}, {'field': 'tx1_address', 'op': '==', 'value': address},],
+              'filterop': 'or',
+              'order_by': 'block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+    
+        address_dict['order_match_expirations'] = util.call_jsonrpc_api("get_order_match_expirations",
+            { 'filters': [{'field': 'tx0_address', 'op': '==', 'value': address}, {'field': 'tx1_address', 'op': '==', 'value': address},],
+              'filterop': 'or',
+              'order_by': 'block_index',
+              'order_dir': 'asc',
+              'start_block': start_block,
+              'end_block': end_block,
+            }, abort_on_error=True)['result']
+    
+        return address_dict
+
     @dispatcher.add_method
     def get_raw_transactions(address, start_ts=None, end_ts=None, limit=1000):
         """Gets raw transactions for a particular address or set of addresses
@@ -181,10 +342,7 @@ def serve_api(mongo_db, redis_client):
         
         #make API call to counterpartyd to get all of the data for the specified address
         txns = []
-        d = util.call_jsonrpc_api("get_address",
-            {'address': address,
-             'start_block': start_block_index,
-             'end_block': end_block_index}, abort_on_error=True)['result']
+        d = _get_address_history(address, start_block=start_block_index, end_block=end_block_index)
         #mash it all together
         for k, v in d.iteritems():
             if k in ['balances', 'debits', 'credits']:
@@ -678,7 +836,6 @@ def serve_api(mongo_db, redis_client):
             'owner': {"$in": addresses}
         }, {"_id":0}).sort("asset", pymongo.ASCENDING)
         return list(result)
-
 
     @dispatcher.add_method
     def get_asset_history(asset, reverse=False):
