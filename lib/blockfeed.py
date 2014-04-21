@@ -170,15 +170,15 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
            or app_config['counterpartyd_db_version_minor'] is None \
            or app_config['counterpartyd_running_testnet'] is None:
             updatePrefs = True
-        elif running_info['db_version_major'] != app_config['counterpartyd_db_version_major']:
+        elif running_info['version_major'] != app_config['counterpartyd_db_version_major']:
             logging.warn("counterpartyd MAJOR DB version change (we built from %s, counterpartyd is at %s). Wiping our state data." % (
-                app_config['counterpartyd_db_version_major'], running_info['db_version_major']))
+                app_config['counterpartyd_db_version_major'], running_info['version_major']))
             wipeState = True
             updatePrefs = True
-        elif running_info['db_version_minor'] != app_config['counterpartyd_db_version_minor']:
+        elif running_info['version_minor'] != app_config['counterpartyd_db_version_minor']:
             logging.warn("counterpartyd MINOR DB version change (we built from %s.%s, counterpartyd is at %s.%s). Wiping our state data." % (
                 app_config['counterpartyd_db_version_major'], app_config['counterpartyd_db_version_minor'],
-                running_info['db_version_major'], running_info['db_version_minor']))
+                running_info['version_major'], running_info['version_minor']))
             wipeState = True
             updatePrefs = True
         elif running_info.get('running_testnet', False) != app_config['counterpartyd_running_testnet']:
@@ -189,8 +189,8 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         if wipeState:
             app_config = blow_away_db()
         if updatePrefs:
-            app_config['counterpartyd_db_version_major'] = running_info['db_version_major'] 
-            app_config['counterpartyd_db_version_minor'] = running_info['db_version_minor']
+            app_config['counterpartyd_db_version_major'] = running_info['version_major'] 
+            app_config['counterpartyd_db_version_minor'] = running_info['version_minor']
             app_config['counterpartyd_running_testnet'] = running_info['running_testnet']
             mongo_db.app_config.update({}, app_config)
             
