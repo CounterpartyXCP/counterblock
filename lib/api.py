@@ -487,6 +487,8 @@ def serve_api(mongo_db, redis_client):
             for a in r:
                 if a['asset'] in extended_asset_info_dict:
                     extended_info = extended_asset_info_dict[a['asset']]
+                    if 'extended_image' not in a or 'extended_description' not in a or 'extended_website' not in a:
+                        continue #asset has been recognized as having a JSON file description, but has not been successfully processed yet
                     a['extended_image'] = bool(extended_info['image'])
                     a['extended_description'] = extended_info['description']
                     a['extended_website'] = extended_info['website']
