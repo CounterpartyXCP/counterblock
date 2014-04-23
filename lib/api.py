@@ -657,11 +657,11 @@ def serve_api(mongo_db, redis_client):
             
         def get_o_pct(o):
             if o['give_asset'] == 'BTC': #NB: fee_provided could be zero here
-                pct_fee_provided = float(( D(o['fee_provided']) / D(o['give_quantity']) ).quantize(
+                pct_fee_provided = float(( D(o['fee_provided_remaining']) / D(o['give_quantity']) ).quantize(
                             D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
             else: pct_fee_provided = None
             if o['get_asset'] == 'BTC': #NB: fee_required could be zero here
-                pct_fee_required = float(( D(o['fee_required']) / D(o['get_quantity']) ).quantize(
+                pct_fee_required = float(( D(o['fee_required_remaining']) / D(o['get_quantity']) ).quantize(
                             D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
             else: pct_fee_required = None
             return pct_fee_provided, pct_fee_required
