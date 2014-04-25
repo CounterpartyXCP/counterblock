@@ -513,6 +513,12 @@ if __name__ == '__main__':
     mongo_db.btc_open_orders.ensure_index('order_tx_hash', unique=True)
     #asset_extended_info
     mongo_db.asset_extended_info.ensure_index('asset', unique=True)
+    #transaction_stats
+    mongo_db.transaction_stats.ensure_index([ #blockfeed.py, api.py
+        ("when", pymongo.ASCENDING),
+        ("category", pymongo.DESCENDING)
+    ])
+    mongo_db.transaction_stats.ensure_index('message_index', unique=True)
     
     ##COLLECTIONS THAT ARE *NOT* PURGED AS A RESULT OF A REPARSE
     #preferences

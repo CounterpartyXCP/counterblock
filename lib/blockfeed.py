@@ -33,6 +33,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         mongo_db.asset_marketcap_history.drop()
         mongo_db.btc_open_orders.drop()
         mongo_db.asset_extended_info.drop()
+        mongo_db.transaction_stats.drop()
         
         #create/update default app_config object
         mongo_db.app_config.update({}, {
@@ -248,10 +249,21 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                 #don't process invalid messages, but do forward them along to clients
                 status = msg_data.get('status', 'valid').lower()
                 if status.startswith('invalid'):
-                    event = util.create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=msg_data)
+                    event = util.decorate_message_for_feed(mongo_db, msg, msg_data=msg_data)
                     zmq_publisher_eventfeed.send_json(event)
                     config.LAST_MESSAGE_INDEX = msg['message_index']
                     continue
+
+                #track message types, for compiling of statistics
+                if     msg['command'] == 'insert' \
+                   and msg['category'] not in ["debits", "credits", "order_matches", "bet_matches",
+                       "order_expirations", "bet_expirations", "order_match_expirations", "bet_match_expirations"]:
+                    mongo_db.transaction_stats.insert({
+                        'block_index': cur_block_index,
+                        'block_time': cur_block['block_time_obj'],
+                        'message_index': msg['message_index'],
+                        'category': msg['category']
+                    })
                 
                 #HANDLE REORGS
                 if msg['command'] == 'reorg':
@@ -266,7 +278,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                     
                     #send out the message to listening clients
                     msg_data['_last_message_index'] = config.LAST_MESSAGE_INDEX 
-                    event = util.create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=msg_data)
+                    event = util.decorate_message_for_feed(mongo_db, msg, msg_data=msg_data)
                     zmq_publisher_eventfeed.send_json(event)
                     break #break out of inner loop
                 
@@ -408,6 +420,12 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                     backward_asset_info = mongo_db.tracked_assets.find_one({'asset': order_match['backward_asset']})
                     assert forward_asset_info and backward_asset_info
                     base_asset, quote_asset = util.assets_to_asset_pair(order_match['forward_asset'], order_match['backward_asset'])
+                    
+                    #don't create trade records from order matches with BTC that are under the dust limit
+                    if    (order_match['forward_asset'] == 'BTC' and order_match['forward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF) \
+                       or (order_match['backward_asset'] == 'BTC' and order_match['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF):
+                        logging.debug("Order match %s ignored due to BTC under dust limit." % (order_match['tx0_hash'] + order_match['tx1_hash']))
+                        continue
 
                     #take divisible trade quantities to floating point
                     forward_quantity = util.normalize_quantity(order_match['forward_quantity'], forward_asset_info['divisible'])
@@ -445,7 +463,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                 # socket.io connection will always be severed as well??)
                 if last_processed_block['block_index'] - my_latest_block['block_index'] < 10: #>= max likely reorg size we'd ever see
                     #send out the message to listening clients
-                    event = util.create_message_feed_obj_from_cpd_message(mongo_db, msg, msg_data=msg_data)
+                    event = util.decorate_message_for_feed(mongo_db, msg, msg_data=msg_data)
                     zmq_publisher_eventfeed.send_json(event)
 
                 #this is the last processed message index

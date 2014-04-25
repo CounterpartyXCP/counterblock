@@ -60,7 +60,7 @@ def serve_api(mongo_db, redis_client):
         messages = util.call_jsonrpc_api("get_messages_by_index", [message_indexes,], abort_on_error=True)['result']
         events = []
         for m in messages:
-            events.append(util.create_message_feed_obj_from_cpd_message(mongo_db, m))
+            events.append(util.decorate_message_for_feed(mongo_db, m))
         return events
 
     @dispatcher.add_method
@@ -315,8 +315,19 @@ def serve_api(mongo_db, redis_client):
         return address_dict
 
     @dispatcher.add_method
+    def get_last_n_messages(count=100):
+        if count > 1000:
+            raise Exception("The count is too damn high")
+        message_indexes = range(max(config.LAST_MESSAGE_INDEX - count, 0) + 1, config.LAST_MESSAGE_INDEX+1)
+        messages = util.call_jsonrpc_api("get_messages_by_index",
+            { 'message_indexes': message_indexes }, abort_on_error=True)['result']
+        for i in xrange(len(messages)):
+            messages[i] = util.decorate_message_for_feed(mongo_db, messages[i])
+        return messages
+
+    @dispatcher.add_method
     def get_raw_transactions(address, start_ts=None, end_ts=None, limit=1000):
-        """Gets raw transactions for a particular address or set of addresses
+        """Gets raw transactions for a particular address
         
         @param address: A single address string
         @param start_ts: The starting date & time. Should be a unix epoch object. If passed as None, defaults to 30 days before the end_date
@@ -344,34 +355,13 @@ def serve_api(mongo_db, redis_client):
         txns = []
         d = _get_address_history(address, start_block=start_block_index, end_block=end_block_index)
         #mash it all together
-        for k, v in d.iteritems():
-            if k in ['balances', 'debits', 'credits']:
+        for category, entries in d.iteritems():
+            if category in ['balances',]:
                 continue
-            if k in ['sends', 'callbacks']: #add asset divisibility info
-                for e in v:
-                    asset_info = get_asset_cached(e['asset'], asset_cache)
-                    e['_divisible'] = asset_info['divisible']
-            if k in ['orders',]: #add asset divisibility info for both assets
-                for e in v:
-                    give_asset_info = get_asset_cached(e['give_asset'], asset_cache)
-                    e['_give_divisible'] = give_asset_info['divisible']
-                    get_asset_info = get_asset_cached(e['get_asset'], asset_cache)
-                    e['_get_divisible'] = get_asset_info['divisible']
-            if k in ['order_matches',]: #add asset divisibility info for both assets
-                for e in v:
-                    forward_asset_info = get_asset_cached(e['forward_asset'], asset_cache)
-                    e['_forward_divisible'] = forward_asset_info['divisible']
-                    backward_asset_info = get_asset_cached(e['backward_asset'], asset_cache)
-                    e['_backward_divisible'] = backward_asset_info['divisible']
-            if k in ['bet_expirations', 'order_expirations', 'bet_match_expirations', 'order_match_expirations']:
-                for e in v:
-                    e['tx_index'] = 0 #add tx_index to all entries (so we can sort on it secondarily), since these lack it
-            for e in v:
-                e['_entity'] = k
-                block_index = e['block_index'] if 'block_index' in e else e['tx1_block_index']
-                e['_block_time'] = util.get_block_time(mongo_db, block_index)
-                e['_tx_index'] = e['tx_index'] if 'tx_index' in e else e['tx1_index']  
-            txns += v
+            for e in entries:
+                e['_category'] = category
+                e = util.decorate_message(mongo_db, e, for_txn_history=True) #DRY
+            txns += entries
         txns = util.multikeysort(txns, ['-_block_time', '-_tx_index'])
         #^ won't be a perfect sort since we don't have tx_indexes for cancellations, but better than nothing
         #txns.sort(key=operator.itemgetter('block_index'))
@@ -654,7 +644,7 @@ def serve_api(mongo_db, redis_client):
              'order_by': 'block_index',
              'order_dir': 'asc',
             }, abort_on_error=True)['result']
-            
+        
         def get_o_pct(o):
             if o['give_asset'] == 'BTC': #NB: fee_provided could be zero here
                 pct_fee_provided = float(( D(o['fee_provided_remaining']) / D(o['give_quantity']) ).quantize(
@@ -695,12 +685,18 @@ def serve_api(mongo_db, redis_client):
             book = {}
             for o in orders:
                 if o['give_asset'] == base_asset:
+                    if base_asset == 'BTC' and o['give_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF:
+                        continue #filter dust orders, if necessary
+                    
                     give_quantity = util.normalize_quantity(o['give_quantity'], base_asset_info['divisible'])
                     get_quantity = util.normalize_quantity(o['get_quantity'], quote_asset_info['divisible'])
                     unit_price = float(( D(o['get_quantity']) / D(o['give_quantity']) ).quantize(
                         D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
                     remaining = util.normalize_quantity(o['give_remaining'], base_asset_info['divisible'])
                 else:
+                    if quote_asset == 'BTC' and o['give_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF:
+                        continue #filter dust orders, if necessary
+
                     give_quantity = util.normalize_quantity(o['give_quantity'], quote_asset_info['divisible'])
                     get_quantity = util.normalize_quantity(o['get_quantity'], base_asset_info['divisible'])
                     unit_price = float(( D(o['give_quantity']) / D(o['get_quantity']) ).quantize(
@@ -830,6 +826,54 @@ def serve_api(mongo_db, redis_client):
                 open_sell_orders.append(o)
         result['raw_orders'] = open_sell_orders
         return result
+    
+    @dispatcher.add_method
+    def get_transaction_stats(start_ts=None, end_ts=None):
+        if not end_ts: #default to current datetime
+            end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+        if not start_ts: #default to 30 days before the end date
+            start_ts = end_ts - (30 * 24 * 60 * 60)
+                
+        stats = mongo_db.transaction_stats.aggregate([
+            {"$match": {
+                "block_time": {
+                    "$gte": datetime.datetime.utcfromtimestamp(start_ts),
+                    "$lte": datetime.datetime.utcfromtimestamp(end_ts)
+                }
+            }},
+            {"$project": {
+                "year":  {"$year": "$block_time"},
+                "month": {"$month": "$block_time"},
+                "day":   {"$dayOfMonth": "$block_time"},
+                "category": 1,
+            }},
+            {"$group": {
+                "_id":   {"year": "$year", "month": "$month", "day": "$day", "category": "$category"},
+                "count": {"$sum": 1},
+            }}
+            #{"$sort": SON([("_id.year", pymongo.ASCENDING), ("_id.month", pymongo.ASCENDING), ("_id.day", pymongo.ASCENDING), ("_id.hour", pymongo.ASCENDING), ("_id.category", pymongo.ASCENDING)])},
+        ])
+        times = {}
+        categories = {}
+        stats = [] if not stats['ok'] else stats['result']
+        for e in stats:
+            categories.setdefault(e['_id']['category'], {})
+            time_val = int(time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple()) * 1000)
+            times.setdefault(time_val, True)
+            categories[e['_id']['category']][time_val] = e['count']
+        times_list = times.keys()
+        times_list.sort()
+        #fill in each array with all found timestamps
+        for e in categories:
+            a = []
+            for t in times_list:
+                a.append([t, categories[e][t] if t in categories[e] else 0])
+            categories[e] = a #replace with array data
+        #take out to final data structure
+        categories_list = []
+        for k, v in categories.iteritems():
+            categories_list.append({'name': k, 'data': v})
+        return categories_list
     
     @dispatcher.add_method
     def get_owned_assets(addresses):
