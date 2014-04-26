@@ -34,7 +34,7 @@ if __name__ == '__main__':
     # Parse command-line arguments.
     parser = argparse.ArgumentParser(prog='counterblockd', description='Counterwallet daemon. Works with counterpartyd')
     parser.add_argument('-V', '--version', action='version', version="counterblockd v%s" % config.VERSION)
-    parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', help='sets log level to DEBUG instead of WARNING')
+    parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', default=False, help='sets log level to DEBUG instead of WARNING')
 
     parser.add_argument('--reparse', action='store_true', default=False, help='force full re-initialization of the counterblockd database')
     parser.add_argument('--testnet', action='store_true', default=False, help='use Bitcoin testnet addresses and block numbers')
@@ -433,8 +433,11 @@ if __name__ == '__main__':
     logger.addHandler(fileh)
     #API requests logging (don't show on console in normal operation)
     requests_log = logging.getLogger("requests")
-    requests_log.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+    requests_log.setLevel(logging.DEBUG if args.verbose else logging.WARNING)
     requests_log.propagate = False
+    urllib3_log = logging.getLogger('urllib3')
+    urllib3_log.setLevel(logging.DEBUG if args.verbose else logging.WARNING)    
+    urllib3_log.propagate = False
     #Transaction log
     tx_logger = logging.getLogger("transaction_log") #get transaction logger
     tx_logger.setLevel(logging.DEBUG if args.verbose else logging.INFO)

@@ -175,7 +175,6 @@ def get_block_time(mongo_db, block_index):
     return block['block_time']
 
 def get_market_price(price_data, vol_data):
-    print "Gte market price", price_data, vol_data
     assert len(price_data) == len(vol_data)
     assert len(price_data) <= config.MARKET_PRICE_DERIVE_NUM_POINTS
     market_price = numpy.average(price_data, weights=vol_data)
