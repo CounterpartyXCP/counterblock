@@ -1,6 +1,6 @@
 #! /usr/bin/env python3
 """
-counterwalletd server
+counterblockd server
 """
 
 #import before importing other modules
@@ -32,11 +32,11 @@ from lib import (config, api, events, blockfeed, siofeeds, util)
 
 if __name__ == '__main__':
     # Parse command-line arguments.
-    parser = argparse.ArgumentParser(prog='counterwalletd', description='Counterwallet daemon. Works with counterpartyd')
-    parser.add_argument('-V', '--version', action='version', version="counterwalletd v%s" % config.VERSION)
+    parser = argparse.ArgumentParser(prog='counterblockd', description='Counterwallet daemon. Works with counterpartyd')
+    parser.add_argument('-V', '--version', action='version', version="counterblockd v%s" % config.VERSION)
     parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', help='sets log level to DEBUG instead of WARNING')
 
-    parser.add_argument('--reparse', action='store_true', default=False, help='force full re-initialization of the counterwalletd database')
+    parser.add_argument('--reparse', action='store_true', default=False, help='force full re-initialization of the counterblockd database')
     parser.add_argument('--testnet', action='store_true', default=False, help='use Bitcoin testnet addresses and block numbers')
     parser.add_argument('--data-dir', help='specify to explicitly override the directory in which to keep the config file and log file')
     parser.add_argument('--config-file', help='the location of the configuration file')
@@ -71,11 +71,11 @@ if __name__ == '__main__':
 
     #THINGS WE HOST
     parser.add_argument('--rpc-host', help='the IP of the interface to bind to for providing JSON-RPC API access (0.0.0.0 for all interfaces)')
-    parser.add_argument('--rpc-port', type=int, help='port on which to provide the counterwalletd JSON-RPC API')
-    parser.add_argument('--socketio-host', help='the interface on which to host the counterwalletd socket.io API')
-    parser.add_argument('--socketio-port', type=int, help='port on which to provide the counterwalletd socket.io API')
-    parser.add_argument('--socketio-chat-host', help='the interface on which to host the counterwalletd socket.io chat API')
-    parser.add_argument('--socketio-chat-port', type=int, help='port on which to provide the counterwalletd socket.io chat API')
+    parser.add_argument('--rpc-port', type=int, help='port on which to provide the counterblockd JSON-RPC API')
+    parser.add_argument('--socketio-host', help='the interface on which to host the counterblockd socket.io API')
+    parser.add_argument('--socketio-port', type=int, help='port on which to provide the counterblockd socket.io API')
+    parser.add_argument('--socketio-chat-host', help='the interface on which to host the counterblockd socket.io chat API')
+    parser.add_argument('--socketio-chat-port', type=int, help='port on which to provide the counterblockd socket.io chat API')
 
     parser.add_argument('--allow-cors', action='store_true', default=False, help='Allow ajax cross domain request')
     
@@ -86,14 +86,14 @@ if __name__ == '__main__':
 
     # Data directory
     if not args.data_dir:
-        config.data_dir = appdirs.user_data_dir(appauthor='Counterparty', appname='counterwalletd', roaming=True)
+        config.data_dir = appdirs.user_data_dir(appauthor='Counterparty', appname='counterblockd', roaming=True)
     else:
         config.data_dir = args.data_dir
     if not os.path.isdir(config.data_dir): os.mkdir(config.data_dir)
 
     #Read config file
     configfile = ConfigParser.ConfigParser()
-    config_path = os.path.join(config.data_dir, 'counterwalletd.conf')
+    config_path = os.path.join(config.data_dir, 'counterblockd.conf')
     configfile.read(config_path)
     has_config = configfile.has_section('Default')
 
@@ -208,9 +208,9 @@ if __name__ == '__main__':
         config.MONGODB_DATABASE = configfile.get('Default', 'mongodb-database')
     else:
         if config.TESTNET:
-            config.MONGODB_DATABASE = 'counterwalletd_testnet'
+            config.MONGODB_DATABASE = 'counterblockd_testnet'
         else:
-            config.MONGODB_DATABASE = 'counterwalletd'
+            config.MONGODB_DATABASE = 'counterblockd'
 
     # mongodb user
     if args.mongodb_user:
@@ -364,14 +364,14 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'log-file'):
         config.LOG = configfile.get('Default', 'log-file')
     else:
-        config.LOG = os.path.join(config.data_dir, 'counterwalletd.log')
+        config.LOG = os.path.join(config.data_dir, 'counterblockd.log')
         
     if args.tx_log_file:
         config.TX_LOG = args.tx_log_file
     elif has_config and configfile.has_option('Default', 'tx-log-file'):
         config.TX_LOG = configfile.get('Default', 'tx-log-file')
     else:
-        config.TX_LOG = os.path.join(config.data_dir, 'counterwalletd-tx.log')
+        config.TX_LOG = os.path.join(config.data_dir, 'counterblockd-tx.log')
     
 
     # PID
@@ -380,7 +380,7 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'pid-file'):
         config.PID = configfile.get('Default', 'pid-file')
     else:
-        config.PID = os.path.join(config.data_dir, 'counterwalletd.pid')
+        config.PID = os.path.join(config.data_dir, 'counterblockd.pid')
 
      # CORS
     if args.allow_cors:
@@ -403,7 +403,7 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'rollbar-env'):
         config.ROLLBAR_ENV = configfile.get('Default', 'rollbar-env')
     else:
-        config.ROLLBAR_ENV = 'counterwalletd-production'
+        config.ROLLBAR_ENV = 'counterblockd-production'
 
     #Create/update pid file
     pid = str(os.getpid())
@@ -553,7 +553,7 @@ if __name__ == '__main__':
         resource="socket.io", policy_server=False)
     sio_server.start() #start the socket.io server greenlets
 
-    logging.info("Starting up socket.io server (counterwallet chat)...")
+    logging.info("Starting up socket.io server (chat feed)...")
     sio_server = socketio_server.SocketIOServer(
         (config.SOCKETIO_CHAT_HOST, config.SOCKETIO_CHAT_PORT),
         siofeeds.SocketIOChatFeedServer(mongo_db),

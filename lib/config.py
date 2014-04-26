@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 VERSION = 0.1
 
-DB_VERSION = 22 #a db version increment will cause counterwalletd to rebuild its database off of counterpartyd 
+DB_VERSION = 22 #a db version increment will cause counterblockd to rebuild its database off of counterpartyd 
 
-CAUGHT_UP = False #atomic state variable, set to True when counterpartyd AND counterwalletd are caught up
+CAUGHT_UP = False #atomic state variable, set to True when counterpartyd AND counterblockd are caught up
 
 UNIT = 100000000
 

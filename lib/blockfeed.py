@@ -37,7 +37,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         
         #create/update default app_config object
         mongo_db.app_config.update({}, {
-        'db_version': config.DB_VERSION, #counterwalletd database version
+        'db_version': config.DB_VERSION, #counterblockd database version
         'running_testnet': config.TESTNET,
         'counterpartyd_db_version_major': None,
         'counterpartyd_db_version_minor': None,
@@ -136,17 +136,17 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         or app_config[0]['db_version'] != config.DB_VERSION
         or app_config[0]['running_testnet'] != config.TESTNET):
         if app_config.count():
-            logging.warn("counterwalletd database version UPDATED (from %i to %i) or testnet setting changed (from %s to %s), or REINIT forced (%s). REBUILDING FROM SCRATCH ..." % (
+            logging.warn("counterblockd database version UPDATED (from %i to %i) or testnet setting changed (from %s to %s), or REINIT forced (%s). REBUILDING FROM SCRATCH ..." % (
                 app_config[0]['db_version'], config.DB_VERSION, app_config[0]['running_testnet'], config.TESTNET, config.REPARSE_FORCED))
         else:
-            logging.warn("counterwalletd database app_config collection doesn't exist. BUILDING FROM SCRATCH...")
+            logging.warn("counterblockd database app_config collection doesn't exist. BUILDING FROM SCRATCH...")
         app_config = blow_away_db()
         my_latest_block = LATEST_BLOCK_INIT
     else:
         app_config = app_config[0]
         #get the last processed block out of mongo
         my_latest_block = mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)]) or LATEST_BLOCK_INIT
-        #remove any data we have for blocks higher than this (would happen if counterwalletd or mongo died
+        #remove any data we have for blocks higher than this (would happen if counterblockd or mongo died
         # or errored out while processing a block)
         my_latest_block = prune_my_stale_blocks(my_latest_block['block_index'])
 
@@ -495,7 +495,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
             #...we may be caught up (to counterpartyd), but counterpartyd may not be (to the blockchain). And if it isn't, we aren't
             config.CAUGHT_UP = running_info['db_caught_up']
             
-            #this logic here will cover a case where we shut down counterwalletd, then start it up again quickly...
+            #this logic here will cover a case where we shut down counterblockd, then start it up again quickly...
             # in that case, there are no new blocks for it to parse, so LAST_MESSAGE_INDEX would otherwise remain 0.
             # With this logic, we will correctly initialize LAST_MESSAGE_INDEX to the last message ID of the last processed block
             if config.LAST_MESSAGE_INDEX == -1 or config.CURRENT_BLOCK_INDEX == 0:
@@ -515,4 +515,4 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                 config.CAUGHT_UP_STARTED_EVENTS = True
                 
             
-            time.sleep(2) #counterwalletd itself is at least caught up, wait a bit to query again for the latest block from cpd
+            time.sleep(2) #counterblockd itself is at least caught up, wait a bit to query again for the latest block from cpd

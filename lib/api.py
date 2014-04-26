@@ -26,8 +26,8 @@ D = decimal.Decimal
 
 def serve_api(mongo_db, redis_client):
     # Preferneces are just JSON objects... since we don't force a specific form to the wallet on
-    # the server side, this makes it easier for 3rd party wallets (i.e. not counterwallet) to fully be able to
-    # use counterwalletd to not only pull useful data, but also load and store their own preferences, containing
+    # the server side, this makes it easier for 3rd party wallets (i.e. not Counterwallet) to fully be able to
+    # use counterblockd to not only pull useful data, but also load and store their own preferences, containing
     # whatever data they need
     
     DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD = 60 #in seconds
@@ -556,14 +556,22 @@ def serve_api(mongo_db, redis_client):
     
     @dispatcher.add_method
     def get_trade_history(asset1, asset2, last_trades=50):
-        """Gets last N of trades for a specified asset pair"""
-        base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
+        """Gets last N of trades (normally, for a specified asset pair, but this can be left blank to get any/all trades)"""
+        assert (asset1 and asset2) or (not asset1 and not asset2) #cannot have one asset, but not the other
+        
         if last_trades > 500:
             raise Exception("Requesting history of too many trades")
+
+        if asset1 and asset2:
+            base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
+            filter = {
+                "base_asset": base_asset,
+                "quote_asset": quote_asset
+            }
+        else: 
+            filter = {}
         
-        last_trades = mongo_db.trades.find({
-            "base_asset": base_asset,
-            "quote_asset": quote_asset}, {'_id': 0}).sort("block_time", pymongo.DESCENDING).limit(last_trades)
+        last_trades = mongo_db.trades.find(filter, {'_id': 0}).sort("block_time", pymongo.DESCENDING).limit(last_trades)
         if not last_trades.count():
             return False #no suitable trade data to form a market price
         last_trades = list(last_trades)
@@ -747,7 +755,7 @@ def serve_api(mongo_db, redis_client):
             # indexes and display datetimes instead)
             o['block_time'] = time.mktime(util.get_block_time(mongo_db, o['block_index']).timetuple()) * 1000
             
-        #for orders where BTC is the give asset, also return online status of the user (if they are using counterwallet)
+        #for orders where BTC is the give asset, also return online status of the user
         for o in orders:
             if o['give_asset'] == 'BTC':
                 r = mongo_db.btc_open_orders.find_one({'order_tx_hash': o['tx_hash']})

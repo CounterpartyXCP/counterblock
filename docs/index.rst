@@ -1,8 +1,10 @@
-counterwalletd
+counterblockd
 ==================================================
 
-``counterwalletd`` is the server for `Counterwallet <http://www.counterwallet.com>`__.
-It provides additional services to Counterwallet beyond those offered in the API provided by ``counterpartyd``.
+``counterblockd`` features a full-fledged JSON RPC-based API, which services Counterwallet, as well as any
+3rd party services which wish to use it.
+
+``counterblockd`` provides additional services to Counterwallet beyond those offered in the API provided by ``counterpartyd``.
 
 Such services include:
 

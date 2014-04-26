@@ -284,7 +284,7 @@ def decorate_message(mongo_db, message, for_txn_history=False):
 
 def decorate_message_for_feed(mongo_db, msg, msg_data=None):
     """This function takes a message from counterpartyd's message feed and mutates it a bit to be suitable to be
-    sent through the counterwalletd message feed to an end-client"""
+    sent through the counterblockd message feed to an end-client"""
     if not msg_data:
         msg_data = json.loads(msg['bindings'])
     
@@ -329,6 +329,6 @@ def get_btc_supply(normalize=False, at_block_index=None):
     return total_supply if normalize else int(total_supply * config.UNIT)
 
 def is_caught_up_well_enough_for_government_work():
-    """We don't want to give users 525 errors or login errors if counterwalletd/counterpartyd is in the process of
-    getting caught up, but we DO if counterwallet is either clearly out of date with the blockchain, or reinitializing its database"""
+    """We don't want to give users 525 errors or login errors if counterblockd/counterpartyd is in the process of
+    getting caught up, but we DO if counterblockd is either clearly out of date with the blockchain, or reinitializing its database"""
     return config.CAUGHT_UP or (config.INSIGHT_LAST_BLOCK and config.CURRENT_BLOCK_INDEX >= config.INSIGHT_LAST_BLOCK - 1)

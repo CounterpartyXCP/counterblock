@@ -1,4 +1,4 @@
-counterwalletd
+counterblockd
 ==============
 
-Daemon for Counterwallet features, and more. Works alongside counterpartyd.
+Provides extended API functionality over counterpartyd (such as market information, asset history, etc). Works alongside counterpartyd.
