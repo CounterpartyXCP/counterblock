@@ -130,18 +130,26 @@ def serve_api(mongo_db, redis_client):
         mappings = {}
         result = util.call_jsonrpc_api("get_balances",
             {'filters': filters, 'filterop': 'or'}, abort_on_error=True)['result']
+
+        isowner = {}
+        owned_assets = mongo_db.tracked_assets.find( { '$or': [{'owner': a } for a in addresses] }, { '_history': 0, '_id': 0 } )
+        for o in owned_assets:
+          isowner[o['owner'] + o['asset']] = o
+
         data = []
         for d in result:
-            if not d['quantity']:
+            if not d['quantity'] and ((d['address'] + d['asset']) not in isowner):
                 continue #don't include balances with a zero asset value
             asset_info = mongo_db.tracked_assets.find_one({'asset': d['asset']})
             d['normalized_quantity'] = util.normalize_quantity(d['quantity'], asset_info['divisible'])
+            d['owner'] = (d['address'] + d['asset']) in isowner
             mappings[d['address'] + d['asset']] = d
             data.append(d)
+        
         #include any owned assets for each address, even if their balance is zero
-        owned_assets = mongo_db.tracked_assets.find( { '$or': [{'owner': a } for a in addresses] }, { '_history': 0, '_id': 0 } )
-        for o in owned_assets:
-            if (o['owner'] + o['asset']) not in mappings:
+        for key in isowner:
+            if key not in mappings:
+                o = isowner[key]
                 data.append({
                     'address': o['owner'],
                     'asset': o['asset'],
@@ -149,8 +157,7 @@ def serve_api(mongo_db, redis_client):
                     'normalized_quantity': 0,
                     'owner': True,
                 })
-            else:
-                mappings[o['owner'] + o['asset']]['owner'] = False
+
         return data
 
     def _get_address_history(address, start_block=None, end_block=None):
