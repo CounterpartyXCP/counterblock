@@ -18,7 +18,7 @@ from . import (config,)
 
 D = decimal.Decimal
 
-def sanitize_l337ness(text):
+def sanitize_eliteness(text):
     #strip out html data to avoid XSS-vectors
     return cgi.escape(lxml.html.document_fromstring(text).text_content())
     #^ wrap in cgi.escape - see https://github.com/mitotic/graphterm/issues/5
@@ -150,14 +150,16 @@ def json_dthandler(obj):
     else:
         raise TypeError, 'Object of type %s with value of %s is not JSON serializable' % (type(obj), repr(obj))
 
-def get_block_indexes_for_dates(mongo_db, start_dt=None, end_dt=None):
+def get_block_indexes_for_dates(start_dt=None, end_dt=None):
     """Returns a 2 tuple (start_block, end_block) result for the block range that encompasses the given start_date
     and end_date unix timestamps"""
+    mongo_db = config.mongo_db
     if start_dt is None:
         start_block_index = config.BLOCK_FIRST
     else:
         start_block = mongo_db.processed_blocks.find_one({"block_time": {"$lte": start_dt} }, sort=[("block_time", pymongo.DESCENDING)])
         start_block_index = config.BLOCK_FIRST if not start_block else start_block['block_index']
+    
     if end_dt is None:
         end_block_index = config.CURRENT_BLOCK_INDEX
     else:
@@ -168,84 +170,25 @@ def get_block_indexes_for_dates(mongo_db, start_dt=None, end_dt=None):
             end_block_index = end_block['block_index']
     return (start_block_index, end_block_index)
 
-def get_block_time(mongo_db, block_index):
+def get_block_time(block_index):
     """TODO: implement result caching to avoid having to go out to the database"""
-    block = mongo_db.processed_blocks.find_one({"block_index": block_index })
+    block = config.mongo_db.processed_blocks.find_one({"block_index": block_index })
     if not block: return None
     return block['block_time']
 
-def get_market_price(price_data, vol_data):
-    assert len(price_data) == len(vol_data)
-    assert len(price_data) <= config.MARKET_PRICE_DERIVE_NUM_POINTS
-    market_price = numpy.average(price_data, weights=vol_data)
-    return market_price
-
-def get_market_price_summary(mongo_db, asset1, asset2, with_last_trades=0, start_dt=None, end_dt=None):
-    """Gets a synthesized trading "market price" for a specified asset pair (if available), as well as additional info.
-    If no price is available, False is returned.
-    """
-    if not end_dt:
-        end_dt = datetime.datetime.utcnow()
-    if not start_dt:
-        start_dt = end_dt - datetime.timedelta(days=10) #default to 10 days in the past
-    
-    #look for the last max 6 trades within the past 10 day window
-    base_asset, quote_asset = assets_to_asset_pair(asset1, asset2)
-    base_asset_info = mongo_db.tracked_assets.find_one({'asset': base_asset})
-    quote_asset_info = mongo_db.tracked_assets.find_one({'asset': quote_asset})
-    
-    if not isinstance(with_last_trades, int) or with_last_trades < 0 or with_last_trades > 30:
-        raise Exception("Invalid with_last_trades")
-    
-    if not base_asset_info or not quote_asset_info:
-        raise Exception("Invalid asset(s)")
-    
-    last_trades = mongo_db.trades.find({
-            "base_asset": base_asset,
-            "quote_asset": quote_asset,
-            'block_time': { "$gte": start_dt, "$lte": end_dt }
-        },
-        {'_id': 0, 'block_index': 1, 'block_time': 1, 'unit_price': 1, 'base_quantity_normalized': 1, 'quote_quantity_normalized': 1}
-    ).sort("block_time", pymongo.DESCENDING).limit(max(config.MARKET_PRICE_DERIVE_NUM_POINTS, with_last_trades))
-    if not last_trades.count():
-        return None #no suitable trade data to form a market price (return None, NOT False here)
-    last_trades = list(last_trades)
-    last_trades.reverse() #from newest to oldest
-    
-    market_price = get_market_price(
-        [last_trades[i]['unit_price'] for i in xrange(min(len(last_trades), config.MARKET_PRICE_DERIVE_NUM_POINTS))],
-        [(last_trades[i]['base_quantity_normalized'] + last_trades[i]['quote_quantity_normalized']) for i in xrange(min(len(last_trades), config.MARKET_PRICE_DERIVE_NUM_POINTS))])
-    result = {
-        'market_price': float(D(market_price).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN)),
-        'base_asset': base_asset,
-        'quote_asset': quote_asset,
-    }
-    print "AAA", market_price, float(D(market_price).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
-    if with_last_trades:
-        #[0]=block_time, [1]=unit_price, [2]=base_quantity_normalized, [3]=quote_quantity_normalized, [4]=block_index
-        result['last_trades'] = [[
-            t['block_time'],
-            t['unit_price'],
-            t['base_quantity_normalized'],
-            t['quote_quantity_normalized'],
-            t['block_index']
-        ] for t in last_trades]
-    else:
-        result['last_trades'] = []
-    return result
-
-def decorate_message(mongo_db, message, for_txn_history=False):
+def decorate_message(message, for_txn_history=False):
     #insert custom fields in certain events...
     #even invalid actions need these extra fields for proper reporting to the client (as the reporting message
     # is produced via PendingActionViewModel.calcText) -- however make it able to deal with the queried data not existing in this case
     assert '_category' in message
+    mongo_db = config.mongo_db
     if for_txn_history:
         message['_command'] = 'insert' #history data doesn't include this
         block_index = message['block_index'] if 'block_index' in message else message['tx1_block_index']
-        message['_block_time'] = get_block_time(mongo_db, block_index)
+        message['_block_time'] = get_block_time(block_index)
         message['_tx_index'] = message['tx_index'] if 'tx_index' in message else message.get('tx1_index', None)  
         if message['_category'] in ['bet_expirations', 'order_expirations', 'bet_match_expirations', 'order_match_expirations']:
-            e['_tx_index'] = 0 #add tx_index to all entries (so we can sort on it secondarily in history view), since these lack it
+            message['_tx_index'] = 0 #add tx_index to all entries (so we can sort on it secondarily in history view), since these lack it
     
     if message['_category'] in ['credits', 'debits']:
         #find the last balance change on record
@@ -281,7 +224,7 @@ def decorate_message(mongo_db, message, for_txn_history=False):
         message['_quantity_normalized'] = normalize_quantity(message['quantity'], message['divisible'])
     return message
 
-def decorate_message_for_feed(mongo_db, msg, msg_data=None):
+def decorate_message_for_feed(msg, msg_data=None):
     """This function takes a message from counterpartyd's message feed and mutates it a bit to be suitable to be
     sent through the counterblockd message feed to an end-client"""
     if not msg_data:
@@ -293,12 +236,16 @@ def decorate_message_for_feed(mongo_db, msg, msg_data=None):
     message['_block_index'] = msg['block_index']
     message['_category'] = msg['category']
     message['_status'] = msg_data.get('status', 'valid')
-    message = decorate_message(mongo_db, message)
+    message = decorate_message(message)
     return message
 
 
 #############
 # Bitcoin-related
+
+def round_out(num):
+    #round out to 8 decimal places
+    return float(D(num).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))        
 
 def normalize_quantity(quantity, divisible=True):
     if divisible:

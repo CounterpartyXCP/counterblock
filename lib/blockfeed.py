@@ -19,9 +19,9 @@ from lib import (config, util, events)
 
 D = decimal.Decimal
 
-
-def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
+def process_cpd_blockfeed(zmq_publisher_eventfeed):
     LATEST_BLOCK_INIT = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
+    mongo_db = config.mongo_db
 
     def blow_away_db():
         #boom! blow away all collections in mongo
@@ -31,6 +31,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         mongo_db.balance_changes.drop()
         mongo_db.asset_market_info.drop()
         mongo_db.asset_marketcap_history.drop()
+        mongo_db.pair_market_info.drop()
         mongo_db.btc_open_orders.drop()
         mongo_db.asset_extended_info.drop()
         mongo_db.transaction_stats.drop()
@@ -79,6 +80,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
         mongo_db.balance_changes.remove({"block_index": {"$gt": max_block_index}})
         mongo_db.trades.remove({"block_index": {"$gt": max_block_index}})
         mongo_db.asset_marketcap_history.remove({"block_index": {"$gt": max_block_index}})
+        mongo_db.transaction_stats.remove({"block_index": {"$gt": max_block_index}})
         
         #to roll back the state of the tracked asset, dive into the history object for each asset that has
         # been updated on or after the block that we are pruning back to
@@ -249,7 +251,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                 #don't process invalid messages, but do forward them along to clients
                 status = msg_data.get('status', 'valid').lower()
                 if status.startswith('invalid'):
-                    event = util.decorate_message_for_feed(mongo_db, msg, msg_data=msg_data)
+                    event = util.decorate_message_for_feed(msg, msg_data=msg_data)
                     zmq_publisher_eventfeed.send_json(event)
                     config.LAST_MESSAGE_INDEX = msg['message_index']
                     continue
@@ -278,7 +280,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                     
                     #send out the message to listening clients
                     msg_data['_last_message_index'] = config.LAST_MESSAGE_INDEX 
-                    event = util.decorate_message_for_feed(mongo_db, msg, msg_data=msg_data)
+                    event = util.decorate_message_for_feed(msg, msg_data=msg_data)
                     zmq_publisher_eventfeed.send_json(event)
                     break #break out of inner loop
                 
@@ -463,7 +465,7 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
                 # socket.io connection will always be severed as well??)
                 if last_processed_block['block_index'] - my_latest_block['block_index'] < 10: #>= max likely reorg size we'd ever see
                     #send out the message to listening clients
-                    event = util.decorate_message_for_feed(mongo_db, msg, msg_data=msg_data)
+                    event = util.decorate_message_for_feed(msg, msg_data=msg_data)
                     zmq_publisher_eventfeed.send_json(event)
 
                 #this is the last processed message index
@@ -507,10 +509,13 @@ def process_cpd_blockfeed(mongo_db, zmq_publisher_eventfeed):
             if config.CAUGHT_UP and not config.CAUGHT_UP_STARTED_EVENTS:
                 #start up recurring events that depend on us being fully caught up with the blockchain to run
                 logging.debug("Starting event timer: compile_extended_asset_info")
-                gevent.spawn(events.compile_extended_asset_info, mongo_db)
+                gevent.spawn(events.compile_extended_asset_info)
+                
+                logging.debug("Starting event timer: compile_asset_pair_market_info")
+                gevent.spawn(events.compile_asset_pair_market_info)
                 
                 logging.debug("Starting event timer: compile_asset_market_info")
-                gevent.spawn(events.compile_asset_market_info, mongo_db)
+                gevent.spawn(events.compile_asset_market_info)
 
                 config.CAUGHT_UP_STARTED_EVENTS = True
                 

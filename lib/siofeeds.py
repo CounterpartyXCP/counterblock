@@ -162,7 +162,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             if p['wallet_id'] not in onlineClients:
                 return self.error('invalid_args', "Handle '%s' is not online" % p['handle'])
             
-            message = util.sanitize_l337ness(message[:self.MAX_TEXT_LEN]) #truncate to max allowed and sanitize
+            message = util.sanitize_eliteness(message[:self.MAX_TEXT_LEN]) #truncate to max allowed and sanitize
             onlineClients[p['wallet_id']]['state'].emit("emote", self.socket.session['handle'],
                 message, self.socket.session['is_op'], True)
         elif command in ['op', 'unop']: #/op|unop <handle>
@@ -286,7 +286,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
         
         if self.socket.session['is_op'] or (last_message_ago is None or last_message_ago >= self.TIME_BETWEEN_MESSAGES):
             #not spamming, or an op
-            text = util.sanitize_l337ness(text[:self.MAX_TEXT_LEN]) #sanitize
+            text = util.sanitize_eliteness(text[:self.MAX_TEXT_LEN]) #sanitize
             if self.socket.session['is_primary_server']:
                 self.broadcast_event_not_me('emote', self.socket.session['handle'], text, self.socket.session['is_op'], False)
             self.socket.session['last_action'] = time.mktime(time.gmtime())

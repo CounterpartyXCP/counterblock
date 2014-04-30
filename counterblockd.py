@@ -436,7 +436,7 @@ if __name__ == '__main__':
     requests_log.setLevel(logging.DEBUG if args.verbose else logging.WARNING)
     requests_log.propagate = False
     urllib3_log = logging.getLogger('urllib3')
-    urllib3_log.setLevel(logging.DEBUG if args.verbose else logging.WARNING)    
+    urllib3_log.setLevel(logging.DEBUG if args.verbose else logging.WARNING)
     urllib3_log.propagate = False
     #Transaction log
     tx_logger = logging.getLogger("transaction_log") #get transaction logger
@@ -467,6 +467,7 @@ if __name__ == '__main__':
     if config.MONGODB_USER and config.MONGODB_PASSWORD:
         if not mongo_db.authenticate(config.MONGODB_USER, config.MONGODB_PASSWORD):
             raise Exception("Could not authenticate to mongodb with the supplied username and password.")
+    config.mongo_db = mongo_db #should be able to access fine across greenlets, etc
 
     #insert mongo indexes if need-be (i.e. for newly created database)
     ##COLLECTIONS THAT ARE PURGED AS A RESULT OF A REPARSE
@@ -511,17 +512,24 @@ if __name__ == '__main__':
         ("market_cap_as", pymongo.ASCENDING),
         ("block_time", pymongo.DESCENDING)
     ])
+    #asset_pair_market_info
+    mongo_db.asset_pair_market_info.ensure_index([ #event.py, api.py
+        ("base_asset", pymongo.ASCENDING),
+        ("quote_asset", pymongo.ASCENDING)
+    ], unique=True)
+    mongo_db.asset_pair_market_info.ensure_index('last_updated')
+    #asset_extended_info
+    mongo_db.asset_extended_info.ensure_index('asset', unique=True)
     #btc_open_orders
     mongo_db.btc_open_orders.ensure_index('when_created')
     mongo_db.btc_open_orders.ensure_index('order_tx_hash', unique=True)
-    #asset_extended_info
-    mongo_db.asset_extended_info.ensure_index('asset', unique=True)
     #transaction_stats
     mongo_db.transaction_stats.ensure_index([ #blockfeed.py, api.py
         ("when", pymongo.ASCENDING),
         ("category", pymongo.DESCENDING)
     ])
     mongo_db.transaction_stats.ensure_index('message_index', unique=True)
+    mongo_db.transaction_stats.ensure_index('block_index')
     
     ##COLLECTIONS THAT ARE *NOT* PURGED AS A RESULT OF A REPARSE
     #preferences
@@ -564,13 +572,15 @@ if __name__ == '__main__':
     sio_server.start() #start the socket.io server greenlets
 
     logging.info("Starting up counterpartyd block feed poller...")
-    gevent.spawn(blockfeed.process_cpd_blockfeed, mongo_db, zmq_publisher_eventfeed)
+    gevent.spawn(blockfeed.process_cpd_blockfeed, zmq_publisher_eventfeed)
 
     #start up event timers that don't depend on the feed being fully caught up
+    logging.debug("Starting event timer: check_insight")
+    gevent.spawn(events.check_insight)
     logging.debug("Starting event timer: expire_stale_prefs")
-    gevent.spawn(events.expire_stale_prefs, mongo_db)
+    gevent.spawn(events.expire_stale_prefs)
     logging.debug("Starting event timer: expire_stale_btc_open_order_records")
-    gevent.spawn(events.expire_stale_btc_open_order_records, mongo_db)
+    gevent.spawn(events.expire_stale_btc_open_order_records)
 
     logging.info("Starting up RPC API handler...")
     api.serve_api(mongo_db, redis_client)

@@ -18,7 +18,7 @@ import pymongo
 from bson import json_util
 from bson.son import SON
 
-from . import (config, siofeeds, util)
+from . import (config, siofeeds, util, util_trading)
 
 PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
 D = decimal.Decimal
@@ -60,7 +60,7 @@ def serve_api(mongo_db, redis_client):
         messages = util.call_jsonrpc_api("get_messages_by_index", [message_indexes,], abort_on_error=True)['result']
         events = []
         for m in messages:
-            events.append(util.decorate_message_for_feed(mongo_db, m))
+            events.append(util.decorate_message_for_feed(m))
         return events
 
     @dispatcher.add_method
@@ -322,7 +322,7 @@ def serve_api(mongo_db, redis_client):
         messages = util.call_jsonrpc_api("get_messages_by_index",
             { 'message_indexes': message_indexes }, abort_on_error=True)['result']
         for i in xrange(len(messages)):
-            messages[i] = util.decorate_message_for_feed(mongo_db, messages[i])
+            messages[i] = util.decorate_message_for_feed(messages[i])
         return messages
 
     @dispatcher.add_method
@@ -348,7 +348,7 @@ def serve_api(mongo_db, redis_client):
             end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not start_ts: #default to 30 days before the end date
             start_ts = end_ts - (30 * 24 * 60 * 60) 
-        start_block_index, end_block_index = util.get_block_indexes_for_dates(mongo_db,
+        start_block_index, end_block_index = util.get_block_indexes_for_dates(
             datetime.datetime.utcfromtimestamp(start_ts), datetime.datetime.utcfromtimestamp(end_ts))
         
         #make API call to counterpartyd to get all of the data for the specified address
@@ -360,7 +360,7 @@ def serve_api(mongo_db, redis_client):
                 continue
             for e in entries:
                 e['_category'] = category
-                e = util.decorate_message(mongo_db, e, for_txn_history=True) #DRY
+                e = util.decorate_message(e, for_txn_history=True) #DRY
             txns += entries
         txns = util.multikeysort(txns, ['-_block_time', '-_tx_index'])
         #^ won't be a perfect sort since we don't have tx_indexes for cancellations, but better than nothing
@@ -387,7 +387,7 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def get_market_price_summary(asset1, asset2, with_last_trades=0):
-        result = util.get_market_price_summary(mongo_db, asset1, asset2, with_last_trades)
+        result = util_trading.get_market_price_summary(asset1, asset2, with_last_trades)
         return result if result is not None else False
         #^ due to current bug in our jsonrpc stack, just return False if None is returned
 
@@ -451,8 +451,9 @@ def serve_api(mongo_db, redis_client):
                 a['extended_image'] = bool(extended_info['image'])
                 a['extended_description'] = extended_info['description']
                 a['extended_website'] = extended_info['website']
+                a['extended_pgpsig'] = extended_info['pgpsig']
             else:
-                a['extended_image'] = a['extended_description'] = a['extended_website'] = ''
+                a['extended_image'] = a['extended_description'] = a['extended_website'] = a['extended_pgpsig'] = ''
         return assets_market_info
 
     @dispatcher.add_method
@@ -555,48 +556,33 @@ def serve_api(mongo_db, redis_client):
             return list_result
     
     @dispatcher.add_method
-    def get_trade_history(asset1, asset2, last_trades=50):
-        """Gets last N of trades (normally, for a specified asset pair, but this can be left blank to get any/all trades)"""
+    def get_trade_history(asset1=None, asset2=None, start_ts=None, end_ts=None, limit=50):
+        """
+        Gets last N of trades within a specific date range (normally, for a specified asset pair, but this can
+        be left blank to get any/all trades).
+        """
         assert (asset1 and asset2) or (not asset1 and not asset2) #cannot have one asset, but not the other
-        
-        if last_trades > 500:
+
+        if limit > 500:
             raise Exception("Requesting history of too many trades")
 
-        if asset1 and asset2:
-            base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
-            filter = {
-                "base_asset": base_asset,
-                "quote_asset": quote_asset
-            }
-        else: 
-            filter = {}
-        
-        last_trades = mongo_db.trades.find(filter, {'_id': 0}).sort("block_time", pymongo.DESCENDING).limit(last_trades)
-        if not last_trades.count():
-            return False #no suitable trade data to form a market price
-        last_trades = list(last_trades)
-        return last_trades 
-    
-    @dispatcher.add_method
-    def get_trade_history_within_dates(asset1, asset2, start_ts=None, end_ts=None, limit=50):
-        """Gets trades for a certain asset pair between a certain date range, with the max results limited"""
-        base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
         if not end_ts: #default to current datetime
             end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not start_ts: #default to 30 days before the end date
             start_ts = end_ts - (30 * 24 * 60 * 60) 
 
-        if limit > 500:
-            raise Exception("Requesting history of too many trades")
-        
-        last_trades = mongo_db.trades.find({
-            "base_asset": base_asset,
-            "quote_asset": quote_asset,
+        filters = {
             "block_time": {
-                    "$gte": datetime.datetime.utcfromtimestamp(start_ts),
-                    "$lte": datetime.datetime.utcfromtimestamp(end_ts)
-                  }
-            }, {'_id': 0}).sort("block_time", pymongo.DESCENDING).limit(limit)
+                "$gte": datetime.datetime.utcfromtimestamp(start_ts),
+                "$lte": datetime.datetime.utcfromtimestamp(end_ts)
+            }
+        }            
+        if asset1 and asset2:
+            base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
+            filters["base_asset"] = base_asset
+            filters["quote_asset"] = quote_asset
+
+        last_trades = mongo_db.trades.find(filters, {'_id': 0}).sort("block_time", pymongo.DESCENDING).limit(limit)
         if not last_trades.count():
             return False #no suitable trade data to form a market price
         last_trades = list(last_trades)
@@ -753,7 +739,7 @@ def serve_api(mongo_db, redis_client):
         for o in orders:
             #add in the blocktime to help makes interfaces more user-friendly (i.e. avoid displaying block
             # indexes and display datetimes instead)
-            o['block_time'] = time.mktime(util.get_block_time(mongo_db, o['block_index']).timetuple()) * 1000
+            o['block_time'] = time.mktime(util.get_block_time(o['block_index']).timetuple()) * 1000
             
         #for orders where BTC is the give asset, also return online status of the user
         for o in orders:
@@ -892,7 +878,25 @@ def serve_api(mongo_db, redis_client):
             'owner': {"$in": addresses}
         }, {"_id":0}).sort("asset", pymongo.ASCENDING)
         return list(result)
+    
+    @dispatcher.add_method
+    def get_asset_pair_market_info(asset1=None, asset2=None, limit=50):
+        """Given two arbitrary assets, returns the base asset and the quote asset.
+        """
+        assert (asset1 and asset2) or (asset1 is None and asset2 is None)
+        if asset1 and asset2:
+            base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
+            pair_info = mongo_db.asset_pair_market_info.find({'base_asset': base_asset, 'quote_asset': quote_asset}, {'_id': 0})
+        else:
+            pair_info = mongo_db.asset_pair_market_info.find({}, {'_id': 0}).sort('completed_trades_count', pymongo.DESCENDING).limit(limit)
+            #^ sort by this for now, may want to sort by a market_cap value in the future
+        return list(pair_info) or []
 
+    @dispatcher.add_method
+    def get_asset_extended_info(asset):
+        ext_info = mongo_db.asset_extended_info.find_one({'asset': asset})
+        return ext_info or False
+    
     @dispatcher.add_method
     def get_asset_history(asset, reverse=False):
         """
@@ -996,7 +1000,7 @@ def serve_api(mongo_db, redis_client):
         if len(callbacks):
             for e in history: #history goes from earliest to latest
                 if callbacks[0]['block_index'] < e['at_block']: #throw the callback entry in before this one
-                    block_time = util.get_block_time(mongo_db, callbacks[0]['block_index'])
+                    block_time = util.get_block_time(callbacks[0]['block_index'])
                     assert block_time
                     final_history.append({
                         'type': 'called_back',
