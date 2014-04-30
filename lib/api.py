@@ -894,7 +894,7 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def get_asset_extended_info(asset):
-        ext_info = mongo_db.asset_extended_info.find_one({'asset': asset})
+        ext_info = mongo_db.asset_extended_info.find_one({'asset': asset}, {'_id': 0})
         return ext_info or False
     
     @dispatcher.add_method
