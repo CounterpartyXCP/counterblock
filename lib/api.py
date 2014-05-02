@@ -714,11 +714,11 @@ def serve_api(mongo_db, redis_client):
             # if there is overlap in the book (right?)
             bid_ask_spread = float(( D(base_ask_book[0]['unit_price']) - D(base_bid_book[0]['unit_price']) ).quantize(
                             D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
-        else: bid_ask_spread = 0
-        if base_ask_book:
             bid_ask_median = float(( D( max(base_ask_book[0]['unit_price'], base_bid_book[0]['unit_price']) ) - (D(abs(bid_ask_spread)) / 2) ).quantize(
                             D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
-        else: bid_ask_median = 0
+        else:
+            bid_ask_spread = 0
+            bid_ask_median = 0
         
         #compose depth and round out quantities
         bid_depth = D(0)
