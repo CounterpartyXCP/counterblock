@@ -13,6 +13,11 @@ import numpy
 import pymongo
 import grequests
 import lxml.html
+import StringIO
+from PIL import Image
+
+import dateutil.parser
+import calendar
 
 from . import (config,)
 
@@ -278,3 +283,60 @@ def is_caught_up_well_enough_for_government_work():
     """We don't want to give users 525 errors or login errors if counterblockd/counterpartyd is in the process of
     getting caught up, but we DO if counterblockd is either clearly out of date with the blockchain, or reinitializing its database"""
     return config.CAUGHT_UP or (config.INSIGHT_LAST_BLOCK and config.CURRENT_BLOCK_INDEX >= config.INSIGHT_LAST_BLOCK - 1)
+
+def make_data_dir(subfolder):
+    path = os.path.join(config.data_dir, subfolder)
+    if not os.path.exists(path):
+        os.makedirs(path)
+    return path
+
+def fetch_json(url, max_size=4*1024):
+    try:
+        r = grequests.map((grequests.get(url, timeout=1, stream=True, verify=False),), stream=True)[0]
+        if not r: raise Exception("Invalid response")
+        if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
+        #read up to 4KB and try to convert to JSON
+        raw_data = r.raw.read(max_size, decode_content=True)
+        r.raw.release_conn() 
+        data = json.loads(raw_data)
+    except Exception, e:
+        return False
+    return data
+
+def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimensions=(48, 48)):
+    try:
+        #fetch the image data 
+        r = grequests.map((grequests.get(url, timeout=1, stream=True, verify=False),), stream=True)[0]
+        if not r: raise Exception("Invalid response")
+        if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
+        #read up to 20KB and try to convert to JSON
+        raw_image_data = r.raw.read(max_size)
+        r.raw.release_conn()
+        try:
+            image = Image.open(StringIO.StringIO(raw_image_data))
+        except Exception, e:
+            logging.error(e)
+            raise Exception("Unable to parse image data at: %s" % url)
+        if image.format.lower() not in formats: raise Exception("Image is not a PNG: %s (got %s)" % (url, image.format))
+        if image.size != dimensions: raise Exception("Image size is not 48x48: %s (got %s)" % (url, image.size))
+        if image.mode not in ['RGB', 'RGBA']: raise Exception("Image mode is not RGB/RGBA: %s (got %s)" % (url, image.mode))
+        imagePath = make_data_dir(folder)
+        imagePath = os.path.join(imagePath, filename + '.' + image.format.lower())
+        image.save(imagePath)
+        os.system("exiftool -q -overwrite_original -all= %s" % imagePath) #strip all metadata, just in case
+        return True
+    except Exception, e:
+        logging.error(e)
+        return False
+
+def date_param(strDate):
+    try:
+        return calendar.timegm(dateutil.parser.parse(strDate).utctimetuple())
+    except Exception, e:
+        return False
+
+    
+
+
+
+

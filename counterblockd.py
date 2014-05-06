@@ -545,6 +545,10 @@ if __name__ == '__main__':
         ("when", pymongo.DESCENDING),
     ])
     
+    mongo_db.feeds.ensure_index('source')
+    mongo_db.feeds.ensure_index('owner')
+    mongo_db.feeds.ensure_index('category')
+
     #Connect to redis
     if config.REDIS_ENABLE_APICACHE:
         logging.info("Enabling redis read API caching... (%s:%s)" % (config.REDIS_CONNECT, config.REDIS_PORT))

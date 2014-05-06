@@ -15,6 +15,8 @@ from PIL import Image
 
 from lib import (config, util, util_trading)
 
+from betting import Betting
+
 D = decimal.Decimal
 COMPILE_MARKET_PAIR_INFO_PERIOD = 10 * 60 #in seconds (this is every 10 minutes currently)
 COMPILE_ASSET_MARKET_INFO_PERIOD = 30 * 60 #in seconds (this is every 30 minutes currently)
@@ -277,6 +279,12 @@ def compile_extended_asset_info():
         
     #call again in 60 minutes
     gevent.spawn_later(60 * 60, compile_extended_asset_info)
+
+def compile_extended_feed_info():
+    betting = Betting(config.mongo_db)
+    betting.fetch_all_feed_info()
+    #call again in 5 minutes
+    gevent.spawn_later(60 * 1, compile_extended_feed_info)
 
 def compile_asset_market_info():
     """

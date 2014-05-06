@@ -19,6 +19,7 @@ from bson import json_util
 from bson.son import SON
 
 from . import (config, siofeeds, util, util_trading)
+from betting import Betting
 
 PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
 D = decimal.Decimal
@@ -1228,6 +1229,11 @@ def serve_api(mongo_db, redis_client):
             # which messes up w/ unicode under python 2.x)
         return result['result']
 
+    @dispatcher.add_method
+    def get_feeds(bet_type='simple', category='', owner='', source='', sort_order=-1):
+        betting = Betting(mongo_db)
+        feeds = betting.find_feeds(bet_type=bet_type, category=category, owner=owner, source=source, sort_order=sort_order)
+        return feeds
 
     class API(object):
         @cherrypy.expose
