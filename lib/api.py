@@ -1108,7 +1108,7 @@ def serve_api(mongo_db, redis_client):
         """Set or update a chat handle"""
         if not isinstance(handle, basestring):
             raise Exception("Invalid chat handle: bad data type")
-        if not re.match(r'[A-Za-z0-9_-]{4,12}', handle):
+        if not re.match(r'^[A-Za-z0-9_-]{4,12}$', handle):
             raise Exception("Invalid chat handle: bad syntax/length")
         
         #see if this handle already exists (case insensitive)
@@ -1190,6 +1190,7 @@ def serve_api(mongo_db, redis_client):
     
     @dispatcher.add_method
     def proxy_to_counterpartyd(method='', params=[]):
+        if method=='sql': raise Exception("Invalid method") 
         result = None
         cache_key = None
 
