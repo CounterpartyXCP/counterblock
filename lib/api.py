@@ -1092,7 +1092,7 @@ def serve_api(mongo_db, redis_client):
         result['last_touched'] = time.mktime(time.gmtime())
         mongo_db.chat_handles.save(result)
         data = {
-            'handle': result['handle'],
+            'handle': re.sub('[^A-Za-z0-9_-]', "", result['handle']),
             'is_op': result.get('is_op', False),
             'last_updated': result.get('last_updated', None)
             } if result else {}
