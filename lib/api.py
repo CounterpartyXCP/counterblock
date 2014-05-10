@@ -446,7 +446,7 @@ def serve_api(mongo_db, redis_client):
             if not e.get('disabled', False): #skip assets marked disabled
                 extended_asset_info_dict[e['asset']] = e
         for a in assets_market_info:
-            if a['asset'] in extended_asset_info_dict:
+            if a['asset'] in extended_asset_info_dict and extended_asset_info_dict[a['asset']].get('processed', False):
                 extended_info = extended_asset_info_dict[a['asset']]
                 a['extended_image'] = bool(extended_info['image'])
                 a['extended_description'] = extended_info['description']
