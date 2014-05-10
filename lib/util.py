@@ -335,6 +335,17 @@ def date_param(strDate):
     except Exception, e:
         return False
 
+def counterpartyd_query(sql, bindings):
+    cursor = config.sqlite.cursor();
+    cursor.execute(sql, bindings)
+    results = []
+    for row in cursor:
+        result = {}
+        for key in row.keys():
+            result[key] = row[key]
+        results.append(result)
+
+    return results
     
 
 

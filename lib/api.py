@@ -1235,6 +1235,13 @@ def serve_api(mongo_db, redis_client):
         feeds = betting.find_feeds(bet_type=bet_type, category=category, owner=owner, source=source, sort_order=sort_order)
         return feeds
 
+    @dispatcher.add_method
+    def get_bets(bet_type, feed_address, target_value=1, leverage=5040):
+        betting = Betting(mongo_db)
+        bets = betting.find_bets(bet_type, feed_address, target_value=target_value, leverage=leverage)
+        return bets
+
+
     class API(object):
         @cherrypy.expose
         def index(self):

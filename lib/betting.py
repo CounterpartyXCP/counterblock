@@ -1,4 +1,6 @@
 from lib import config, util
+from datetime import datetime
+import sqlite3
 import logging
 
 class Betting:
@@ -31,33 +33,38 @@ class Betting:
             return True
         return False
 
-    def parse_options(self, data):
-        if 'options' not in data: return False
-        if not isinstance(data['options'], list): return False
-        if len(data['options']) < 1: return False
-
-        valid_options = []
-        for option in data['options']:
-            if 'name' not in option or option['name'] == '': continue
-            if 'value' not in option or not isinstance(option['value'], (int, float)): continue
-            valid_option = {
-                'name': util.sanitize_eliteness(option['name'])[0:60],
-                'value': option['value'],
-                'description': ''
-            }
-            if 'description' in option:
-                valid_option['description'] = util.sanitize_eliteness(option['name'])[0:255]
-            valid_options.append(valid_option)
-
-        if len(valid_options) == 0: return False
-        return valid_options
-
     def inc_fetch_retry(self, feed, max_retry = 3, new_status = 'error', errors=[]):
         feed['fetch_info_retry'] += 1
         feed['errors'] = errors
         if feed['fetch_info_retry'] == max_retry:
             feed['info_status'] = new_status
         self.db.feeds.save(feed)
+
+    def parse_deadlines(self, data):
+        if 'deadlines' not in data: return False
+        if not isinstance(data['deadlines'], list): return False
+        if len(data['deadlines']) == 0: return False
+        results = []
+        for deadline in data['deadlines']:
+            date = util.date_param(deadline)
+            if date:
+                results.append(date)
+            else:
+                return False
+        return results
+
+    def parse_outcomes(self, data):
+        if 'outcomes' not in data: return False
+        if not isinstance(data['outcomes'], list): return False
+        if len(data['outcomes']) == 0: return 
+        results = []
+        for outcome in data['outcomes']:
+            if str(outcome) != '':
+                results.append(str(outcome))
+            else:
+                logging.error("E")
+                return False
+        return results
 
     def fetch_feed_info(self, feed):
         # sanity check
@@ -76,17 +83,20 @@ class Betting:
         logging.info('Fetched data:')
         logging.info(data)
 
+        deadlines = self.parse_deadlines(data)
+        outcomes = self.parse_outcomes(data)
+        date = util.date_param(data['date'])
+
         # required fields
         errors = []
-        options = self.parse_options(data)
-        deadline = util.date_param(data['deadline'])
         if 'owner' not in data or data['owner'] == '': errors.append("Invalid owner")
-        if 'name' not in data or data['name'] == '': errors.append("Invalid name")
+        if 'event' not in data or data['event'] == '': errors.append("Invalid event")
         if 'address' not in data or data['address'] != feed['source']: errors.append("Invalid address")
         if 'category' not in data or data['category'] not in config.FEED_CATEGORIES : errors.append("Invalid category")
         if 'type' not in data or data['type'] not in config.FEED_TYPES: errors.append("Invalid type")
-        if 'deadline' not in data or  deadline == False: errors.append("Invalid deadline")
-        if options == False: errors.append("Invalid options")
+        if not deadlines: errors.append("Invalid deadlines")
+        if not outcomes: errors.append("Invalid outcomes")
+        if not date: errors.append("Invalid date")
         
         if len(errors)>0:
             logging.info('Invalid json: '+feed['info_url'])
@@ -95,18 +105,17 @@ class Betting:
 
         feed['info_status'] = 'valid'
         feed['owner'] = util.sanitize_eliteness(data['owner'])[0:60]
-        feed['name'] = util.sanitize_eliteness(data['name'])[0:60]
+        feed['event'] = util.sanitize_eliteness(data['event'])[0:255]
         feed['category'] = data['category']
         feed['type'] = data['type']
-        feed['deadline'] = util.date_param(data['deadline'])
-        feed['options'] = options
+        feed['deadlines'] = deadlines
+        feed['outcomes'] = outcomes
+        feed['date'] = date
 
         # optional fields
-        feed['description'] = feed['website'] = ''
+        feed['website'] = ''
         feed['with_image'] = False
         feed['errors'] = []
-        if 'description' in data:
-            feed['description'] = util.sanitize_eliteness(data['description'])[0:2048]
         if 'website' in data and util.is_valid_url(data['website']):
             feed['website'] = data['website']
         if 'image' in data and util.is_valid_url(data['image'], suffix='.png'): 
@@ -126,7 +135,10 @@ class Betting:
             self.fetch_feed_info(feed)
 
     def find_feeds(self, bet_type='simple', category='', owner='', source='', sort_order=-1):
-        conditions = { 'type':bet_type, 'info_status': 'valid' }    
+        conditions = { 
+            'type': bet_type, 
+            'info_status': 'valid'
+        }    
         if source != '': 
             conditions['source'] = source
         else:
@@ -138,10 +150,30 @@ class Betting:
         results = []
         try:  
             feeds = self.db.feeds.find(spec=conditions, fields={'_id': False}, sort=[('deadline', sort_order)], limit=50)
-            for feed in feeds: results.append(feed)          
+            for feed in feeds:
+                feed['equal_odd'] = self.get_odd(2, feed['source'])[0]
+                feed['not_equal_odd'] = self.get_odd(3, feed['source'])[0]
+                results.append(feed)          
         except Exception, e:
             logging.error(e)
 
         return results
+
+    def get_odd(self, bet_type, feed_address, target_value=1, leverage=5040):
+        sql  = "SELECT SUM(wager_quantity) AS wager, SUM(counterwager_quantity) AS counterwager "
+        sql += "FROM bets WHERE status='open' "
+        sql += "AND bet_type=? AND feed_address=? AND target_value=? AND leverage=?"
+        bindings = (bet_type, feed_address, target_value, leverage)
+        return util.counterpartyd_query(sql, bindings);
+
+    def find_bets(self, bet_type, feed_address, target_value=1, leverage=5040):      
+        sql  = "SELECT * FROM bets WHERE status='open' AND "
+        sql += "bet_type=? AND feed_address=? AND target_value=? AND leverage=? "
+        sql += "ORDER BY deadline LIMIT 50"
+        bindings = (bet_type, feed_address, target_value, leverage)        
+        return util.counterpartyd_query(sql, bindings);
+
+
+        
         
 
