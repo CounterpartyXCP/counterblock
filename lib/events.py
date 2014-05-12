@@ -149,9 +149,9 @@ def compile_asset_pair_market_info():
         #derive asset price data, expressed in BTC and XCP, for the given volumes
         if base_asset == 'XCP':
             _24h_vol_in_xcp = e['vol_base']
-            _24h_vol_in_btc = util.round_out(e['vol_base'] * xcp_btc_price)
+            _24h_vol_in_btc = util.round_out(e['vol_base'] * xcp_btc_price) if xcp_btc_price else 0
         elif base_asset == 'BTC':
-            _24h_vol_in_xcp = util.round_out(e['vol_base'] * btc_xcp_price)
+            _24h_vol_in_xcp = util.round_out(e['vol_base'] * btc_xcp_price) if btc_xcp_price else 0
             _24h_vol_in_btc = e['vol_base']
         else: #base is not XCP or BTC
             price_summary_in_xcp, price_summary_in_btc, price_in_xcp, price_in_btc, aggregated_price_in_xcp, aggregated_price_in_btc = \
@@ -240,7 +240,7 @@ def compile_extended_asset_info():
                 
             if data['asset'] != asset_info['asset']:
                 raise Exception("asset field is invalid (is: '%s', should be: '%s')" % (data['asset'], asset_info['asset']))
-            if data['image'] and (not util.is_valid_url(data['image'] or len(data['website']) > 100)):
+            if data['image'] and (not util.is_valid_url(data['image'] or len(data['image']) > 100)):
                 raise Exception("'image' field is not valid URL, or over the max allowed length")
             if data['website'] and (not util.is_valid_url(data['website'] or len(data['website']) > 100)):
                 raise Exception("'website' field is not valid URL, or over the max allowed length")
@@ -265,11 +265,12 @@ def compile_extended_asset_info():
         except Exception, e:
             logging.info("ExtendedAssetInfo: Skipped asset %s: %s" % (asset_info['asset'], e))
         else:
+            asset_info['processed'] = True
             asset_info['description'] = util.sanitize_eliteness(data['description'])
             asset_info['website'] = util.sanitize_eliteness(data['website']) #just in case (paranoid)
             asset_info['pgpsig'] = util.sanitize_eliteness(data['pgpsig']) #just in case (paranoid)
             asset_info['image'] = util.sanitize_eliteness(data['image']) #just in case (paranoid)
-            if data['image'] and raw_image_data:
+            if asset_info['image'] and raw_image_data:
                 #save the image to disk
                 imagePath = os.path.join(imageDir, data['asset'] + '.png')
                 image.save(imagePath)

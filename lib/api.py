@@ -454,7 +454,7 @@ def serve_api(mongo_db, redis_client):
             if not e.get('disabled', False): #skip assets marked disabled
                 extended_asset_info_dict[e['asset']] = e
         for a in assets_market_info:
-            if a['asset'] in extended_asset_info_dict:
+            if a['asset'] in extended_asset_info_dict and extended_asset_info_dict[a['asset']].get('processed', False):
                 extended_info = extended_asset_info_dict[a['asset']]
                 a['extended_image'] = bool(extended_info['image'])
                 a['extended_description'] = extended_info['description']
@@ -722,11 +722,11 @@ def serve_api(mongo_db, redis_client):
             # if there is overlap in the book (right?)
             bid_ask_spread = float(( D(base_ask_book[0]['unit_price']) - D(base_bid_book[0]['unit_price']) ).quantize(
                             D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
-        else: bid_ask_spread = 0
-        if base_ask_book:
             bid_ask_median = float(( D( max(base_ask_book[0]['unit_price'], base_bid_book[0]['unit_price']) ) - (D(abs(bid_ask_spread)) / 2) ).quantize(
                             D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
-        else: bid_ask_median = 0
+        else:
+            bid_ask_spread = 0
+            bid_ask_median = 0
         
         #compose depth and round out quantities
         bid_depth = D(0)
@@ -1100,7 +1100,7 @@ def serve_api(mongo_db, redis_client):
         result['last_touched'] = time.mktime(time.gmtime())
         mongo_db.chat_handles.save(result)
         data = {
-            'handle': result['handle'],
+            'handle': re.sub('[^A-Za-z0-9_-]', "", result['handle']),
             'is_op': result.get('is_op', False),
             'last_updated': result.get('last_updated', None)
             } if result else {}
@@ -1116,7 +1116,7 @@ def serve_api(mongo_db, redis_client):
         """Set or update a chat handle"""
         if not isinstance(handle, basestring):
             raise Exception("Invalid chat handle: bad data type")
-        if not re.match(r'[A-Za-z0-9_-]{4,12}', handle):
+        if not re.match(r'^[A-Za-z0-9_-]{4,12}$', handle):
             raise Exception("Invalid chat handle: bad syntax/length")
         
         #see if this handle already exists (case insensitive)
@@ -1198,6 +1198,7 @@ def serve_api(mongo_db, redis_client):
     
     @dispatcher.add_method
     def proxy_to_counterpartyd(method='', params=[]):
+        if method=='sql': raise Exception("Invalid method") 
         result = None
         cache_key = None
 
