@@ -2,6 +2,9 @@ from lib import config, util
 from datetime import datetime
 import sqlite3
 import logging
+import decimal
+
+D = decimal.Decimal
 
 class Betting:
 
@@ -149,28 +152,31 @@ class Betting:
 
         results = []
         try:  
-            feeds = self.db.feeds.find(spec=conditions, fields={'_id': False}, sort=[('deadline', sort_order)], limit=50)
+            feeds = self.db.feeds.find(spec=conditions, fields={'_id': False}, sort=[('date', sort_order)], limit=50)
             for feed in feeds:
-                feed['equal_odd'] = self.get_odd(2, feed['source'])[0]
-                feed['not_equal_odd'] = self.get_odd(3, feed['source'])[0]
+                feed['odds'] = []
+                target = 0
+                for t in feed['outcomes']:
+                    target += 1
+                    equal_bet = self.find_bets(3, feed['source'], str(feed['deadlines'][0]), target, limit=1)
+                    not_equal_bet = self.find_bets(2, feed['source'], str(feed['deadlines'][0]), target, limit=1)
+                    odd = {'equal': 'NA', 'not_equal': 'NA'}
+                    if len(equal_bet) > 0:
+                        odd['equal'] = float(equal_bet[0]['wager_quantity']) / float(equal_bet[0]['counterwager_quantity'])
+                    if len(not_equal_bet) > 0:
+                        odd['not_equal'] = float(not_equal_bet[0]['wager_quantity']) / float(not_equal_bet[0]['counterwager_quantity'])
+                    feed['odds'].append(odd)                   
                 results.append(feed)          
         except Exception, e:
             logging.error(e)
 
         return results
 
-    def get_odd(self, bet_type, feed_address, target_value=1, leverage=5040):
-        sql  = "SELECT SUM(wager_quantity) AS wager, SUM(counterwager_quantity) AS counterwager "
-        sql += "FROM bets WHERE status='open' "
-        sql += "AND bet_type=? AND feed_address=? AND target_value=? AND leverage=?"
-        bindings = (bet_type, feed_address, target_value, leverage)
-        return util.counterpartyd_query(sql, bindings);
-
-    def find_bets(self, bet_type, feed_address, target_value=1, leverage=5040):      
-        sql  = "SELECT * FROM bets WHERE status='open' AND "
-        sql += "bet_type=? AND feed_address=? AND target_value=? AND leverage=? "
-        sql += "ORDER BY deadline LIMIT 50"
-        bindings = (bet_type, feed_address, target_value, leverage)        
+    def find_bets(self, bet_type, feed_address, deadline, target_value=1, leverage=5040, limit=50):         
+        sql  = "SELECT * FROM bets WHERE counterwager_remaining>0 AND "
+        sql += "bet_type=? AND feed_address=? AND target_value=? AND leverage=? AND deadline=? "
+        sql += "ORDER BY (counterwager_quantity/wager_quantity) ASC LIMIT ?";
+        bindings = (bet_type, feed_address, target_value, leverage, deadline, limit)        
         return util.counterpartyd_query(sql, bindings);
 
 
