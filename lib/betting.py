@@ -175,11 +175,30 @@ class Betting:
     def find_bets(self, bet_type, feed_address, deadline, target_value=1, leverage=5040, limit=50):         
         sql  = "SELECT * FROM bets WHERE counterwager_remaining>0 AND "
         sql += "bet_type=? AND feed_address=? AND target_value=? AND leverage=? AND deadline=? "
-        sql += "ORDER BY (counterwager_quantity/wager_quantity) ASC LIMIT ?";
+        sql += "ORDER BY ((counterwager_quantity+0.0)/(wager_quantity+0.0)) ASC LIMIT ?";
         bindings = (bet_type, feed_address, target_value, leverage, deadline, limit)        
         return util.counterpartyd_query(sql, bindings);
 
+    def find_user_bets(self, addresses, status='open'):
+        logging.error(addresses)
+        ins = []
 
+        sql  = "SELECT * FROM bets WHERE status = ? AND source IN ("+",".join(['?' for e in range(0,len(addresses))])+") ";
+        sql += "ORDER BY tx_index DESC LIMIT 100"
+        bindings = (status,) + tuple(addresses)
+        bets = util.counterpartyd_query(sql, bindings);
+
+        sources = {}
+        for bet in bets: sources[bet['feed_address']] = True;
+        conditions = { 'source': { '$in': sources.keys() }}
+        feeds = self.db.feeds.find(spec=conditions, fields={'_id': False})
+        feedsBySource = {}
+        for feed in feeds: feedsBySource[feed['source']] = feed
+
+        return {
+            'bets': bets,
+            'feeds': feedsBySource
+        }
         
         
 
