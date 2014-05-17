@@ -137,16 +137,24 @@ class Betting:
         for feed in feeds:
             self.fetch_feed_info(feed)
 
-    def find_feeds(self, bet_type='simple', category='', owner='', source='', sort_order=-1):
-        conditions = { 
-            'type': bet_type, 
-            'info_status': 'valid'
-        }    
-        if source != '': 
-            conditions['source'] = source
+    def find_feeds(self, bet_type='simple', category='', owner='', source='', sort_order=-1, url=''):
+        if url != '':
+            conditions = { 
+                'info_url': url, 
+                'info_status': 'valid'
+            }
+            limit = 1
         else:
-            if category != '' and category in config.FEED_CATEGORIES: conditions['category'] = category
-            if owner != '': conditions['owner'] = owner
+            conditions = { 
+                'type': bet_type, 
+                'info_status': 'valid'
+            }    
+            if source != '': 
+                conditions['source'] = source
+            else:
+                if category != '' and category in config.FEED_CATEGORIES: conditions['category'] = category
+                if owner != '': conditions['owner'] = owner
+            limit = 50
 
         if sort_order not in [1, -1]: sort_order = -1
 

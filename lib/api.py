@@ -1231,9 +1231,9 @@ def serve_api(mongo_db, redis_client):
         return result['result']
 
     @dispatcher.add_method
-    def get_feeds(bet_type='simple', category='', owner='', source='', sort_order=-1):
+    def get_feeds(bet_type='simple', category='', owner='', source='', sort_order=-1, url=''):
         betting = Betting(mongo_db)
-        feeds = betting.find_feeds(bet_type=bet_type, category=category, owner=owner, source=source, sort_order=sort_order)
+        feeds = betting.find_feeds(bet_type=bet_type, category=category, owner=owner, source=source, sort_order=sort_order, url=url)
         return feeds
 
     @dispatcher.add_method
