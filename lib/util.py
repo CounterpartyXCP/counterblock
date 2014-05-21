@@ -19,6 +19,10 @@ from PIL import Image
 import dateutil.parser
 import calendar
 
+from jsonschema import FormatChecker, Draft4Validator
+# not needed here but to ensure that installed
+import strict_rfc3339, rfc3987
+
 from . import (config,)
 
 D = decimal.Decimal
@@ -346,6 +350,13 @@ def counterpartyd_query(sql, bindings):
         results.append(result)
 
     return results
+
+def is_valid_json(data, schema):
+    errors = []
+    validator = Draft4Validator(schema, format_checker=FormatChecker())
+    for error in validator.iter_errors(data):
+        errors.append(error.message)
+    return errors
     
 
 

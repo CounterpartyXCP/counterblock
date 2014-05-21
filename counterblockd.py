@@ -407,7 +407,9 @@ if __name__ == '__main__':
     else:
         config.ROLLBAR_ENV = 'counterblockd-production'
 
-    counterpartyd_version_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'counterpartyd', 'version.json')
+    # initialize config.sqlite
+    config.COUNTERBLOCKD_DIR = os.path.dirname(os.path.realpath(__file__))
+    counterpartyd_version_path = os.path.join(config.COUNTERBLOCKD_DIR, '..', 'counterpartyd', 'version.json')
     with open(counterpartyd_version_path) as version_file:    
         counterpartyd_version = json.load(version_file)
         db_version = counterpartyd_version['minimum_version_major']
@@ -421,6 +423,8 @@ if __name__ == '__main__':
         config.sqlite = sqlite3.connect(counterpartyd_db_path)
         config.sqlite.row_factory = sqlite3.Row
 
+    # initialize json schema for json feed validation
+    config.FEED_SCHEMA = json.load(open(os.path.join(config.COUNTERBLOCKD_DIR, 'schemas', 'feed.schema.json')))
 
     #Create/update pid file
     pid = str(os.getpid())

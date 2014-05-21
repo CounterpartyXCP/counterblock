@@ -32,3 +32,6 @@ nosetests.xml
 .mr.developer.cfg
 .project
 .pydevproject
+
+# tests
+schema.py

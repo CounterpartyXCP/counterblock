@@ -16,20 +16,30 @@ class Betting:
         logging.info(message)
 
         save = False
-        feed = None
-        if self.db.feeds:
-            feed = self.db.feeds.find_one({"source": message['source']})
-        if feed is None:
-            feed = {'source': message['source']}
-        elif message['locked'] and not feed['locked']:
-            feed['locked'] = True
-            save = True
+        feed = self.db.feeds.find_one({"source": message['source']})
+        
         if util.is_valid_url(message['text'], suffix='.json') and message['value'] == -1.0:
+            if feed is None: feed = {}
+            feed['source'] = message['source']
             feed['info_url'] = message['text']
             feed['info_status'] = 'needfetch' #needfetch, valid (included in CW feed directory), invalid, error 
-            feed['fetch_info_retry'] = 0 # we retry 3 times to fetch info from info_url
+            feed['fetch_info_retry'] = 0 # retry 3 times to fetch info from info_url
+            feed['info_data'] = {}
             feed['fee_fraction_int'] = message['fee_fraction_int']
+            feed['locked'] = False
+            feed['last_broadcast'] = {}
             save = True
+        elif feed is not None:
+            if message['locked']:
+                feed['locked'] = True
+            else:
+                feed['last_broadcast'] = {
+                    "text": message['text'],
+                    "value": message['value']
+                }
+                feed['fee_fraction_int'] = message['fee_fraction_int']
+            save = True
+
         if save:  
             logging.debug('Save feed: '+feed['info_url'])   
             self.db.feeds.save(feed)
@@ -43,31 +53,22 @@ class Betting:
             feed['info_status'] = new_status
         self.db.feeds.save(feed)
 
-    def parse_deadlines(self, data):
-        if 'deadlines' not in data: return False
-        if not isinstance(data['deadlines'], list): return False
-        if len(data['deadlines']) == 0: return False
-        results = []
-        for deadline in data['deadlines']:
-            date = util.date_param(deadline)
-            if date:
-                results.append(date)
-            else:
-                return False
-        return results
-
-    def parse_outcomes(self, data):
-        if 'outcomes' not in data: return False
-        if not isinstance(data['outcomes'], list): return False
-        if len(data['outcomes']) == 0: return 
-        results = []
-        for outcome in data['outcomes']:
-            if str(outcome) != '':
-                results.append(str(outcome))
-            else:
-                logging.error("E")
-                return False
-        return results
+    def sanitize_json_data(self, data):
+        # TODO: make this in more elegant way
+        data['owner']['name'] = util.sanitize_eliteness(data['owner']['name'])
+        if 'description' in data['owner']: data['owner']['description'] = util.sanitize_eliteness(data['owner']['description'])
+        data['topic']['name'] = util.sanitize_eliteness(data['topic']['name'])
+        if 'description' in data['topic']: data['topic']['description'] = util.sanitize_eliteness(data['topic']['description'])
+        for i in range(len(data["targets"])):
+            data["targets"][i]['text'] = util.sanitize_eliteness(data["targets"][i]['text'])
+            if 'description' in data["targets"][i]: data["targets"][i]['description'] = util.sanitize_eliteness(data["targets"][i]['description'])
+            if 'labels' in data["targets"][i]:
+                data["targets"][i]['labels']['equal'] = util.sanitize_eliteness(data["targets"][i]['labels']['equal'])
+                data["targets"][i]['labels']['not_equal'] = util.sanitize_eliteness(data["targets"][i]['labels']['not_equal'])
+        if 'customs' in data:
+            for key in data['customs']:
+                if isinstance(data['customs'][key], str): data['customs'][key] = util.sanitize_eliteness(data['customs'][key])
+        return data
 
     def fetch_feed_info(self, feed):
         # sanity check
@@ -83,49 +84,36 @@ class Betting:
             self.inc_fetch_retry(feed, errors=['Fetch json failed'])
             return False
 
-        logging.info('Fetched data:')
-        logging.info(data)
+        errors = util.is_valid_json(data, config.FEED_SCHEMA)
 
-        deadlines = self.parse_deadlines(data)
-        outcomes = self.parse_outcomes(data)
-        date = util.date_param(data['date'])
-
-        # required fields
-        errors = []
-        if 'owner' not in data or data['owner'] == '': errors.append("Invalid owner")
-        if 'event' not in data or data['event'] == '': errors.append("Invalid event")
-        if 'address' not in data or data['address'] != feed['source']: errors.append("Invalid address")
-        if 'category' not in data or data['category'] not in config.FEED_CATEGORIES : errors.append("Invalid category")
-        if 'type' not in data or data['type'] not in config.FEED_TYPES: errors.append("Invalid type")
-        if not deadlines: errors.append("Invalid deadlines")
-        if not outcomes: errors.append("Invalid outcomes")
-        if not date: errors.append("Invalid date")
-        
+        if feed['source'] != data['address']:
+            errors.append("Invalid address")
+       
         if len(errors)>0:
             logging.info('Invalid json: '+feed['info_url'])
             self.inc_fetch_retry(feed, new_status = 'invalid', errors=errors) 
             return False        
 
         feed['info_status'] = 'valid'
-        feed['owner'] = util.sanitize_eliteness(data['owner'])[0:60]
-        feed['event'] = util.sanitize_eliteness(data['event'])[0:255]
-        feed['category'] = data['category']
-        feed['type'] = data['type']
-        feed['deadlines'] = deadlines
-        feed['outcomes'] = outcomes
-        feed['date'] = date
 
-        # optional fields
-        feed['website'] = ''
-        feed['with_image'] = False
-        feed['errors'] = []
-        if 'website' in data and util.is_valid_url(data['website']):
-            feed['website'] = data['website']
-        if 'image' in data and util.is_valid_url(data['image'], suffix='.png'): 
-            if util.fetch_image(data['image'], config.SUBDIR_FEED_IMAGES, feed['source']):
-                feed['with_image'] = True
-            else:
-                feed['errors'] = ['Fetch image failed']
+        if 'image' in data['owner']:
+            data['owner']['valid_image'] = util.fetch_image(data['owner']['image'], config.SUBDIR_FEED_IMAGES, feed['source']+'_owner')
+        
+        if 'image' in data['topic']:
+            data['topic']['valid_image'] = util.fetch_image(data['topic']['image'], config.SUBDIR_FEED_IMAGES, feed['source']+'_topic')
+
+        for i in range(len(data["targets"])):
+            if 'image' in data["targets"][i]:
+                image_name = feed['source']+'_tv_'+str(data["targets"][i]['value'])
+                data["targets"][i]['valid_image'] = util.fetch_image(data["targets"][i]['image'], config.SUBDIR_FEED_IMAGES, image_name)
+
+        if 'deadline' in data:
+            if 'deadlines' not in data: data["deadlines"] = []
+            data["deadlines"].insert(0, data["deadline"])
+
+        
+        
+        feed['info_data'] = self.sanitize_json_data(data)
 
         logging.info('Save feed:')
         logging.info(feed)
@@ -137,6 +125,29 @@ class Betting:
         for feed in feeds:
             self.fetch_feed_info(feed)
 
+    # TODO: counter cache
+    def get_feed_counters(self, feed_address):
+        counters = {}        
+        sql  = "SELECT COUNT(*) AS bet_count, SUM(wager_quantity) AS wager_quantity, SUM(wager_remaining) AS wager_remaining, status FROM bets "
+        sql += "WHERE feed_address=? GROUP BY status ORDER BY status DESC"
+        bindings = (feed_address,)        
+        counters['bets'] = util.counterpartyd_query(sql, bindings)
+        return counters;
+
+    def find_feed(self, url_or_address):
+        conditions = {
+            '$or': [{'source': url_or_address}, {'info_url': url_or_address}],
+            'info_status': 'valid'
+        }
+        result = {}
+        feeds = self.db.feeds.find(spec=conditions, fields={'_id': False}, imit=1)
+        for feed in feeds:
+            result = feed;
+            result['counters'] = self.get_feed_counters(feed['source'])
+
+        return result
+
+    # not used
     def find_feeds(self, bet_type='simple', category='', owner='', source='', sort_order=-1, url=''):
         if url != '':
             conditions = { 
@@ -164,7 +175,7 @@ class Betting:
             for feed in feeds:
                 feed['odds'] = []
                 target = 0
-                for t in feed['outcomes']:
+                for t in feed['targets']:
                     target += 1
                     equal_bet = self.find_bets(3, feed['source'], str(feed['deadlines'][0]), target, limit=1)
                     not_equal_bet = self.find_bets(2, feed['source'], str(feed['deadlines'][0]), target, limit=1)
