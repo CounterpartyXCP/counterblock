@@ -217,7 +217,7 @@ def compile_extended_asset_info():
         try:
             #TODO: Right now this loop makes one request at a time. Fully utilize grequests to make batch requests
             # at the same time (using map() and throttling) 
-            r = grequests.map((grequests.get(asset_info['url'], timeout=1, stream=True),), stream=True)[0]
+            r = grequests.map((grequests.get(asset_info['url'], timeout=1, stream=True, verify=False),), stream=True)[0]
             if not r: raise Exception("Invalid response")
             if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
             #read up to 4KB and try to convert to JSON
@@ -247,7 +247,7 @@ def compile_extended_asset_info():
             
             if data['image']:
                 #fetch the image data (must be 32x32 png, max 20KB size)
-                r = grequests.map((grequests.get(data['image'], timeout=1, stream=True),), stream=True)[0]
+                r = grequests.map((grequests.get(data['image'], timeout=1, stream=True, verify=False),), stream=True)[0]
                 if not r: raise Exception("Invalid response")
                 if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
                 #read up to 20KB and try to convert to JSON

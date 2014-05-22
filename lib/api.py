@@ -1114,7 +1114,10 @@ def serve_api(mongo_db, redis_client):
         #see if this handle already exists (case insensitive)
         results = mongo_db.chat_handles.find({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
         if results.count():
-            raise Exception("Chat handle already is in use")
+            if results[0]['wallet_id'] == wallet_id:
+                return True #handle already saved for this wallet ID
+            else:
+                raise Exception("Chat handle already is in use")
 
         mongo_db.chat_handles.update(
             {'wallet_id': wallet_id},

@@ -155,9 +155,12 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
     #start polling counterpartyd for new blocks    
     while True:
         try:
-            running_info = util.call_jsonrpc_api("get_running_info", abort_on_error=True)['result']
+            running_info = util.call_jsonrpc_api("get_running_info", abort_on_error=True)
+            if 'result' not in running_info:
+                raise AssertionError("Could not contact counterpartyd")
+            running_info = running_info['result']
         except Exception, e:
-            logging.warn(str(e) + " Waiting 3 seconds before trying again...")
+            logging.warn(str(e) + " -- Waiting 3 seconds before trying again...")
             time.sleep(3)
             continue
         
