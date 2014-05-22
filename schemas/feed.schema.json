@@ -1,0 +1,133 @@
+{
+    "$schema": "http://json-schema.org/schema#",
+
+    "definitions": {
+        "categories" : {
+            "enum": ["sports", "politics", "entertainment", "economics", "other"]
+        },
+        "owner": {
+            "type": "object",
+            "properties": {
+                "name": {"type" : "string", "maxLength": 64},
+                "image": {"type" : "string", "format": "uri"},
+                "description": {"type" : "string", "maxLength": 255},
+                "url": {"type" : "string", "format": "uri"}
+            },
+            "additionalProperties":false,
+            "required": ["name"]
+        },
+        "topic": {
+            "type": "object",
+            "properties": {
+                "name": {"type" : "string", "maxLength": 64},
+                "image": {"type" : "string", "format": "uri"},
+                "description": {"type" : "string", "maxLength": 255},
+                "url": {"type" : "string", "format": "uri"},
+                "date": {"type" : "string", "format": "date-time"}
+            },
+            "additionalProperties":false,
+            "required": ["name", "date"]
+        },
+        "target": {
+            "type": "object",
+            "properties": {
+                "text": {"type" : "string", "maxLength": 64},
+                "value": {"type" : "number"},
+                "image": {"type" : "string", "format": "uri"},
+                "labels": {
+                    "type": "object",
+                    "properties": {
+                        "equal": {"type" : "string", "maxLength": 32},
+                        "not_equal": {"type" : "string", "maxLength": 32}
+                    },
+                    "additionalProperties":false,
+                    "required": ["equal", "not_equal"]
+                },
+                "odds": {
+                    "type": "object",
+                    "properties": {
+                        "default": {"type" : "number"},
+                        "override": {"type" : "number"}
+                    },
+                    "additionalProperties":false,
+                    "required": ["default"]
+                }
+            },
+            "additionalProperties":false,
+            "required": ["text", "value"]
+        },
+        "targets": {
+            "type": "array",
+            "items": {"$ref": "#/definitions/target"},
+            "minItems": 1,
+            "uniqueItems": true
+        },
+        "deadlines": {
+            "type": "array",
+            "items": {"type": "string", "format": "date-time"},
+            "minItems": 1,
+            "uniqueItems": true
+        },
+        "customs": {
+            "type": "object",
+            "patternProperties": {
+                ".": {"type": ["string", "number"]}
+            }
+        },
+        "bet": {
+            "allOf" : [{
+                "type": "object",
+                "properties" : {
+                    "version" : {"type" : "string", "pattern": "^[0-9]+(\\.[0-9]+){1,2}$"},
+                    "type": {"enum": ["binary", "cfd"]},
+                    "address" : {"type" : "string"},
+                    "category": {"$ref": "#/definitions/categories"},
+                    "owner": {"$ref": "#/definitions/owner"},
+                    "topic": {"$ref": "#/definitions/topic"},
+                    "targets": {"$ref": "#/definitions/targets"},
+                    "deadline": {"type" : "string", "format": "date-time"},
+                    "deadlines": {"$ref": "#/definitions/deadlines"},
+                    "customs": {"$ref": "#/definitions/customs"}
+                },
+                "additionalProperties":false,
+                "required": ["address", "type", "category", "owner", "topic"]
+            }, {
+                "oneOf" : [{
+                    "type": "object",
+                    "required": ["deadlines"]
+                }, {
+                    "type": "object",
+                    "required": ["deadline"]
+                }]
+            }]
+        },
+        "binary_bet": {
+            "allOf": [{
+                "$ref": "#/definitions/bet"
+            }, { 
+                "type" : "object",
+                "properties": {
+                    "type": {"enum": ["binary"]}
+                },
+                "required": ["targets"]
+            }]
+        },
+        "cfd_bet": {
+            "allOf": [{
+                "$ref": "#/definitions/bet"
+            }, { 
+                "type" : "object",
+                "properties": {
+                    "type": {"enum": ["cfd"]}
+                }
+            }]
+        }
+    },
+
+    "oneOf" : [{
+        "$ref": "#/definitions/binary_bet"
+    }, {
+        "$ref": "#/definitions/cfd_bet"
+    }]
+
+}
