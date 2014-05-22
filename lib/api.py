@@ -19,6 +19,7 @@ from bson import json_util
 from bson.son import SON
 
 from . import (config, siofeeds, util, util_trading)
+from betting import Betting
 
 PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
 D = decimal.Decimal
@@ -130,18 +131,26 @@ def serve_api(mongo_db, redis_client):
         mappings = {}
         result = util.call_jsonrpc_api("get_balances",
             {'filters': filters, 'filterop': 'or'}, abort_on_error=True)['result']
+
+        isowner = {}
+        owned_assets = mongo_db.tracked_assets.find( { '$or': [{'owner': a } for a in addresses] }, { '_history': 0, '_id': 0 } )
+        for o in owned_assets:
+          isowner[o['owner'] + o['asset']] = o
+
         data = []
         for d in result:
-            if not d['quantity']:
+            if not d['quantity'] and ((d['address'] + d['asset']) not in isowner):
                 continue #don't include balances with a zero asset value
             asset_info = mongo_db.tracked_assets.find_one({'asset': d['asset']})
             d['normalized_quantity'] = util.normalize_quantity(d['quantity'], asset_info['divisible'])
+            d['owner'] = (d['address'] + d['asset']) in isowner
             mappings[d['address'] + d['asset']] = d
             data.append(d)
+        
         #include any owned assets for each address, even if their balance is zero
-        owned_assets = mongo_db.tracked_assets.find( { '$or': [{'owner': a } for a in addresses] }, { '_history': 0, '_id': 0 } )
-        for o in owned_assets:
-            if (o['owner'] + o['asset']) not in mappings:
+        for key in isowner:
+            if key not in mappings:
+                o = isowner[key]
                 data.append({
                     'address': o['owner'],
                     'asset': o['asset'],
@@ -149,8 +158,7 @@ def serve_api(mongo_db, redis_client):
                     'normalized_quantity': 0,
                     'owner': True,
                 })
-            else:
-                mappings[o['owner'] + o['asset']]['owner'] = False
+
         return data
 
     def _get_address_history(address, start_block=None, end_block=None):
@@ -1222,6 +1230,29 @@ def serve_api(mongo_db, redis_client):
             # which messes up w/ unicode under python 2.x)
         return result['result']
 
+    @dispatcher.add_method
+    def get_feeds(bet_type='simple', category='', owner='', source='', sort_order=-1, url=''):
+        betting = Betting(mongo_db)
+        feeds = betting.find_feeds(bet_type=bet_type, category=category, owner=owner, source=source, sort_order=sort_order, url=url)
+        return feeds
+
+    @dispatcher.add_method
+    def get_bets(bet_type, feed_address, deadline, target_value=1, leverage=5040):
+        betting = Betting(mongo_db)
+        bets = betting.find_bets(bet_type, feed_address, deadline, target_value=target_value, leverage=leverage)
+        return bets
+
+    @dispatcher.add_method
+    def get_user_bets(addresses = [], status="open"):
+        betting = Betting(mongo_db)
+        bets = betting.find_user_bets(addresses, status)
+        return bets
+
+    @dispatcher.add_method
+    def get_feed(address_or_url = ''):
+        betting = Betting(mongo_db)
+        feed = betting.find_feed(address_or_url)
+        return feed
 
     class API(object):
         @cherrypy.expose

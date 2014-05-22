@@ -8,6 +8,7 @@ CAUGHT_UP = False #atomic state variable, set to True when counterpartyd AND cou
 UNIT = 100000000
 
 SUBDIR_ASSET_IMAGES = "asset_img" #goes under the data dir and stores retrieved asset images
+SUBDIR_FEED_IMAGES = "feed_img" #goes under the data dir and stores retrieved feed images
 
 MARKET_PRICE_DERIVE_NUM_POINTS = 8 #number of last trades over which to derive the market price (via WVAP)
 
@@ -18,3 +19,6 @@ MULTISIG_DUST_SIZE = 5430 * 2
 ORDER_BTC_DUST_LIMIT_CUTOFF = MULTISIG_DUST_SIZE
 
 mongo_db = None #will be set on server init
+
+FEED_CATEGORIES = ['sports', 'politics', 'entertainment', 'economics', 'other']
+FEED_TYPES = ['simple', 'cfd']

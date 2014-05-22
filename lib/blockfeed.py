@@ -17,11 +17,14 @@ import gevent
 
 from lib import (config, util, events)
 
+from betting import Betting
+
 D = decimal.Decimal
 
 def process_cpd_blockfeed(zmq_publisher_eventfeed):
     LATEST_BLOCK_INIT = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
     mongo_db = config.mongo_db
+    betting = Betting(mongo_db)
 
     def blow_away_db():
         #boom! blow away all collections in mongo
@@ -35,6 +38,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         mongo_db.btc_open_orders.drop()
         mongo_db.asset_extended_info.drop()
         mongo_db.transaction_stats.drop()
+        mongo_db.feeds.drop()
         
         #create/update default app_config object
         mongo_db.app_config.update({}, {
@@ -257,7 +261,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                     continue
 
                 #track message types, for compiling of statistics
-                if     msg['command'] == 'insert' \
+                if msg['command'] == 'insert' \
                    and msg['category'] not in ["debits", "credits", "order_matches", "bet_matches",
                        "order_expirations", "bet_expirations", "order_match_expirations", "bet_match_expirations"]:
                     mongo_db.transaction_stats.insert({
@@ -401,8 +405,8 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                         logging.info("Procesed %s bal change from tx %s :: %s" % (actionName, msg['message_index'], bal_change))
                 
                 #book trades
-                if (    msg['category'] == 'order_matches'
-                    and (   (msg['command'] == 'update' and msg_data['status'] == 'completed') #for a trade with BTC involved, but that is settled (completed)
+                if (msg['category'] == 'order_matches'
+                    and ((msg['command'] == 'update' and msg_data['status'] == 'completed') #for a trade with BTC involved, but that is settled (completed)
                          or ('forward_asset' in msg_data and msg_data['forward_asset'] != 'BTC' and msg_data['backward_asset'] != 'BTC'))): #or for a trade without BTC on either end
 
                     if msg['command'] == 'update' and msg_data['status'] == 'completed':
@@ -459,7 +463,11 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
 
                     mongo_db.trades.insert(trade)
                     logging.info("Procesed Trade from tx %s :: %s" % (msg['message_index'], trade))
-                    
+                
+                #broadcast
+                if msg['category'] == 'broadcasts':
+                    betting.parse_broadcast(msg_data)
+
                 #if we're catching up beyond 10 blocks out, make sure not to send out any socket.io events, as to not flood
                 # on a resync (as we may give a 525 to kick the logged in clients out, but we can't guarantee that the
                 # socket.io connection will always be severed as well??)
@@ -516,6 +524,9 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 
                 logging.debug("Starting event timer: compile_asset_market_info")
                 gevent.spawn(events.compile_asset_market_info)
+
+                logging.debug("Starting event timer: compile_extended_feed_info")
+                gevent.spawn(events.compile_extended_feed_info)
 
                 config.CAUGHT_UP_STARTED_EVENTS = True
                 
