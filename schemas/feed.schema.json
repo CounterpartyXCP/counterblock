@@ -16,7 +16,7 @@
             "additionalProperties":false,
             "required": ["name"]
         },
-        "event": {
+        "topic": {
             "type": "object",
             "properties": {
                 "name": {"type" : "string", "maxLength": 64},
@@ -83,7 +83,7 @@
                     "address" : {"type" : "string"},
                     "category": {"$ref": "#/definitions/categories"},
                     "owner": {"$ref": "#/definitions/owner"},
-                    "topic": {"$ref": "#/definitions/event"},
+                    "topic": {"$ref": "#/definitions/topic"},
                     "targets": {"$ref": "#/definitions/targets"},
                     "deadline": {"type" : "string", "format": "date-time"},
                     "deadlines": {"$ref": "#/definitions/deadlines"},
