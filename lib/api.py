@@ -1251,6 +1251,12 @@ def serve_api(mongo_db, redis_client):
         feed = betting.find_feed(address_or_url)
         return feed
 
+    @dispatcher.add_method
+    def get_feeds_by_source(addresses = []):
+        betting = Betting(mongo_db)
+        feed = betting.get_feeds_by_source(addresses)
+        return feed
+
     class API(object):
         @cherrypy.expose
         def index(self):

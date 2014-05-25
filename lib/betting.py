@@ -148,6 +148,13 @@ class Betting:
         bindings = (bet_type, feed_address, target_value, leverage, deadline, limit)        
         return util.counterpartyd_query(sql, bindings);
 
+    def get_feeds_by_source(self, addresses):
+        conditions = { 'source': { '$in': addresses }}
+        feeds = self.db.feeds.find(spec=conditions, fields={'_id': False})
+        feeds_by_source = {}
+        for feed in feeds: feeds_by_source[feed['source']] = feed
+        return feeds_by_source
+
     def find_user_bets(self, addresses, status='open'):
         logging.error(addresses)
         ins = []
@@ -159,14 +166,10 @@ class Betting:
 
         sources = {}
         for bet in bets: sources[bet['feed_address']] = True;
-        conditions = { 'source': { '$in': sources.keys() }}
-        feeds = self.db.feeds.find(spec=conditions, fields={'_id': False})
-        feedsBySource = {}
-        for feed in feeds: feedsBySource[feed['source']] = feed
-
+        
         return {
             'bets': bets,
-            'feeds': feedsBySource
+            'feeds': self.get_feeds_by_source(sources.keys())
         }
         
         
