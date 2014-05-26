@@ -334,7 +334,7 @@ def serve_api(mongo_db, redis_client):
         return messages
 
     @dispatcher.add_method
-    def get_raw_transactions(address, start_ts=None, end_ts=None, limit=1000):
+    def get_raw_transactions(address, start_ts=None, end_ts=None, limit=500):
         """Gets raw transactions for a particular address
         
         @param address: A single address string
@@ -371,6 +371,7 @@ def serve_api(mongo_db, redis_client):
                 e = util.decorate_message(e, for_txn_history=True) #DRY
             txns += entries
         txns = util.multikeysort(txns, ['-_block_time', '-_tx_index'])
+        txns = txns[0:limit] #TODO: we can trunk before sorting. check if we can use the messages table and use sql order and limit
         #^ won't be a perfect sort since we don't have tx_indexes for cancellations, but better than nothing
         #txns.sort(key=operator.itemgetter('block_index'))
         return txns 
