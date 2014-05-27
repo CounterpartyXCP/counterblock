@@ -55,10 +55,10 @@ class Betting:
 
     def sanitize_json_data(self, data):
         # TODO: make this in more elegant way
-        data['owner']['name'] = util.sanitize_eliteness(data['owner']['name'])
-        if 'description' in data['owner']: data['owner']['description'] = util.sanitize_eliteness(data['owner']['description'])
-        data['topic']['name'] = util.sanitize_eliteness(data['topic']['name'])
-        if 'description' in data['topic']: data['topic']['description'] = util.sanitize_eliteness(data['topic']['description'])
+        data['operator']['name'] = util.sanitize_eliteness(data['operator']['name'])
+        if 'description' in data['operator']: data['operator']['description'] = util.sanitize_eliteness(data['operator']['description'])
+        data['title'] = util.sanitize_eliteness(data['title'])
+        if 'description' in data: data['description'] = util.sanitize_eliteness(data['description'])
         for i in range(len(data["targets"])):
             data["targets"][i]['text'] = util.sanitize_eliteness(data["targets"][i]['text'])
             if 'description' in data["targets"][i]: data["targets"][i]['description'] = util.sanitize_eliteness(data["targets"][i]['description'])
@@ -96,23 +96,17 @@ class Betting:
 
         feed['info_status'] = 'valid'
 
-        if 'image' in data['owner']:
-            data['owner']['valid_image'] = util.fetch_image(data['owner']['image'], config.SUBDIR_FEED_IMAGES, feed['source']+'_owner')
+        if 'image' in data['operator']:
+            data['operator']['valid_image'] = util.fetch_image(data['operator']['image'], config.SUBDIR_FEED_IMAGES, feed['source']+'_owner')
         
-        if 'image' in data['topic']:
-            data['topic']['valid_image'] = util.fetch_image(data['topic']['image'], config.SUBDIR_FEED_IMAGES, feed['source']+'_topic')
+        if 'image' in data:
+            data['valid_image'] = util.fetch_image(data['image'], config.SUBDIR_FEED_IMAGES, feed['source']+'_topic')
 
         for i in range(len(data["targets"])):
             if 'image' in data["targets"][i]:
                 image_name = feed['source']+'_tv_'+str(data["targets"][i]['value'])
                 data["targets"][i]['valid_image'] = util.fetch_image(data["targets"][i]['image'], config.SUBDIR_FEED_IMAGES, image_name)
 
-        if 'deadline' in data:
-            if 'deadlines' not in data: data["deadlines"] = []
-            data["deadlines"].insert(0, data["deadline"])
-
-        
-        
         feed['info_data'] = self.sanitize_json_data(data)
 
         logging.info('Save feed:')
@@ -147,56 +141,19 @@ class Betting:
 
         return result
 
-    # not used
-    def find_feeds(self, bet_type='simple', category='', owner='', source='', sort_order=-1, url=''):
-        if url != '':
-            conditions = { 
-                'info_url': url, 
-                'info_status': 'valid'
-            }
-            limit = 1
-        else:
-            conditions = { 
-                'type': bet_type, 
-                'info_status': 'valid'
-            }    
-            if source != '': 
-                conditions['source'] = source
-            else:
-                if category != '' and category in config.FEED_CATEGORIES: conditions['category'] = category
-                if owner != '': conditions['owner'] = owner
-            limit = 50
-
-        if sort_order not in [1, -1]: sort_order = -1
-
-        results = []
-        try:  
-            feeds = self.db.feeds.find(spec=conditions, fields={'_id': False}, sort=[('date', sort_order)], limit=50)
-            for feed in feeds:
-                feed['odds'] = []
-                target = 0
-                for t in feed['targets']:
-                    target += 1
-                    equal_bet = self.find_bets(3, feed['source'], str(feed['deadlines'][0]), target, limit=1)
-                    not_equal_bet = self.find_bets(2, feed['source'], str(feed['deadlines'][0]), target, limit=1)
-                    odd = {'equal': 'NA', 'not_equal': 'NA'}
-                    if len(equal_bet) > 0:
-                        odd['equal'] = float(equal_bet[0]['wager_quantity']) / float(equal_bet[0]['counterwager_quantity'])
-                    if len(not_equal_bet) > 0:
-                        odd['not_equal'] = float(not_equal_bet[0]['wager_quantity']) / float(not_equal_bet[0]['counterwager_quantity'])
-                    feed['odds'].append(odd)                   
-                results.append(feed)          
-        except Exception, e:
-            logging.error(e)
-
-        return results
-
     def find_bets(self, bet_type, feed_address, deadline, target_value=1, leverage=5040, limit=50):         
         sql  = "SELECT * FROM bets WHERE counterwager_remaining>0 AND "
         sql += "bet_type=? AND feed_address=? AND target_value=? AND leverage=? AND deadline=? "
         sql += "ORDER BY ((counterwager_quantity+0.0)/(wager_quantity+0.0)) ASC LIMIT ?";
         bindings = (bet_type, feed_address, target_value, leverage, deadline, limit)        
         return util.counterpartyd_query(sql, bindings);
+
+    def get_feeds_by_source(self, addresses):
+        conditions = { 'source': { '$in': addresses }}
+        feeds = self.db.feeds.find(spec=conditions, fields={'_id': False})
+        feeds_by_source = {}
+        for feed in feeds: feeds_by_source[feed['source']] = feed
+        return feeds_by_source
 
     def find_user_bets(self, addresses, status='open'):
         logging.error(addresses)
@@ -209,14 +166,10 @@ class Betting:
 
         sources = {}
         for bet in bets: sources[bet['feed_address']] = True;
-        conditions = { 'source': { '$in': sources.keys() }}
-        feeds = self.db.feeds.find(spec=conditions, fields={'_id': False})
-        feedsBySource = {}
-        for feed in feeds: feedsBySource[feed['source']] = feed
-
+        
         return {
             'bets': bets,
-            'feeds': feedsBySource
+            'feeds': self.get_feeds_by_source(sources.keys())
         }
         
         

@@ -334,7 +334,7 @@ def serve_api(mongo_db, redis_client):
         return messages
 
     @dispatcher.add_method
-    def get_raw_transactions(address, start_ts=None, end_ts=None, limit=1000):
+    def get_raw_transactions(address, start_ts=None, end_ts=None, limit=500):
         """Gets raw transactions for a particular address
         
         @param address: A single address string
@@ -371,6 +371,7 @@ def serve_api(mongo_db, redis_client):
                 e = util.decorate_message(e, for_txn_history=True) #DRY
             txns += entries
         txns = util.multikeysort(txns, ['-_block_time', '-_tx_index'])
+        txns = txns[0:limit] #TODO: we can trunk before sorting. check if we can use the messages table and use sql order and limit
         #^ won't be a perfect sort since we don't have tx_indexes for cancellations, but better than nothing
         #txns.sort(key=operator.itemgetter('block_index'))
         return txns 
@@ -1234,12 +1235,6 @@ def serve_api(mongo_db, redis_client):
         return result['result']
 
     @dispatcher.add_method
-    def get_feeds(bet_type='simple', category='', owner='', source='', sort_order=-1, url=''):
-        betting = Betting(mongo_db)
-        feeds = betting.find_feeds(bet_type=bet_type, category=category, owner=owner, source=source, sort_order=sort_order, url=url)
-        return feeds
-
-    @dispatcher.add_method
     def get_bets(bet_type, feed_address, deadline, target_value=1, leverage=5040):
         betting = Betting(mongo_db)
         bets = betting.find_bets(bet_type, feed_address, deadline, target_value=target_value, leverage=leverage)
@@ -1255,6 +1250,12 @@ def serve_api(mongo_db, redis_client):
     def get_feed(address_or_url = ''):
         betting = Betting(mongo_db)
         feed = betting.find_feed(address_or_url)
+        return feed
+
+    @dispatcher.add_method
+    def get_feeds_by_source(addresses = []):
+        betting = Betting(mongo_db)
+        feed = betting.get_feeds_by_source(addresses)
         return feed
 
     class API(object):
