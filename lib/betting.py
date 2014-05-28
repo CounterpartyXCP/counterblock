@@ -7,7 +7,6 @@ D = decimal.Decimal
 
 def parse_broadcast(db, message):
     logging.info('Parsing broadcast message..')
-    logging.info(message)
 
     save = False
     feed = db.feeds.find_one({"source": message['source']})
@@ -35,10 +34,7 @@ def parse_broadcast(db, message):
             feed['fee_fraction_int'] = message['fee_fraction_int']
         save = True
 
-    logging.error('new feed')
-    logging.error(feed)
     if save:  
-        logging.error('Save feed: '+feed['info_url'])   
         db.feeds.save(feed)
         return True
     return False
@@ -87,7 +83,7 @@ def fetch_feed_info(db, feed):
         errors.append("Invalid address")
    
     if len(errors)>0:
-        logging.info('Invalid json: '+feed['info_url'])
+        logging.error('Invalid json: '+feed['info_url'])
         inc_fetch_retry(db, feed, new_status = 'invalid', errors=errors) 
         return False        
 
@@ -106,8 +102,6 @@ def fetch_feed_info(db, feed):
 
     feed['info_data'] = sanitize_json_data(data)
 
-    logging.info('Save fetched feed:')
-    logging.info(feed)
     db.feeds.save(feed)
 
 def fetch_all_feed_info(db):
