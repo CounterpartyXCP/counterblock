@@ -18,8 +18,7 @@ import pymongo
 from bson import json_util
 from bson.son import SON
 
-from . import (config, siofeeds, util, util_trading)
-from betting import Betting
+from . import (config, siofeeds, util, util_trading, betting)
 
 PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
 D = decimal.Decimal
@@ -1236,26 +1235,22 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def get_bets(bet_type, feed_address, deadline, target_value=1, leverage=5040):
-        betting = Betting(mongo_db)
         bets = betting.find_bets(bet_type, feed_address, deadline, target_value=target_value, leverage=leverage)
         return bets
 
     @dispatcher.add_method
     def get_user_bets(addresses = [], status="open"):
-        betting = Betting(mongo_db)
-        bets = betting.find_user_bets(addresses, status)
+        bets = betting.find_user_bets(mongo_db, addresses, status)
         return bets
 
     @dispatcher.add_method
     def get_feed(address_or_url = ''):
-        betting = Betting(mongo_db)
-        feed = betting.find_feed(address_or_url)
+        feed = betting.find_feed(mongo_db, address_or_url)
         return feed
 
     @dispatcher.add_method
     def get_feeds_by_source(addresses = []):
-        betting = Betting(mongo_db)
-        feed = betting.get_feeds_by_source(addresses)
+        feed = betting.get_feeds_by_source(mongo_db, addresses)
         return feed
 
     class API(object):
