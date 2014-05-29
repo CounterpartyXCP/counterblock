@@ -48,16 +48,18 @@ def inc_fetch_retry(db, feed, max_retry = 3, new_status = 'error', errors=[]):
 
 def sanitize_json_data(data):
     # TODO: make this in more elegant way
-    data['operator']['name'] = util.sanitize_eliteness(data['operator']['name'])
-    if 'description' in data['operator']: data['operator']['description'] = util.sanitize_eliteness(data['operator']['description'])
+    if 'operator' in data:
+        data['operator']['name'] = util.sanitize_eliteness(data['operator']['name'])
+        if 'description' in data['operator']: data['operator']['description'] = util.sanitize_eliteness(data['operator']['description'])
     data['title'] = util.sanitize_eliteness(data['title'])
     if 'description' in data: data['description'] = util.sanitize_eliteness(data['description'])
-    for i in range(len(data["targets"])):
-        data["targets"][i]['text'] = util.sanitize_eliteness(data["targets"][i]['text'])
-        if 'description' in data["targets"][i]: data["targets"][i]['description'] = util.sanitize_eliteness(data["targets"][i]['description'])
-        if 'labels' in data["targets"][i]:
-            data["targets"][i]['labels']['equal'] = util.sanitize_eliteness(data["targets"][i]['labels']['equal'])
-            data["targets"][i]['labels']['not_equal'] = util.sanitize_eliteness(data["targets"][i]['labels']['not_equal'])
+    if 'targets' in data:
+        for i in range(len(data["targets"])):
+            data["targets"][i]['text'] = util.sanitize_eliteness(data["targets"][i]['text'])
+            if 'description' in data["targets"][i]: data["targets"][i]['description'] = util.sanitize_eliteness(data["targets"][i]['description'])
+            if 'labels' in data["targets"][i]:
+                data["targets"][i]['labels']['equal'] = util.sanitize_eliteness(data["targets"][i]['labels']['equal'])
+                data["targets"][i]['labels']['not_equal'] = util.sanitize_eliteness(data["targets"][i]['labels']['not_equal'])
     if 'customs' in data:
         for key in data['customs']:
             if isinstance(data['customs'][key], str): data['customs'][key] = util.sanitize_eliteness(data['customs'][key])
@@ -69,11 +71,12 @@ def fetch_feed_info(db, feed):
     if 'info_url' not in feed: return False
     if not util.is_valid_url(feed['info_url'], suffix='.json'): return False
 
-    logging.info('Fetching feed informations: '+feed['info_url'])
+    logging.info('_Fetching feed informations: '+feed['info_url'])
 
     data = util.fetch_json(feed['info_url'])
+    logging.info(data)
     if not data: 
-        logging.error('Fetching error: '+feed['info_url'])
+        logging.info('Fetching error: '+feed['info_url'])
         inc_fetch_retry(db, feed, errors=['Fetch json failed'])
         return False
 
@@ -83,22 +86,23 @@ def fetch_feed_info(db, feed):
         errors.append("Invalid address")
    
     if len(errors)>0:
-        logging.error('Invalid json: '+feed['info_url'])
+        logging.info('Invalid json: '+feed['info_url'])
         inc_fetch_retry(db, feed, new_status = 'invalid', errors=errors) 
-        return False        
+        return False 
 
     feed['info_status'] = 'valid'
 
-    if 'image' in data['operator']:
+    if 'operator' in data and 'image' in data['operator']:
         data['operator']['valid_image'] = util.fetch_image(data['operator']['image'], config.SUBDIR_FEED_IMAGES, feed['source']+'_owner')
-    
+
     if 'image' in data:
         data['valid_image'] = util.fetch_image(data['image'], config.SUBDIR_FEED_IMAGES, feed['source']+'_topic')
 
-    for i in range(len(data["targets"])):
-        if 'image' in data["targets"][i]:
-            image_name = feed['source']+'_tv_'+str(data["targets"][i]['value'])
-            data["targets"][i]['valid_image'] = util.fetch_image(data["targets"][i]['image'], config.SUBDIR_FEED_IMAGES, image_name)
+    if 'targets' in data:
+        for i in range(len(data["targets"])):
+            if 'image' in data["targets"][i]:
+                image_name = feed['source']+'_tv_'+str(data["targets"][i]['value'])
+                data["targets"][i]['valid_image'] = util.fetch_image(data["targets"][i]['image'], config.SUBDIR_FEED_IMAGES, image_name)
 
     feed['info_data'] = sanitize_json_data(data)
 
