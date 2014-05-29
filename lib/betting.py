@@ -71,12 +71,10 @@ def fetch_feed_info(db, feed):
     if 'info_url' not in feed: return False
     if not util.is_valid_url(feed['info_url'], suffix='.json'): return False
 
-    logging.info('_Fetching feed informations: '+feed['info_url'])
+    logging.info('Fetching feed informations: '+feed['info_url'])
 
     data = util.fetch_json(feed['info_url'])
-    logging.info(data)
     if not data: 
-        logging.info('Fetching error: '+feed['info_url'])
         inc_fetch_retry(db, feed, errors=['Fetch json failed'])
         return False
 
@@ -86,7 +84,6 @@ def fetch_feed_info(db, feed):
         errors.append("Invalid address")
    
     if len(errors)>0:
-        logging.info('Invalid json: '+feed['info_url'])
         inc_fetch_retry(db, feed, new_status = 'invalid', errors=errors) 
         return False 
 
