@@ -9,7 +9,7 @@ def parse_broadcast(db, message):
     logging.info('Parsing broadcast message..')
 
     save = False
-    feed = db.feeds.find_one({"source": message['source']})
+    feed = db.feeds.find_one({'source': message['source']})
     
     if util.is_valid_url(message['text'], suffix='.json') and message['value'] == -1.0:
         if feed is None: feed = {}
@@ -28,8 +28,8 @@ def parse_broadcast(db, message):
             feed['locked'] = True
         else:
             feed['last_broadcast'] = {
-                "text": message['text'],
-                "value": message['value']
+                'text': message['text'],
+                'value': message['value']
             }
             feed['fee_fraction_int'] = message['fee_fraction_int']
         save = True
@@ -54,12 +54,12 @@ def sanitize_json_data(data):
     data['title'] = util.sanitize_eliteness(data['title'])
     if 'description' in data: data['description'] = util.sanitize_eliteness(data['description'])
     if 'targets' in data:
-        for i in range(len(data["targets"])):
-            data["targets"][i]['text'] = util.sanitize_eliteness(data["targets"][i]['text'])
-            if 'description' in data["targets"][i]: data["targets"][i]['description'] = util.sanitize_eliteness(data["targets"][i]['description'])
-            if 'labels' in data["targets"][i]:
-                data["targets"][i]['labels']['equal'] = util.sanitize_eliteness(data["targets"][i]['labels']['equal'])
-                data["targets"][i]['labels']['not_equal'] = util.sanitize_eliteness(data["targets"][i]['labels']['not_equal'])
+        for i in range(len(data['targets'])):
+            data['targets'][i]['text'] = util.sanitize_eliteness(data['targets'][i]['text'])
+            if 'description' in data['targets'][i]: data['targets'][i]['description'] = util.sanitize_eliteness(data['targets'][i]['description'])
+            if 'labels' in data['targets'][i]:
+                data['targets'][i]['labels']['equal'] = util.sanitize_eliteness(data['targets'][i]['labels']['equal'])
+                data['targets'][i]['labels']['not_equal'] = util.sanitize_eliteness(data['targets'][i]['labels']['not_equal'])
     if 'customs' in data:
         for key in data['customs']:
             if isinstance(data['customs'][key], str): data['customs'][key] = util.sanitize_eliteness(data['customs'][key])
@@ -81,7 +81,7 @@ def fetch_feed_info(db, feed):
     errors = util.is_valid_json(data, config.FEED_SCHEMA)
 
     if feed['source'] != data['address']:
-        errors.append("Invalid address")
+        errors.append('Invalid address')
    
     if len(errors)>0:
         inc_fetch_retry(db, feed, new_status = 'invalid', errors=errors) 
@@ -96,10 +96,10 @@ def fetch_feed_info(db, feed):
         data['valid_image'] = util.fetch_image(data['image'], config.SUBDIR_FEED_IMAGES, feed['source']+'_topic')
 
     if 'targets' in data:
-        for i in range(len(data["targets"])):
-            if 'image' in data["targets"][i]:
-                image_name = feed['source']+'_tv_'+str(data["targets"][i]['value'])
-                data["targets"][i]['valid_image'] = util.fetch_image(data["targets"][i]['image'], config.SUBDIR_FEED_IMAGES, image_name)
+        for i in range(len(data['targets'])):
+            if 'image' in data['targets'][i]:
+                image_name = feed['source']+'_tv_'+str(data['targets'][i]['value'])
+                data['targets'][i]['valid_image'] = util.fetch_image(data['targets'][i]['image'], config.SUBDIR_FEED_IMAGES, image_name)
 
     feed['info_data'] = sanitize_json_data(data)
 
@@ -113,14 +113,14 @@ def fetch_all_feed_info(db):
 # TODO: counter cache
 def get_feed_counters(feed_address):
     counters = {}        
-    sql  = "SELECT COUNT(*) AS bet_count, SUM(wager_quantity) AS wager_quantity, SUM(wager_remaining) AS wager_remaining, status FROM bets "
-    sql += "WHERE feed_address=? GROUP BY status ORDER BY status DESC"
+    sql  = 'SELECT COUNT(*) AS bet_count, SUM(wager_quantity) AS wager_quantity, SUM(wager_remaining) AS wager_remaining, status FROM bets '
+    sql += 'WHERE feed_address=? GROUP BY status ORDER BY status DESC'
     bindings = [feed_address] 
     params = {
-        "query": sql,
-        "bindings": bindings
+        'query': sql,
+        'bindings': bindings
     }       
-    counters['bets'] = util.call_jsonrpc_api("sql", params)['result']
+    counters['bets'] = util.call_jsonrpc_api('sql', params)['result']
     return counters;
 
 def find_feed(db, url_or_address):
@@ -137,15 +137,15 @@ def find_feed(db, url_or_address):
     return result
 
 def find_bets(bet_type, feed_address, deadline, target_value=1, leverage=5040, limit=50):         
-    sql  = "SELECT * FROM bets WHERE counterwager_remaining>0 AND "
-    sql += "bet_type=? AND feed_address=? AND target_value=? AND leverage=? AND deadline=? "
-    sql += "ORDER BY ((counterwager_quantity+0.0)/(wager_quantity+0.0)) ASC LIMIT ?";
+    sql  = 'SELECT * FROM bets WHERE counterwager_remaining>0 AND '
+    sql += 'bet_type=? AND feed_address=? AND target_value=? AND leverage=? AND deadline=? '
+    sql += 'ORDER BY ((counterwager_quantity+0.0)/(wager_quantity+0.0)) ASC LIMIT ?';
     bindings = (bet_type, feed_address, target_value, leverage, deadline, limit)     
     params = {
-        "query": sql,
-        "bindings": bindings
+        'query': sql,
+        'bindings': bindings
     }   
-    return util.call_jsonrpc_api("sql", params)['result']
+    return util.call_jsonrpc_api('sql', params)['result']
 
 def get_feeds_by_source(db, addresses):
     conditions = { 'source': { '$in': addresses }}
@@ -157,17 +157,17 @@ def get_feeds_by_source(db, addresses):
 # TODO: move this in Counterwallet
 def find_user_bets(db, addresses, status='open'):
     params = {
-        "filters": {
+        'filters': {
             'field': 'source',
             'op': 'IN',
             'value': addresses
         },
-        "status": status,
-        "order_by": "tx_index",
-        "order_dir": "DESC",
-        "limit": 100
+        'status': status,
+        'order_by': 'tx_index',
+        'order_dir': 'DESC',
+        'limit': 100
     }
-    bets = util.call_jsonrpc_api("get_bets", params)['result']
+    bets = util.call_jsonrpc_api('get_bets', params)['result']
 
     sources = {}
     for bet in bets: sources[bet['feed_address']] = True;
