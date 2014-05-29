@@ -15,16 +15,13 @@ import time
 import pymongo
 import gevent
 
-from lib import (config, util, events)
-
-from betting import Betting
+from lib import (config, util, events, betting)
 
 D = decimal.Decimal
 
 def process_cpd_blockfeed(zmq_publisher_eventfeed):
     LATEST_BLOCK_INIT = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
     mongo_db = config.mongo_db
-    betting = Betting(mongo_db)
 
     def blow_away_db():
         #boom! blow away all collections in mongo
@@ -469,7 +466,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 
                 #broadcast
                 if msg['category'] == 'broadcasts':
-                    betting.parse_broadcast(msg_data)
+                    betting.parse_broadcast(mongo_db, msg_data)
 
                 #if we're catching up beyond 10 blocks out, make sure not to send out any socket.io events, as to not flood
                 # on a resync (as we may give a 525 to kick the logged in clients out, but we can't guarantee that the

@@ -29,8 +29,6 @@ from requests.auth import HTTPBasicAuth
 
 from lib import (config, api, events, blockfeed, siofeeds, util)
 
-import sqlite3
-
 
 if __name__ == '__main__':
     # Parse command-line arguments.
@@ -407,21 +405,8 @@ if __name__ == '__main__':
     else:
         config.ROLLBAR_ENV = 'counterblockd-production'
 
-    # initialize config.sqlite
+    # current dir
     config.COUNTERBLOCKD_DIR = os.path.dirname(os.path.realpath(__file__))
-    counterpartyd_version_path = os.path.join(config.COUNTERBLOCKD_DIR, '..', 'counterpartyd', 'version.json')
-    with open(counterpartyd_version_path) as version_file:    
-        counterpartyd_version = json.load(version_file)
-        db_version = counterpartyd_version['minimum_version_major']
-        db_name = 'counterpartyd.' + str(db_version)
-        counterpartyd_data_dir = 'counterpartyd'
-        if config.TESTNET:
-            db_name += '.testnet'
-            counterpartyd_data_dir += '-testnet'
-        db_name += '.db'
-        counterpartyd_db_path = os.path.join(config.data_dir, '..', counterpartyd_data_dir, db_name)
-        config.sqlite = sqlite3.connect(counterpartyd_db_path)
-        config.sqlite.row_factory = sqlite3.Row
 
     # initialize json schema for json feed validation
     config.FEED_SCHEMA = json.load(open(os.path.join(config.COUNTERBLOCKD_DIR, 'schemas', 'feed.schema.json')))
