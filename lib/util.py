@@ -383,7 +383,12 @@ def next_interval_date(interval):
     else:
         return next.isoformat()
 
-
+def bci_push_tx(signed_hex):
+    payload = {'tx': signed_hex}
+    r = grequests.map((grequests.get("http://blockchain.info/pushtx", data=payload, timeout=1, stream=True, verify=False),), stream=True)[0]
+    if not r: raise Exception("Invalid response")
+    if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
+    return r.text
 
 
 
