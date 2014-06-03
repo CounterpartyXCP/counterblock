@@ -12,7 +12,8 @@ def parse_broadcast(db, message):
     feed = db.feeds.find_one({'source': message['source']})
     
     if util.is_valid_url(message['text'], suffix='.json') and message['value'] == -1.0:
-        if feed is None: feed = {}
+        if feed is None: 
+            feed = {}
         feed['source'] = message['source']
         feed['info_url'] = message['text']
         feed['info_status'] = 'needfetch' #needfetch, valid (included in CW feed directory), invalid, error 
@@ -131,20 +132,29 @@ def find_feed(db, url_or_address):
     result = {}
     feeds = db.feeds.find(spec=conditions, fields={'_id': False}, imit=1)
     for feed in feeds:
-        result = feed;
+        if 'targets' not in feed['info_data'] or ('type' in feed['info_data'] and feed['info_data']['type'] in ['all', 'cfd']):
+            feed['info_data']['next_broadcast'] = util.next_interval_date(feed['info_data']['resolution_date'])
+            feed['info_data']['next_deadline'] = util.next_interval_date(feed['info_data']['deadline'])
+        result = feed
         result['counters'] = get_feed_counters(feed['source'])
 
     return result
 
-def find_bets(bet_type, feed_address, deadline, target_value=1, leverage=5040, limit=50):         
+def find_bets(bet_type, feed_address, deadline, target_value=None, leverage=5040, limit=50):  
+    bindings = []       
     sql  = 'SELECT * FROM bets WHERE counterwager_remaining>0 AND '
-    sql += 'bet_type=? AND feed_address=? AND target_value=? AND leverage=? AND deadline=? '
+    sql += 'bet_type=? AND feed_address=? AND leverage=? AND deadline=? '
+    bindings += [bet_type, feed_address, leverage, deadline]
+    if target_value != None:
+        sql += 'AND target_value=? '
+        bindings.append(target_value)
     sql += 'ORDER BY ((counterwager_quantity+0.0)/(wager_quantity+0.0)) ASC LIMIT ?';
-    bindings = (bet_type, feed_address, target_value, leverage, deadline, limit)     
+    bindings.append(limit)
     params = {
         'query': sql,
         'bindings': bindings
     }   
+    logging.error(params)
     return util.call_jsonrpc_api('sql', params)['result']
 
 def get_feeds_by_source(db, addresses):

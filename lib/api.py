@@ -1234,7 +1234,7 @@ def serve_api(mongo_db, redis_client):
         return result['result']
 
     @dispatcher.add_method
-    def get_bets(bet_type, feed_address, deadline, target_value=1, leverage=5040):
+    def get_bets(bet_type, feed_address, deadline, target_value=None, leverage=5040):
         bets = betting.find_bets(bet_type, feed_address, deadline, target_value=target_value, leverage=leverage)
         return bets
 
