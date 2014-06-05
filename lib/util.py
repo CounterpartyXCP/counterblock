@@ -32,9 +32,9 @@ def sanitize_eliteness(text):
     return cgi.escape(lxml.html.document_fromstring(text).text_content())
     #^ wrap in cgi.escape - see https://github.com/mitotic/graphterm/issues/5
 
-def is_valid_url(url, suffix='', allow_localhost=False):
+def is_valid_url(url, suffix='', allow_localhost=False, allow_no_protocol=False):
     regex = re.compile(
-        r'^https?://'  # http:// or https://
+        r'^https?://' if not allow_no_protocol else r'^' # http:// or https://
         r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
         r'localhost|'  # localhost...
         r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})' # ...or ip
@@ -296,9 +296,12 @@ def make_data_dir(subfolder):
 
 def fetch_json(url, max_size=4*1024):
     try:
+        if url[:7] != 'http://' and url[:8] != 'https://':
+            url = 'http://' + url
         r = grequests.map((grequests.get(url, timeout=1, stream=True, verify=False),), stream=True)[0]
         if not r: raise Exception("Invalid response")
         if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
+        
         #read up to 4KB and try to convert to JSON
         raw_data = r.raw.read(max_size, decode_content=True)
         r.raw.release_conn() 

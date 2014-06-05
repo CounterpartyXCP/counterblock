@@ -11,7 +11,7 @@ def parse_broadcast(db, message):
     save = False
     feed = db.feeds.find_one({'source': message['source']})
     
-    if util.is_valid_url(message['text']) and message['value'] == -1.0:
+    if util.is_valid_url(message['text'], allow_no_protocol=True) and message['value'] == -1.0:
         if feed is None: 
             feed = {}
         feed['source'] = message['source']
@@ -70,7 +70,7 @@ def fetch_feed_info(db, feed):
     # sanity check
     if feed['info_status'] != 'needfetch': return False
     if 'info_url' not in feed: return False
-    if not util.is_valid_url(feed['info_url']): return False
+    if not util.is_valid_url(feed['info_url'], allow_no_protocol=True): return False
 
     logging.info('Fetching feed informations: '+feed['info_url'])
 
