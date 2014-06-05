@@ -19,9 +19,9 @@ from PIL import Image
 import dateutil.parser
 import calendar
 
-from jsonschema import FormatChecker, Draft4Validator
+from jsonschema import FormatChecker, Draft4Validator, FormatError
 # not needed here but to ensure that installed
-import strict_rfc3339, rfc3987
+import strict_rfc3339, rfc3987, aniso8601
 
 from . import (config,)
 
@@ -339,14 +339,56 @@ def date_param(strDate):
     except Exception, e:
         return False
 
+def parse_iso8601_interval(value):
+    try:
+        return aniso8601.parse_interval(value)
+    except Exception:
+        try:
+            return aniso8601.parse_repeating_interval(value)
+        except Exception:
+            raise FormatError('{} is not an iso8601 interval'.format(value))
+
 def is_valid_json(data, schema):
+    checker = FormatChecker();
+    # add the "interval" format
+    checker.checks("interval")(parse_iso8601_interval)
+    validator = Draft4Validator(schema, format_checker=checker)
     errors = []
-    validator = Draft4Validator(schema, format_checker=FormatChecker())
     for error in validator.iter_errors(data):
         errors.append(error.message)
     return errors
     
+def next_interval_date(interval):
+    try:
+        generator = parse_iso8601_interval(interval)
+    except Exception, e:
+        logging.error(e)
+        return None
 
+    def ts(dt):
+        return time.mktime(dt.timetuple())
+
+    previous = None
+    next = generator.next()
+    now = datetime.datetime.now()
+    while ts(next) < ts(now) and next != previous:
+        try:
+            previous = next
+            next = generator.next()
+        except Exception, e:
+            break
+
+    if ts(next) < ts(now):
+        return None
+    else:
+        return next.isoformat()
+
+def bci_push_tx(signed_hex):
+    payload = {'tx': signed_hex}
+    r = grequests.map((grequests.get("http://blockchain.info/pushtx", data=payload, timeout=1, stream=True, verify=False),), stream=True)[0]
+    if not r: raise Exception("Invalid response")
+    if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
+    return r.text
 
 
 
