@@ -133,7 +133,7 @@ def find_feed(db, url_or_address):
     feeds = db.feeds.find(spec=conditions, fields={'_id': False}, imit=1)
     for feed in feeds:
         if 'targets' not in feed['info_data'] or ('type' in feed['info_data'] and feed['info_data']['type'] in ['all', 'cfd']):
-            feed['info_data']['next_broadcast'] = util.next_interval_date(feed['info_data']['resolution_date'])
+            feed['info_data']['next_broadcast'] = util.next_interval_date(feed['info_data']['broadcast_date'])
             feed['info_data']['next_deadline'] = util.next_interval_date(feed['info_data']['deadline'])
         result = feed
         result['counters'] = get_feed_counters(feed['source'])
