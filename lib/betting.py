@@ -6,8 +6,6 @@ import decimal
 D = decimal.Decimal
 
 def parse_broadcast(db, message):
-    logging.info('Parsing broadcast message..')
-
     save = False
     feed = db.feeds.find_one({'source': message['source']})
     
@@ -47,7 +45,6 @@ def inc_fetch_retry(db, feed, max_retry = 3, new_status = 'error', errors=[]):
     db.feeds.save(feed)
 
 def sanitize_json_data(data):
-    # TODO: make this in more elegant way
     if 'operator' in data:
         data['operator']['name'] = util.sanitize_eliteness(data['operator']['name'])
         if 'description' in data['operator']: data['operator']['description'] = util.sanitize_eliteness(data['operator']['description'])
@@ -71,7 +68,7 @@ def fetch_feed_info(db, feed):
     if 'info_url' not in feed: return False
     if not util.is_valid_url(feed['info_url'], suffix='.json'): return False
 
-    logging.info('Fetching feed informations: '+feed['info_url'])
+    logging.info('Fetching enhanced feed info: ' + feed['info_url'])
 
     data = util.fetch_json(feed['info_url'])
     if not data: 
@@ -170,12 +167,10 @@ def find_user_bets(db, addresses, status='open'):
     bets = util.call_jsonrpc_api('get_bets', params)['result']
 
     sources = {}
-    for bet in bets: sources[bet['feed_address']] = True;
+    for bet in bets:
+        sources[bet['feed_address']] = True
     
     return {
         'bets': bets,
         'feeds': get_feeds_by_source(db, sources.keys())
     }
-    
-    
-

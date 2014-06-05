@@ -75,6 +75,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
     MAX_TEXT_LEN = 500
     TIME_BETWEEN_MESSAGES = 10 #in seconds (auto-adjust this in the future based on chat speed/volume)
     NUM_HISTORY_LINES_ON_JOIN = 100
+    NUM_HISTORY_LINES_NO_REPEAT = 3 #max number of lines to go back ensuring the user is not repeating him/herself
     
     def disconnect(self, silent=False):
         """Triggered when the client disconnects (e.g. client closes their browser)"""
@@ -164,7 +165,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             
             message = util.sanitize_eliteness(message[:self.MAX_TEXT_LEN]) #truncate to max allowed and sanitize
             onlineClients[p['wallet_id']]['state'].emit("emote", self.socket.session['handle'],
-                message, self.socket.session['is_op'], True)
+                message, self.socket.session['is_op'], True, False) #isPrivate = True, viaCommand = False
         elif command in ['op', 'unop']: #/op|unop <handle>
             if len(args) != 1:
                 return self.error('invalid_args', "USAGE: /op|unop {handle to op/unop} -- Desc: Gives/removes operator priveledges from a specific user")
@@ -258,12 +259,18 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                 return self.error('invalid_args', "Asset '%s' has no extended info" % (asset))
             asset_info['disabled'] = command == 'disextinfo'
             self.request['mongo_db'].asset_extended_info.save(asset_info)
-            return self.emit("emote", None, "Asset '%s' extended info %s" % (asset, 'disabled' if command == 'disextinfo' else 'enabled'))
+            return self.emit("emote", None,
+                "Asset '%s' extended info %s" % (asset, 'disabled' if command == 'disextinfo' else 'enabled'),
+                False, True) #isPrivate = False, viaCommand = True
         elif command == 'help':
             if self.socket.session['is_op']:
-                return self.emit('emote', None, "Valid commands: '/op', '/unop', '/ban', '/unban', '/handle', '/online', '/enextinfo', '/disextinfo'. Type a command alone (i.e. with no arguments) to see the usage.", False, False)
+                return self.emit('emote', None,
+                    "Valid commands: '/op', '/unop', '/ban', '/unban', '/handle', '/online', '/enextinfo', '/disextinfo'. Type a command alone (i.e. with no arguments) to see the usage.",
+                    False, False, True) #isOp = False, isPrivate = False, viaCommand = True
             else:
-                return self.emit('emote', None, "Valid commands: '/online', '/msg'. Type a command alone (i.e. with no arguments) to see the usage.", False, False)
+                return self.emit('emote', None,
+                    "Valid commands: '/online', '/msg'. Type a command alone (i.e. with no arguments) to see the usage.",
+                    False, False, True) #isOp = False, isPrivate = False, viaCommand = True
         else: assert False #handled earlier
             
     
@@ -283,12 +290,22 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             last_message_ago = time.mktime(time.gmtime()) - self.socket.session['last_action']
         else:
             last_message_ago = None
+            
+        #make sure this line hasn't been repeated in the last N chat lines
+        past_lines = self.request['mongo_db'].chat_history.find({'handle': self.socket.session['handle']}).sort(
+            "when", pymongo.DESCENDING).limit(self.NUM_HISTORY_LINES_NO_REPEAT)
+        past_lines = [l['text'] for l in list(past_lines)] if past_lines else []
         
-        if self.socket.session['is_op'] or (last_message_ago is None or last_message_ago >= self.TIME_BETWEEN_MESSAGES):
-            #not spamming, or an op
+        if text in past_lines: #user is repeating him/herself
+            return self.error('repeat_line', "Sorry, this chat message appears to be a duplicate")
+        elif (last_message_ago is not None and last_message_ago < self.TIME_BETWEEN_MESSAGES) and not self.socket.session['is_op']: #spamming
+            return self.error('too_fast', "Your last message was %i seconds ago (max 1 message every %i seconds)" % (
+                last_message_ago, self.TIME_BETWEEN_MESSAGES))
+        else: #not spamming, or an op
             text = util.sanitize_eliteness(text[:self.MAX_TEXT_LEN]) #sanitize
             if self.socket.session['is_primary_server']:
-                self.broadcast_event_not_me('emote', self.socket.session['handle'], text, self.socket.session['is_op'], False)
+                self.broadcast_event('emote', self.socket.session['handle'], text, self.socket.session['is_op'], False, False)
+                #^ isPrivate = False, viaCommand = False
             self.socket.session['last_action'] = time.mktime(time.gmtime())
             self.request['mongo_db'].chat_history.insert({
                 'handle': self.socket.session['handle'],
@@ -296,9 +313,6 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                 'text': text,
                 'when': self.socket.session['last_action']
             })
-        else: #spamming
-            return self.error('too_fast', "Your last message was %i seconds ago (max 1 message every %i seconds)" % (
-                last_message_ago, self.TIME_BETWEEN_MESSAGES))
         
 
 class SocketIOChatFeedServer(object):
