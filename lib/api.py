@@ -1253,9 +1253,6 @@ def serve_api(mongo_db, redis_client):
         feed = betting.get_feeds_by_source(mongo_db, addresses)
         return feed
 
-    def bci_push_tx(signed_hex):
-        return util.bci_push_tx(signed_hex)
-
     class API(object):
         @cherrypy.expose
         def index(self):

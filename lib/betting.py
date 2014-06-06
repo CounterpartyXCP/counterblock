@@ -109,7 +109,11 @@ def fetch_feed_info(db, feed):
 def fetch_all_feed_info(db):
     feeds = db.feeds.find({'info_status': 'needfetch'})
     for feed in feeds:
-        fetch_feed_info(db, feed)
+        try:
+            fetch_feed_info(db, feed)
+        except Exception, e:
+            inc_fetch_retry(db, feed, errors=[str(e)])
+            logging.error(e)
 
 # TODO: counter cache
 def get_feed_counters(feed_address):
