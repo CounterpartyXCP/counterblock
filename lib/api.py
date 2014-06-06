@@ -1258,6 +1258,11 @@ def serve_api(mongo_db, redis_client):
         feed = betting.parse_base64_feed(base64_feed)
         return feed
 
+    @dispatcher.add_method
+    def bci_push_tx(signed_hex):
+        return util.bci_push_tx(signed_hex)
+
+
     class API(object):
         @cherrypy.expose
         def index(self):
