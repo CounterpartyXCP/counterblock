@@ -1253,6 +1253,11 @@ def serve_api(mongo_db, redis_client):
         feed = betting.get_feeds_by_source(mongo_db, addresses)
         return feed
 
+    @dispatcher.add_method
+    def parse_base64_feed(base64_feed):
+        feed = betting.parse_base64_feed(base64_feed)
+        return feed
+
     class API(object):
         @cherrypy.expose
         def index(self):

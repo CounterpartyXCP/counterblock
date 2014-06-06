@@ -2,6 +2,8 @@ from lib import config, util
 from datetime import datetime
 import logging
 import decimal
+import base64
+import json
 
 D = decimal.Decimal
 
@@ -143,6 +145,41 @@ def find_feed(db, url_or_address):
         result['counters'] = get_feed_counters(feed['source'])
 
     return result
+
+def parse_base64_feed(base64_feed):
+    decoded_feed = base64.b64decode(base64_feed)
+    feed = json.loads(decoded_feed)
+    if isinstance(feed, dict) and 'feed' in feed:
+        errors = util.is_valid_json(feed['feed'], config.FEED_SCHEMA)
+        if len(errors) > 0:
+            raise Exception("Invalid json: {}".format(", ".join(errors)))
+        # get broadcast infos
+        params = {
+            'filters': {
+                'field': 'source',
+                'op': '=',
+                'value': feed['feed']['address']
+            },
+            'order_by': 'tx_index',
+            'order_dir': 'DESC',
+            'limit': 1
+        }
+        broadcasts = util.call_jsonrpc_api('get_broadcasts', params)['result']
+        if len(broadcasts) == 0:
+            raise Exception("invalid feed address")
+
+        complete_feed = {}
+        complete_feed['fee_fraction_int'] = broadcasts[0]['fee_fraction_int']
+        complete_feed['source'] = broadcasts[0]['source']
+        complete_feed['locked'] = broadcasts[0]['locked']
+        complete_feed['counters'] = get_feed_counters(broadcasts[0]['source'])
+        complete_feed['info_data'] = sanitize_json_data(feed['feed'])
+        
+        feed['feed'] = complete_feed
+        return feed
+
+
+
 
 def find_bets(bet_type, feed_address, deadline, target_value=None, leverage=5040, limit=50):  
     bindings = []       
