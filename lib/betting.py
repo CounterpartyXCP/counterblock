@@ -2,6 +2,8 @@ from lib import config, util
 from datetime import datetime
 import logging
 import decimal
+import base64
+import json
 
 D = decimal.Decimal
 
@@ -9,8 +11,9 @@ def parse_broadcast(db, message):
     save = False
     feed = db.feeds.find_one({'source': message['source']})
     
-    if util.is_valid_url(message['text'], suffix='.json') and message['value'] == -1.0:
-        if feed is None: feed = {}
+    if util.is_valid_url(message['text'], allow_no_protocol=True) and message['value'] == -1.0:
+        if feed is None: 
+            feed = {}
         feed['source'] = message['source']
         feed['info_url'] = message['text']
         feed['info_status'] = 'needfetch' #needfetch, valid (included in CW feed directory), invalid, error 
@@ -66,7 +69,7 @@ def fetch_feed_info(db, feed):
     # sanity check
     if feed['info_status'] != 'needfetch': return False
     if 'info_url' not in feed: return False
-    if not util.is_valid_url(feed['info_url'], suffix='.json'): return False
+    if not util.is_valid_url(feed['info_url'], allow_no_protocol=True): return False
 
     logging.info('Fetching enhanced feed info: ' + feed['info_url'])
 
@@ -105,7 +108,11 @@ def fetch_feed_info(db, feed):
 def fetch_all_feed_info(db):
     feeds = db.feeds.find({'info_status': 'needfetch'})
     for feed in feeds:
-        fetch_feed_info(db, feed)
+        try:
+            fetch_feed_info(db, feed)
+        except Exception, e:
+            inc_fetch_retry(db, feed, errors=[str(e)])
+            logging.error(e)
 
 # TODO: counter cache
 def get_feed_counters(feed_address):
@@ -128,20 +135,64 @@ def find_feed(db, url_or_address):
     result = {}
     feeds = db.feeds.find(spec=conditions, fields={'_id': False}, imit=1)
     for feed in feeds:
-        result = feed;
+        if 'targets' not in feed['info_data'] or ('type' in feed['info_data'] and feed['info_data']['type'] in ['all', 'cfd']):
+            feed['info_data']['next_broadcast'] = util.next_interval_date(feed['info_data']['broadcast_date'])
+            feed['info_data']['next_deadline'] = util.next_interval_date(feed['info_data']['deadline'])
+        result = feed
         result['counters'] = get_feed_counters(feed['source'])
 
     return result
 
-def find_bets(bet_type, feed_address, deadline, target_value=1, leverage=5040, limit=50):         
+def parse_base64_feed(base64_feed):
+    decoded_feed = base64.b64decode(base64_feed)
+    feed = json.loads(decoded_feed)
+    if isinstance(feed, dict) and 'feed' in feed:
+        errors = util.is_valid_json(feed['feed'], config.FEED_SCHEMA)
+        if len(errors) > 0:
+            raise Exception("Invalid json: {}".format(", ".join(errors)))
+        # get broadcast infos
+        params = {
+            'filters': {
+                'field': 'source',
+                'op': '=',
+                'value': feed['feed']['address']
+            },
+            'order_by': 'tx_index',
+            'order_dir': 'DESC',
+            'limit': 1
+        }
+        broadcasts = util.call_jsonrpc_api('get_broadcasts', params)['result']
+        if len(broadcasts) == 0:
+            raise Exception("invalid feed address")
+
+        complete_feed = {}
+        complete_feed['fee_fraction_int'] = broadcasts[0]['fee_fraction_int']
+        complete_feed['source'] = broadcasts[0]['source']
+        complete_feed['locked'] = broadcasts[0]['locked']
+        complete_feed['counters'] = get_feed_counters(broadcasts[0]['source'])
+        complete_feed['info_data'] = sanitize_json_data(feed['feed'])
+        
+        feed['feed'] = complete_feed
+        return feed
+
+
+
+
+def find_bets(bet_type, feed_address, deadline, target_value=None, leverage=5040, limit=50):  
+    bindings = []       
     sql  = 'SELECT * FROM bets WHERE counterwager_remaining>0 AND '
-    sql += 'bet_type=? AND feed_address=? AND target_value=? AND leverage=? AND deadline=? '
+    sql += 'bet_type=? AND feed_address=? AND leverage=? AND deadline=? '
+    bindings += [bet_type, feed_address, leverage, deadline]
+    if target_value != None:
+        sql += 'AND target_value=? '
+        bindings.append(target_value)
     sql += 'ORDER BY ((counterwager_quantity+0.0)/(wager_quantity+0.0)) ASC LIMIT ?';
-    bindings = (bet_type, feed_address, target_value, leverage, deadline, limit)     
+    bindings.append(limit)
     params = {
         'query': sql,
         'bindings': bindings
     }   
+    logging.error(params)
     return util.call_jsonrpc_api('sql', params)['result']
 
 def get_feeds_by_source(db, addresses):

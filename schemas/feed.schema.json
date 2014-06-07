@@ -13,6 +13,34 @@
             "additionalProperties":false,
             "required": ["name"]
         },
+        "default_labels": {
+            "allOf": [{
+                "type": "object",
+                "properties": {
+                    "equal": {"type" : "string", "maxLength": 32},
+                    "not_equal": {"type" : "string", "maxLength": 32},
+                    "bear": {"type" : "string", "maxLength": 32},
+                    "bull": {"type" : "string", "maxLength": 32}
+                },
+                "additionalProperties":false
+            }, {
+                "anyOf":[{
+                    "type": "object",
+                    "properties": {
+                        "equal": {"type" : "string", "maxLength": 32},
+                        "not_equal": {"type" : "string", "maxLength": 32}
+                    },
+                    "required": ["equal", "not_equal"]
+                }, {
+                    "type": "object",
+                    "properties": {
+                        "bear": {"type" : "string", "maxLength": 32},
+                        "bull": {"type" : "string", "maxLength": 32}
+                    },
+                    "required": ["bear", "bull"]
+                }]
+            }]         
+        },
         "target_labels": {
             "type": "object",
             "properties": {
@@ -22,7 +50,7 @@
             "additionalProperties":false,
             "required": ["equal", "not_equal"]
         },
-        "target_odds": {
+        "default_odds": {
             "oneOf":[{
                 "type": "object",
                 "properties": {
@@ -55,7 +83,7 @@
                 "deadline": {"type" : "string", "format": "date-time"},
                 "image": {"type" : "string", "format": "uri"},
                 "labels": {"$ref": "#/definitions/target_labels"},
-                "odds": {"$ref": "#/definitions/target_odds"}
+                "odds": {"$ref": "#/definitions/default_odds"}
             },
             "additionalProperties":false,
             "required": ["text", "value", "deadline"]
@@ -83,28 +111,32 @@
                 "image": {"type" : "string", "format": "uri"},
                 "description": {"type" : "string", "maxLength": 255},
                 "url": {"type" : "string", "format": "uri"},
-                "resolution_date": {"type" : "string", "format": "date-time"},
-                "broadcast_interval": {"type" : "number"},                    
+                "broadcast_date": {"type" : "string"},   
+                "deadline": {"type" : "string", "format": "interval"},                 
                 "operator": {"$ref": "#/definitions/operator"},
+                "labels": {"$ref": "#/definitions/default_labels"},
+                "odds": {"$ref": "#/definitions/default_odds"},
                 "targets": {"$ref": "#/definitions/targets"},
                 "customs": {"$ref": "#/definitions/customs"}
             },
             "additionalProperties":false,
-            "required": ["address", "title", "resolution_date"]  
+            "required": ["address", "title"]  
         },
         "binary_feed": {
             "type": "object",
             "properties": {
-                "type": {"enum": ["binary", null]}
+                "type": {"enum": ["binary", null]},
+                "broadcast_date": {"type" : "string", "format": "date-time"}
             },
-            "required": ["targets"]
+            "required": ["broadcast_date", "targets"]
         },
-        "cfd_fedd": {
+        "cfd_feed": {
             "type": "object",
             "properties": {
-                "type": {"enum": ["cfd", null]}
+                "type": {"enum": ["cfd", null]},
+                "broadcast_date": {"type" : "string", "format": "interval"}
             },
-            "required": ["broadcast_interval"]
+            "required": ["broadcast_date", "deadline"]
         },
         "all_feed": {
             "type": "object",
@@ -120,7 +152,7 @@
                 "anyOf" : [{
                     "$ref": "#/definitions/binary_feed"   
                 }, {
-                    "$ref": "#/definitions/cfd_fedd" 
+                    "$ref": "#/definitions/cfd_feed" 
                 }, {
                     "$ref": "#/definitions/all_feed"
                 }]

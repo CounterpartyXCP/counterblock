@@ -1234,7 +1234,7 @@ def serve_api(mongo_db, redis_client):
         return result['result']
 
     @dispatcher.add_method
-    def get_bets(bet_type, feed_address, deadline, target_value=1, leverage=5040):
+    def get_bets(bet_type, feed_address, deadline, target_value=None, leverage=5040):
         bets = betting.find_bets(bet_type, feed_address, deadline, target_value=target_value, leverage=leverage)
         return bets
 
@@ -1251,6 +1251,11 @@ def serve_api(mongo_db, redis_client):
     @dispatcher.add_method
     def get_feeds_by_source(addresses = []):
         feed = betting.get_feeds_by_source(mongo_db, addresses)
+        return feed
+
+    @dispatcher.add_method
+    def parse_base64_feed(base64_feed):
+        feed = betting.parse_base64_feed(base64_feed)
         return feed
 
     class API(object):
