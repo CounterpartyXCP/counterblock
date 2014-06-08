@@ -75,9 +75,8 @@ def compile_asset_pair_market_info():
             {'field': 'fee_required_remaining', 'op': '>=', 'value': 0},
             {'field': 'fee_provided_remaining', 'op': '>=', 'value': 0},
           ],
+          'status': 'open',
           'show_expired': False,
-          #'order_by': 'block_index',
-          #'order_dir': 'asc'
         }, abort_on_error=True)['result']
     pair_data = {}
     asset_info = {}

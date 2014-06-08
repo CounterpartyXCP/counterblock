@@ -616,12 +616,10 @@ def serve_api(mongo_db, redis_client):
         base_bid_filters = [
             {"field": "get_asset", "op": "==", "value": base_asset},
             {"field": "give_asset", "op": "==", "value": quote_asset},
-            {'field': 'status', 'op': '==', 'value': 'open'},
         ]
         base_ask_filters = [
             {"field": "get_asset", "op": "==", "value": quote_asset},
             {"field": "give_asset", "op": "==", "value": base_asset},
-            {'field': 'status', 'op': '==', 'value': 'open'},
         ]
         if base_asset == 'BTC' or quote_asset == 'BTC':
             extra_filters = [
@@ -634,15 +632,17 @@ def serve_api(mongo_db, redis_client):
             base_ask_filters += extra_filters
         
         base_bid_orders = util.call_jsonrpc_api("get_orders", {
-            'filters': base_bid_filters,
-            'show_expired': False,
+             'filters': base_bid_filters,
+             'show_expired': False,
+             'status': 'open',
              'order_by': 'block_index',
              'order_dir': 'asc',
             }, abort_on_error=True)['result']
 
         base_ask_orders = util.call_jsonrpc_api("get_orders", {
-            'filters': base_ask_filters,
-            'show_expired': False,
+             'filters': base_ask_filters,
+             'show_expired': False,
+             'status': 'open',
              'order_by': 'block_index',
              'order_dir': 'asc',
             }, abort_on_error=True)['result']
