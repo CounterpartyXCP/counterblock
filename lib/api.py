@@ -8,6 +8,7 @@ import decimal
 import operator
 import logging
 import copy
+import uuid
 
 from logging import handlers as logging_handlers
 from gevent import pywsgi
@@ -1164,15 +1165,20 @@ def serve_api(mongo_db, redis_client):
         return chat_history 
 
     @dispatcher.add_method
-    def get_preferences(wallet_id):
+    def get_preferences(wallet_id, force_login=False):
+        if wallet_id in siofeeds.onlineClients and not force_login:
+            raise Exception("Already connected.")
+
         result =  mongo_db.preferences.find_one({"wallet_id": wallet_id})
         if not result: return False #doesn't exist
         result['last_touched'] = time.mktime(time.gmtime())
         mongo_db.preferences.save(result)
+
         return {
             'preferences': json.loads(result['preferences']),
             'last_updated': result.get('last_updated', None)
-            } if result else {'preferences': {}, 'last_updated': None}
+        } 
+
 
     @dispatcher.add_method
     def store_preferences(wallet_id, preferences):
