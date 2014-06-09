@@ -77,7 +77,7 @@ def serve_api(mongo_db, redis_client):
             block_height_response = util.call_insight_api('/api/status?q=getInfo', abort_on_error=True)
             block_height = block_height_response['info']['blocks'] if block_height_response else None
         for address in addresses:
-            info = util.call_insight_api('/api/addr/' + address + '/?noCache=1', abort_on_error=True)
+            info = util.call_insight_api('/api/addr/' + address + '/', abort_on_error=True)
             txns = info['transactions']
             del info['transactions']
 
@@ -87,7 +87,7 @@ def serve_api(mongo_db, redis_client):
             if with_block_height: result['block_height'] = block_height
             #^ yeah, hacky...it will be the same block height for each address (we do this to avoid an extra API call to get_btc_block_height)
             if with_uxtos:
-                result['uxtos'] = util.call_insight_api('/api/addr/' + address + '/utxo/?noCache=1', abort_on_error=True)
+                result['uxtos'] = util.call_insight_api('/api/addr/' + address + '/utxo/', abort_on_error=True)
             if with_last_txn_hashes:
                 #with last_txns, only show CONFIRMED txns (so skip the first info['unconfirmedTxApperances'] # of txns, if not 0
                 result['last_txns'] = txns[info['unconfirmedTxApperances']:with_last_txn_hashes+info['unconfirmedTxApperances']]
