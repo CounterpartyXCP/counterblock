@@ -8,6 +8,7 @@ import decimal
 import operator
 import logging
 import copy
+import uuid
 
 from logging import handlers as logging_handlers
 from gevent import pywsgi
@@ -998,14 +999,12 @@ def serve_api(mongo_db, redis_client):
             
             assert prev
             if raw[i]['_change_type'] == 'locked':
-                assert prev['locked'] != raw[i]['locked']
                 history.append({
                     'type': 'locked',
                     'at_block': raw[i]['_at_block'],
                     'at_block_time': time.mktime(raw[i]['_at_block_time'].timetuple()) * 1000,
                 })
             elif raw[i]['_change_type'] == 'transferred':
-                assert prev['owner'] != raw[i]['owner']
                 history.append({
                     'type': 'transferred',
                     'at_block': raw[i]['_at_block'],
@@ -1014,7 +1013,6 @@ def serve_api(mongo_db, redis_client):
                     'new_owner': raw[i]['owner'],
                 })
             elif raw[i]['_change_type'] == 'changed_description':
-                assert prev['description'] !=  raw[i]['description']
                 history.append({
                     'type': 'changed_description',
                     'at_block': raw[i]['_at_block'],
@@ -1036,8 +1034,9 @@ def serve_api(mongo_db, redis_client):
             prev = raw[i]
         
         #get callbacks externally via the cpd API, and merge in with the asset history we composed
+        logging.error('ASSET: '+asset['asset'])
         callbacks = util.call_jsonrpc_api("get_callbacks",
-            [{'field': 'asset', 'op': '==', 'value': asset['asset']},], abort_on_error=True)['result']
+            {'filters': {'field': 'asset', 'op': '==', 'value': asset['asset']}}, abort_on_error=True)['result']
         final_history = []
         if len(callbacks):
             for e in history: #history goes from earliest to latest
@@ -1198,14 +1197,17 @@ def serve_api(mongo_db, redis_client):
         return chat_history 
 
     @dispatcher.add_method
-    def get_preferences(wallet_id, for_login=False, network=None):
+    def get_preferences(wallet_id, for_login=False, network=None, force_login=False):
         """Gets stored wallet preferences
         @param network: only required if for_login is specified. One of: 'mainnet' or 'testnet'
         """
+        if wallet_id in siofeeds.onlineClients and not force_login:
+            raise Exception("Already connected.")
         if network not in (None, 'mainnet', 'testnet'):
             raise Exception("Invalid network parameter setting")
         if for_login and network is None:
             raise Exception("network parameter required if for_login is set")
+
         result =  mongo_db.preferences.find_one({"wallet_id": wallet_id})
         if not result: return False #doesn't exist
         
@@ -1217,11 +1219,12 @@ def serve_api(mongo_db, redis_client):
         
         result['last_touched'] = time.mktime(time.gmtime())
         mongo_db.preferences.save(result)
-        
+
         return {
             'preferences': json.loads(result['preferences']),
             'last_updated': result.get('last_updated', None)
-            } if result else {'preferences': {}, 'last_updated': None}
+        } 
+
 
     @dispatcher.add_method
     def store_preferences(wallet_id, preferences, for_login=False, network=None, referer=None):
