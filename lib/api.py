@@ -78,7 +78,7 @@ def serve_api(mongo_db, redis_client):
             block_height_response = util.call_insight_api('/api/status?q=getInfo', abort_on_error=True)
             block_height = block_height_response['info']['blocks'] if block_height_response else None
         for address in addresses:
-            info = util.call_insight_api('/api/addr/' + address + '/?noCache=1', abort_on_error=True)
+            info = util.call_insight_api('/api/addr/' + address + '/', abort_on_error=True)
             txns = info['transactions']
             del info['transactions']
 
@@ -88,7 +88,7 @@ def serve_api(mongo_db, redis_client):
             if with_block_height: result['block_height'] = block_height
             #^ yeah, hacky...it will be the same block height for each address (we do this to avoid an extra API call to get_btc_block_height)
             if with_uxtos:
-                result['uxtos'] = util.call_insight_api('/api/addr/' + address + '/utxo/?noCache=1', abort_on_error=True)
+                result['uxtos'] = util.call_insight_api('/api/addr/' + address + '/utxo/', abort_on_error=True)
             if with_last_txn_hashes:
                 #with last_txns, only show CONFIRMED txns (so skip the first info['unconfirmedTxApperances'] # of txns, if not 0
                 result['last_txns'] = txns[info['unconfirmedTxApperances']:with_last_txn_hashes+info['unconfirmedTxApperances']]
@@ -617,12 +617,10 @@ def serve_api(mongo_db, redis_client):
         base_bid_filters = [
             {"field": "get_asset", "op": "==", "value": base_asset},
             {"field": "give_asset", "op": "==", "value": quote_asset},
-            {'field': 'status', 'op': '==', 'value': 'open'},
         ]
         base_ask_filters = [
             {"field": "get_asset", "op": "==", "value": quote_asset},
             {"field": "give_asset", "op": "==", "value": base_asset},
-            {'field': 'status', 'op': '==', 'value': 'open'},
         ]
         if base_asset == 'BTC' or quote_asset == 'BTC':
             extra_filters = [
@@ -635,15 +633,17 @@ def serve_api(mongo_db, redis_client):
             base_ask_filters += extra_filters
         
         base_bid_orders = util.call_jsonrpc_api("get_orders", {
-            'filters': base_bid_filters,
-            'show_expired': False,
+             'filters': base_bid_filters,
+             'show_expired': False,
+             'status': 'open',
              'order_by': 'block_index',
              'order_dir': 'asc',
             }, abort_on_error=True)['result']
 
         base_ask_orders = util.call_jsonrpc_api("get_orders", {
-            'filters': base_ask_filters,
-            'show_expired': False,
+             'filters': base_ask_filters,
+             'show_expired': False,
+             'status': 'open',
              'order_by': 'block_index',
              'order_dir': 'asc',
             }, abort_on_error=True)['result']
@@ -879,6 +879,40 @@ def serve_api(mongo_db, redis_client):
         for k, v in categories.iteritems():
             categories_list.append({'name': k, 'data': v})
         return categories_list
+    
+    @dispatcher.add_method
+    def get_wallet_stats(start_ts=None, end_ts=None):
+        if not end_ts: #default to current datetime
+            end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+        if not start_ts: #default to 30 days before the end date
+            start_ts = end_ts - (30 * 24 * 60 * 60)
+            
+        num_wallets_mainnet = mongo_db.preferences.find({'network': 'mainnet'}).count()
+        num_wallets_testnet = mongo_db.preferences.find({'network': 'testnet'}).count()
+        num_wallets_unknown = mongo_db.preferences.find({'network': None}).count()
+        wallet_stats = []
+        for net in ['mainnet', 'testnet']:
+            stats = mongo_db.wallet_stats.find(
+                    {'when': {
+                        "$gte": datetime.datetime.utcfromtimestamp(start_ts),
+                        "$lte": datetime.datetime.utcfromtimestamp(end_ts)
+                     }, 'network': net }).sort('when', pymongo.ASCENDING)
+            new_wallet_counts = []
+            login_counts = []
+            distinct_login_counts = []
+            for e in stats:
+                d = int(time.mktime(datetime.datetime(e['when'].year, e['when'].month, e['when'].day).timetuple()) * 1000)
+                distinct_login_counts.append([ d, e['distinct_login_count'] ])
+                login_counts.append([ d, e['login_count'] ])
+                new_wallet_counts.append([ d, e['new_count'] ])
+            wallet_stats.append({'name': '%s: Logins' % net.capitalize(), 'data': login_counts})
+            wallet_stats.append({'name': '%s: Active Wallets' % net.capitalize(), 'data': distinct_login_counts})
+            wallet_stats.append({'name': '%s: New Wallets' % net.capitalize(), 'data': new_wallet_counts})
+        return {
+            'num_wallets_mainnet': num_wallets_mainnet,
+            'num_wallets_testnet': num_wallets_testnet,
+            'num_wallets_unknown': num_wallets_unknown,
+            'wallet_stats': wallet_stats}
     
     @dispatcher.add_method
     def get_owned_assets(addresses):
@@ -1163,12 +1197,26 @@ def serve_api(mongo_db, redis_client):
         return chat_history 
 
     @dispatcher.add_method
-    def get_preferences(wallet_id, force_login=False):
+    def get_preferences(wallet_id, for_login=False, network=None, force_login=False):
+        """Gets stored wallet preferences
+        @param network: only required if for_login is specified. One of: 'mainnet' or 'testnet'
+        """
         if wallet_id in siofeeds.onlineClients and not force_login:
             raise Exception("Already connected.")
+        if network not in (None, 'mainnet', 'testnet'):
+            raise Exception("Invalid network parameter setting")
+        if for_login and network is None:
+            raise Exception("network parameter required if for_login is set")
 
         result =  mongo_db.preferences.find_one({"wallet_id": wallet_id})
         if not result: return False #doesn't exist
+        
+        last_touched_date = datetime.datetime.utcfromtimestamp(result['last_touched']).date()
+        now = datetime.datetime.utcnow()
+         
+        if for_login: #record user login
+            mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now, 'network': network, 'action': 'login'})
+        
         result['last_touched'] = time.mktime(time.gmtime())
         mongo_db.preferences.save(result)
 
@@ -1179,7 +1227,14 @@ def serve_api(mongo_db, redis_client):
 
 
     @dispatcher.add_method
-    def store_preferences(wallet_id, preferences):
+    def store_preferences(wallet_id, preferences, for_login=False, network=None, referer=None):
+        """Stores freeform wallet preferences
+        @param network: only required if for_login is specified. One of: 'mainnet' or 'testnet'
+        """
+        if network not in (None, 'mainnet', 'testnet'):
+            raise Exception("Invalid network parameter setting")
+        if for_login and network is None:
+            raise Exception("network parameter required if for_login is set")
         if not isinstance(preferences, dict):
             raise Exception("Invalid preferences object")
         try:
@@ -1187,18 +1242,27 @@ def serve_api(mongo_db, redis_client):
         except:
             raise Exception("Cannot dump preferences to JSON")
         
+        now = datetime.datetime.utcnow()
+        
         #sanity check around max size
         if len(preferences_json) >= PREFERENCES_MAX_LENGTH:
             raise Exception("Preferences object is too big.")
         
+        if for_login: #mark this as a new signup
+            mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now, 'network': network, 'action': 'create', 'referer': referer})
+        elif mongo_db.preferences.find({'wallet_id': wallet_id}).count() != 1:
+            #should always be an update if for_login=False
+            raise Exception("for_login=False and preferences do not exist")
+        
+        now_ts = time.mktime(time.gmtime())
         mongo_db.preferences.update(
             {'wallet_id': wallet_id},
-            {"$set": {
+            {'$set': {
                 'wallet_id': wallet_id,
                 'preferences': preferences_json,
-                'last_updated': time.mktime(time.gmtime()),
-                'last_touched': time.mktime(time.gmtime())
-                }
+                'last_updated': now_ts,
+                'last_touched': now_ts },
+             '$setOnInsert': {'when_created': now_ts, 'network': network}
             }, upsert=True)
         #^ last_updated MUST be in GMT, as it will be compaired again other servers
         return True
@@ -1277,12 +1341,26 @@ def serve_api(mongo_db, redis_client):
                 return ""
             
             cherrypy.response.headers["Content-Type"] = 'application/json'
+            
+            if cherrypy.request.method == "GET": #handle GET statistics checking
+                #"ping" counterpartyd to test, as well
+                try:
+                    cpd_status = util.call_jsonrpc_api("get_running_info", [], abort_on_error=True)['result']
+                except:
+                    cherrypy.response.status = 500
+                else:
+                    cherrypy.response.status = 200
+                result = {
+                    'counterblockd': 'OK',
+                    'counterpartyd': 'OK' if cherrypy.response.status == 200 else 'NOT OK'
+                }
+                return json.dumps(result)
 
             if config.ALLOW_CORS:
                 cherrypy.response.headers['Access-Control-Allow-Origin'] = '*'
                 cherrypy.response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
                 cherrypy.response.headers['Access-Control-Allow-Headers'] = 'DNT,X-Mx-ReqToken,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type';            
-                if cherrypy.request.method=="OPTIONS":
+                if cherrypy.request.method == "OPTIONS":
                     cherrypy.response.status = 204
                     return ""
             

@@ -24,7 +24,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
     mongo_db = config.mongo_db
 
     def blow_away_db():
-        #boom! blow away all collections in mongo
+        #boom! blow away all applicable collections in mongo
         mongo_db.processed_blocks.drop()
         mongo_db.tracked_assets.drop()
         mongo_db.trades.drop()
@@ -36,6 +36,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         mongo_db.asset_extended_info.drop()
         mongo_db.transaction_stats.drop()
         mongo_db.feeds.drop()
+        mongo_db.wallet_stats.drop()
         
         #create/update default app_config object
         mongo_db.app_config.update({}, {

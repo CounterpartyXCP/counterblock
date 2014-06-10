@@ -444,6 +444,9 @@ if __name__ == '__main__':
     urllib3_log = logging.getLogger('urllib3')
     urllib3_log.setLevel(logging.DEBUG if args.verbose else logging.WARNING)
     urllib3_log.propagate = False
+    socketio_log = logging.getLogger('socketio')
+    socketio_log.setLevel(logging.DEBUG if args.verbose else logging.WARNING)
+    socketio_log.propagate = False
     #Transaction log
     tx_logger = logging.getLogger("transaction_log") #get transaction logger
     tx_logger.setLevel(logging.DEBUG if args.verbose else logging.INFO)
@@ -536,11 +539,24 @@ if __name__ == '__main__':
     ])
     mongo_db.transaction_stats.ensure_index('message_index', unique=True)
     mongo_db.transaction_stats.ensure_index('block_index')
+    #wallet_stats
+    mongo_db.wallet_stats.ensure_index([
+        ("when", pymongo.ASCENDING),
+        ("network", pymongo.ASCENDING),
+    ])
     
     ##COLLECTIONS THAT ARE *NOT* PURGED AS A RESULT OF A REPARSE
     #preferences
     mongo_db.preferences.ensure_index('wallet_id', unique=True)
+    mongo_db.preferences.ensure_index('network')
     mongo_db.preferences.ensure_index('last_touched')
+    #login_history
+    mongo_db.login_history.ensure_index('wallet_id')
+    mongo_db.login_history.ensure_index([
+        ("when", pymongo.DESCENDING),
+        ("network", pymongo.ASCENDING),
+        ("action", pymongo.ASCENDING),
+    ])
     #chat_handles
     mongo_db.chat_handles.ensure_index('wallet_id', unique=True)
     mongo_db.chat_handles.ensure_index('handle', unique=True)
@@ -550,7 +566,7 @@ if __name__ == '__main__':
         ("handle", pymongo.ASCENDING),
         ("when", pymongo.DESCENDING),
     ])
-    
+    #feeds
     mongo_db.feeds.ensure_index('source')
     mongo_db.feeds.ensure_index('owner')
     mongo_db.feeds.ensure_index('category')
@@ -591,6 +607,8 @@ if __name__ == '__main__':
     gevent.spawn(events.expire_stale_prefs)
     logging.debug("Starting event timer: expire_stale_btc_open_order_records")
     gevent.spawn(events.expire_stale_btc_open_order_records)
+    logging.debug("Starting event timer: generate_wallet_stats")
+    gevent.spawn(events.generate_wallet_stats)
 
     logging.info("Starting up RPC API handler...")
     api.serve_api(mongo_db, redis_client)

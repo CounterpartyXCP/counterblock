@@ -6,6 +6,7 @@ import time
 import copy
 import decimal
 import json
+import urllib
 import StringIO
 
 import grequests
@@ -60,6 +61,120 @@ def expire_stale_btc_open_order_records():
     
     #call again in 1 day
     gevent.spawn_later(86400, expire_stale_btc_open_order_records)
+    
+def generate_wallet_stats():
+    """
+    Every 30 minutes, from the login history, update and generate wallet stats
+    """
+    mongo_db = config.mongo_db
+    
+    def gen_stats_for_network(network):
+        assert network in ('mainnet', 'testnet')
+        #get the latest date in the stats table present
+        now = datetime.datetime.utcnow()
+        latest_stat = mongo_db.wallet_stats.find({'network': network}).sort('when', pymongo.DESCENDING).limit(1)
+        latest_stat = latest_stat[0] if latest_stat.count() else None
+        new_entries = {}
+        
+        #aggregate over the same peroid for new logins, adding the referrers to a set
+        match_criteria = {'when': {"$gte": latest_stat['when']}, 'network': network, 'action': 'create'} \
+            if latest_stat else {'when': {"$lte": now}, 'network': network, 'action': 'create'}
+        new_wallets = mongo_db.login_history.aggregate([
+            {"$match": match_criteria },
+            {"$project": {
+                "year":  {"$year": "$when"},
+                "month": {"$month": "$when"},
+                "day":   {"$dayOfMonth": "$when"}
+            }},
+            {"$group": {
+                "_id":   {"year": "$year", "month": "$month", "day": "$day"},
+                "new_count": {"$sum": 1}
+            }}
+        ])
+        new_wallets = [] if not new_wallets['ok'] else new_wallets['result']
+        for e in new_wallets:
+            ts = time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple())
+            new_entries[ts] = { #a future wallet_stats entry
+                'when': datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']),
+                'network': network,
+                'new_count': e['new_count'],
+            }
+    
+        referer_counts = mongo_db.login_history.aggregate([
+            {"$match": match_criteria },
+            {"$project": {
+                "year":  {"$year": "$when"},
+                "month": {"$month": "$when"},
+                "day":   {"$dayOfMonth": "$when"},
+                "referer": 1
+            }},
+            {"$group": {
+                "_id":   {"year": "$year", "month": "$month", "day": "$day", "referer": "$referer"},
+                #"uniqueReferers": {"$addToSet": "$_id"},
+                "count": {"$sum": 1}
+            }}
+        ])
+        referer_counts = [] if not referer_counts['ok'] else referer_counts['result']
+        for e in referer_counts:
+            ts = time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple())
+            assert ts in new_entries
+            referer_key = urllib.quote(e['_id']['referer']).replace('.', '%2E')
+            if 'referers' not in new_entries[ts]: new_entries[ts]['referers'] = {}
+            if e['_id']['referer'] not in new_entries[ts]['referers']: new_entries[ts]['referers'][referer_key] = 0
+            new_entries[ts]['referers'][referer_key] += 1
+    
+        #logins (not new wallets) - generate stats from an aggregation from that date (minus 1 day, to be safe, just in case it was a partial accounting for that day) to the present date
+        match_criteria = {'when': {"$gte": latest_stat['when']}, 'network': network, 'action': 'login'} \
+            if latest_stat else {'when': {"$lte": now}, 'network': network, 'action': 'login'}
+        logins = mongo_db.login_history.aggregate([
+            {"$match": match_criteria },
+            {"$project": {
+                "year":  {"$year": "$when"},
+                "month": {"$month": "$when"},
+                "day":   {"$dayOfMonth": "$when"},
+                "wallet_id": 1
+            }},
+            {"$group": {
+                "_id":   {"year": "$year", "month": "$month", "day": "$day"},
+                "distinct_wallets":   {"$addToSet": "wallet_id"},
+                "login_count":   {"$sum": 1},
+            }}
+        ])
+        logins = [] if not logins['ok'] else logins['result']
+        for e in logins:
+            ts = time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple())
+            if ts not in new_entries:
+                new_entries[ts] = { #a future wallet_stats entry
+                    'when': datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']),
+                    'network': network,
+                    'new_count': 0,
+                    'referers': []
+                }
+            new_entries[ts]['login_count'] = e['login_count']
+            new_entries[ts]['distinct_login_count'] = len(e['distinct_wallets'])
+            
+        #add/replace the wallet_stats data
+        if latest_stat:
+            updated_entry_ts = time.mktime(datetime.datetime(latest_stat['when'].year, latest_stat['when'].month, latest_stat['when'].day).timetuple())
+            if updated_entry_ts in new_entries:
+                updated_entry = new_entries[updated_entry_ts]
+                del new_entries[updated_entry_ts]
+                assert updated_entry['when'] == latest_stat['when']
+                del updated_entry['when'] #not required for the upsert
+                logging.info("Updated wallet statistics for %s-%s-%s: %s" % (latest_stat['when'].year, latest_stat['when'].month, latest_stat['when'].day, updated_entry))
+                mongo_db.wallet_stats.update({'when': latest_stat['when']},
+                    {"$set": updated_entry}, upsert=True)
+        
+        if new_entries: #insert the rest
+            logging.info("new entries: %s" % new_entries.values())
+            mongo_db.wallet_stats.insert(new_entries.values())
+            logging.info("Added wallet statistics for %i full days" % len(new_entries.values()))
+        
+    gen_stats_for_network('mainnet')
+    gen_stats_for_network('testnet')
+
+    #call again in 30 minutes
+    gevent.spawn_later(30 * 60, generate_wallet_stats)
 
 def compile_asset_pair_market_info():
     """Compiles the pair-level statistics that show on the View Prices page of counterwallet, for instance"""
@@ -75,9 +190,8 @@ def compile_asset_pair_market_info():
             {'field': 'fee_required_remaining', 'op': '>=', 'value': 0},
             {'field': 'fee_provided_remaining', 'op': '>=', 'value': 0},
           ],
+          'status': 'open',
           'show_expired': False,
-          #'order_by': 'block_index',
-          #'order_dir': 'asc'
         }, abort_on_error=True)['result']
     pair_data = {}
     asset_info = {}

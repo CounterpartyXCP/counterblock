@@ -34,7 +34,7 @@ def sanitize_eliteness(text):
 
 def is_valid_url(url, suffix='', allow_localhost=False, allow_no_protocol=False):
     regex = re.compile(
-        r'^https?://' if not allow_no_protocol else r'^' # http:// or https://
+        r'^https?://' if not allow_no_protocol else r'^(https?://)?' # http:// or https://
         r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
         r'localhost|'  # localhost...
         r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})' # ...or ip
