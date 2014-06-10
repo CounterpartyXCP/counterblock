@@ -683,6 +683,10 @@ def serve_api(mongo_db, redis_client):
                 if ask_book_max_pct_fee_required is not None and pct_fee_required is not None and pct_fee_required > ask_book_max_pct_fee_required:
                     addToBook = False
                 if addToBook: filtered_base_ask_orders.append(o)
+        else:
+            filtered_base_bid_orders += base_bid_orders
+            filtered_base_ask_orders += base_ask_orders
+
 
         def make_book(orders, isBidBook):
             book = {}
@@ -693,7 +697,7 @@ def serve_api(mongo_db, redis_client):
                     
                     give_quantity = util.normalize_quantity(o['give_quantity'], base_asset_info['divisible'])
                     get_quantity = util.normalize_quantity(o['get_quantity'], quote_asset_info['divisible'])
-                    unit_price = float(( D(o['get_quantity']) / D(o['give_quantity']) ).quantize(
+                    unit_price = float(( D(get_quantity) / D(give_quantity) ).quantize(
                         D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
                     remaining = util.normalize_quantity(o['give_remaining'], base_asset_info['divisible'])
                 else:
@@ -702,7 +706,7 @@ def serve_api(mongo_db, redis_client):
 
                     give_quantity = util.normalize_quantity(o['give_quantity'], quote_asset_info['divisible'])
                     get_quantity = util.normalize_quantity(o['get_quantity'], base_asset_info['divisible'])
-                    unit_price = float(( D(o['give_quantity']) / D(o['get_quantity']) ).quantize(
+                    unit_price = float(( D(give_quantity) / D(get_quantity) ).quantize(
                         D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
                     remaining = util.normalize_quantity(o['get_remaining'], base_asset_info['divisible'])
                 id = "%s_%s_%s" % (base_asset, quote_asset, unit_price)
@@ -717,6 +721,7 @@ def serve_api(mongo_db, redis_client):
         #compile into a single book, at volume tiers
         base_bid_book = make_book(filtered_base_bid_orders, True)
         base_ask_book = make_book(filtered_base_ask_orders, False)
+
         #get stats like the spread and median
         if base_bid_book and base_ask_book:
             #don't do abs(), as this is "the amount by which the ask price exceeds the bid", so I guess it could be negative
