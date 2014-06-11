@@ -1039,7 +1039,6 @@ def serve_api(mongo_db, redis_client):
             prev = raw[i]
         
         #get callbacks externally via the cpd API, and merge in with the asset history we composed
-        logging.error('ASSET: '+asset['asset'])
         callbacks = util.call_jsonrpc_api("get_callbacks",
             {'filters': {'field': 'asset', 'op': '==', 'value': asset['asset']}}, abort_on_error=True)['result']
         final_history = []
