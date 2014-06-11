@@ -1254,9 +1254,6 @@ def serve_api(mongo_db, redis_client):
         
         if for_login: #mark this as a new signup
             mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now, 'network': network, 'action': 'create', 'referer': referer})
-        elif mongo_db.preferences.find({'wallet_id': wallet_id}).count() != 1:
-            #should always be an update if for_login=False
-            raise Exception("for_login=False and preferences do not exist")
         
         now_ts = time.mktime(time.gmtime())
         mongo_db.preferences.update(
