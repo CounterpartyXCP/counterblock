@@ -1201,12 +1201,14 @@ def serve_api(mongo_db, redis_client):
         return chat_history 
 
     @dispatcher.add_method
-    def get_preferences(wallet_id, for_login=False, network=None, force_login=False):
+    def is_wallet_online(wallet_id):
+        return wallet_id in siofeeds.onlineClients
+
+    @dispatcher.add_method
+    def get_preferences(wallet_id, for_login=False, network=None):
         """Gets stored wallet preferences
         @param network: only required if for_login is specified. One of: 'mainnet' or 'testnet'
         """
-        if wallet_id in siofeeds.onlineClients and not force_login:
-            raise Exception("Already connected.")
         if network not in (None, 'mainnet', 'testnet'):
             raise Exception("Invalid network parameter setting")
         if for_login and network is None:
