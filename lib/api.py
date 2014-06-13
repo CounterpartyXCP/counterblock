@@ -907,9 +907,9 @@ def serve_api(mongo_db, redis_client):
             distinct_login_counts = []
             for e in stats:
                 d = int(time.mktime(datetime.datetime(e['when'].year, e['when'].month, e['when'].day).timetuple()) * 1000)
-                if 'distinct_login_count' in e: distinct_login_counts.append([ d, e['distinct_login_count'] ])
-                if 'login_count' in e: login_counts.append([ d, e['login_count'] ])
-                if 'new_count' in e: new_wallet_counts.append([ d, e['new_count'] ])
+                distinct_login_counts.append([ d, e['distinct_login_count'] if 'distinct_login_count' in e else 0])
+                login_counts.append([ d, e['login_count'] if 'login_count' in e else 0])
+                new_wallet_counts.append([ d, e['new_count'] if 'new_count' in e else 0])
 
             wallet_stats.append({'name': '%s: Logins' % net.capitalize(), 'data': login_counts})
             wallet_stats.append({'name': '%s: Active Wallets' % net.capitalize(), 'data': distinct_login_counts})
