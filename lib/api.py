@@ -907,12 +907,19 @@ def serve_api(mongo_db, redis_client):
             distinct_login_counts = []
             for e in stats:
                 d = int(time.mktime(datetime.datetime(e['when'].year, e['when'].month, e['when'].day).timetuple()) * 1000)
-                distinct_login_counts.append([ d, e['distinct_login_count'] ])
-                login_counts.append([ d, e['login_count'] ])
-                new_wallet_counts.append([ d, e['new_count'] ])
+                
+                '''distinct_login_counts.append([ d, e['distinct_login_count'] if 'distinct_login_count' in e else 0])
+                login_counts.append([ d, e['login_count'] if 'login_count' in e else 0])
+                new_wallet_counts.append([ d, e['new_count'] if 'new_count' in e else 0])'''
+                
+                if 'distinct_login_count' in e: distinct_login_counts.append([ d, e['distinct_login_count'] ])
+                if 'login_count' in e: login_counts.append([ d, e['login_count'] ])
+                if 'new_count' in e: new_wallet_counts.append([ d, e['new_count'] ])
+
             wallet_stats.append({'name': '%s: Logins' % net.capitalize(), 'data': login_counts})
             wallet_stats.append({'name': '%s: Active Wallets' % net.capitalize(), 'data': distinct_login_counts})
             wallet_stats.append({'name': '%s: New Wallets' % net.capitalize(), 'data': new_wallet_counts})
+            
         return {
             'num_wallets_mainnet': num_wallets_mainnet,
             'num_wallets_testnet': num_wallets_testnet,
@@ -1039,7 +1046,6 @@ def serve_api(mongo_db, redis_client):
             prev = raw[i]
         
         #get callbacks externally via the cpd API, and merge in with the asset history we composed
-        logging.error('ASSET: '+asset['asset'])
         callbacks = util.call_jsonrpc_api("get_callbacks",
             {'filters': {'field': 'asset', 'op': '==', 'value': asset['asset']}}, abort_on_error=True)['result']
         final_history = []
@@ -1202,12 +1208,14 @@ def serve_api(mongo_db, redis_client):
         return chat_history 
 
     @dispatcher.add_method
-    def get_preferences(wallet_id, for_login=False, network=None, force_login=False):
+    def is_wallet_online(wallet_id):
+        return wallet_id in siofeeds.onlineClients
+
+    @dispatcher.add_method
+    def get_preferences(wallet_id, for_login=False, network=None):
         """Gets stored wallet preferences
         @param network: only required if for_login is specified. One of: 'mainnet' or 'testnet'
         """
-        if wallet_id in siofeeds.onlineClients and not force_login:
-            raise Exception("Already connected.")
         if network not in (None, 'mainnet', 'testnet'):
             raise Exception("Invalid network parameter setting")
         if for_login and network is None:
@@ -1255,9 +1263,6 @@ def serve_api(mongo_db, redis_client):
         
         if for_login: #mark this as a new signup
             mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now, 'network': network, 'action': 'create', 'referer': referer})
-        elif mongo_db.preferences.find({'wallet_id': wallet_id}).count() != 1:
-            #should always be an update if for_login=False
-            raise Exception("for_login=False and preferences do not exist")
         
         now_ts = time.mktime(time.gmtime())
         mongo_db.preferences.update(
