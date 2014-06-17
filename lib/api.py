@@ -771,6 +771,8 @@ def serve_api(mongo_db, redis_client):
             'bid_ask_spread': bid_ask_spread,
             'bid_ask_median': bid_ask_median,
             'raw_orders': orders,
+            'base_asset': base_asset,
+            'quote_asset': quote_asset
         }
         return result
     
