@@ -332,11 +332,14 @@ def compile_extended_asset_info():
             #TODO: Right now this loop makes one request at a time. Fully utilize grequests to make batch requests
             # at the same time (using map() and throttling) 
             r = grequests.map((grequests.get(asset_info['url'], timeout=1, stream=True, verify=False),), stream=True)[0]
-            if not r: raise Exception("Invalid response")
-            if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
-            #read up to 4KB and try to convert to JSON
-            raw_data = r.raw.read(4 * 1024, decode_content=True)
-            r.raw.release_conn()
+            try:
+                if not r: raise Exception("Invalid response")
+                if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
+                #read up to 4KB and try to convert to JSON
+                raw_data = r.raw.read(4 * 1024, decode_content=True)
+            finally:
+                if r and r.raw:
+                    r.raw.release_conn()
             data = json.loads(raw_data)
             #if here, we have valid json data
             if 'asset' not in data:
@@ -362,11 +365,14 @@ def compile_extended_asset_info():
             if data['image']:
                 #fetch the image data (must be 32x32 png, max 20KB size)
                 r = grequests.map((grequests.get(data['image'], timeout=1, stream=True, verify=False),), stream=True)[0]
-                if not r: raise Exception("Invalid response")
-                if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
-                #read up to 20KB and try to convert to JSON
-                raw_image_data = r.raw.read(20 * 1024, decode_content=True)
-                r.raw.release_conn()
+                try:
+                    if not r: raise Exception("Invalid response")
+                    if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
+                    #read up to 20KB and try to convert to JSON
+                    raw_image_data = r.raw.read(20 * 1024, decode_content=True)
+                finally:
+                    if r and r.raw:
+                        r.raw.release_conn()
                 try:
                     image = Image.open(StringIO.StringIO(raw_image_data))
                 except:
@@ -375,7 +381,7 @@ def compile_extended_asset_info():
                 if image.size != (48, 48): raise Exception("Image size is not 48x48: %s (got %s)" % (data['image'], image.size))
                 if image.mode not in ['RGB', 'RGBA']: raise Exception("Image mode is not RGB/RGBA: %s (got %s)" % (data['image'], image.mode))
         except Exception, e:
-            logging.info("ExtendedAssetInfo: Skipped asset %s: %s" % (asset_info['asset'], e))
+            logging.info("ExtendedAssetInfo: Skipped asset %s (%s): %s" % (asset_info['asset'], asset_info['url'], e))
         else:
             asset_info['processed'] = True
             asset_info['description'] = util.sanitize_eliteness(data['description'])
@@ -388,7 +394,7 @@ def compile_extended_asset_info():
                 image.save(imagePath)
                 os.system("exiftool -q -overwrite_original -all= %s" % imagePath) #strip all metadata, just in case
             mongo_db.asset_extended_info.save(asset_info)
-            logging.info("ExtendedAssetInfo: Compiled data for asset %s" % asset_info['asset'])
+            logging.info("ExtendedAssetInfo: Compiled data for asset %s (%s)" % (asset_info['asset'], asset_info['url']))
         
     #call again in 60 minutes
     gevent.spawn_later(60 * 60, compile_extended_asset_info)

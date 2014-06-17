@@ -299,12 +299,15 @@ def fetch_json(url, max_size=4*1024):
         if url[:7] != 'http://' and url[:8] != 'https://':
             url = 'http://' + url
         r = grequests.map((grequests.get(url, timeout=1, stream=True, verify=False),), stream=True)[0]
-        if not r: raise Exception("Invalid response")
-        if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
-        
-        #read up to 4KB and try to convert to JSON
-        raw_data = r.raw.read(max_size, decode_content=True)
-        r.raw.release_conn() 
+        try:
+            if not r: raise Exception("Invalid response")
+            if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
+            
+            #read up to 4KB and try to convert to JSON
+            raw_data = r.raw.read(max_size, decode_content=True)
+        finally:
+            if r and r.raw:
+                r.raw.release_conn() 
         data = json.loads(raw_data)
     except Exception, e:
         return False
@@ -314,11 +317,15 @@ def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimens
     try:
         #fetch the image data 
         r = grequests.map((grequests.get(url, timeout=1, stream=True, verify=False),), stream=True)[0]
-        if not r: raise Exception("Invalid response")
-        if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
-        #read up to 20KB and try to convert to JSON
-        raw_image_data = r.raw.read(max_size)
-        r.raw.release_conn()
+        try:
+            if not r: raise Exception("Invalid response")
+            if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
+            #read up to 20KB and try to convert to JSON
+            raw_image_data = r.raw.read(max_size)
+        finally:
+            if r and r.raw:
+                r.raw.release_conn()
+        
         try:
             image = Image.open(StringIO.StringIO(raw_image_data))
         except Exception, e:
