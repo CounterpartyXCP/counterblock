@@ -50,8 +50,9 @@ if __name__ == '__main__':
     parser.add_argument('--counterpartyd-rpc-user', help='the username used to communicate with counterpartyd over JSON-RPC')
     parser.add_argument('--counterpartyd-rpc-password', help='the password used to communicate with counterpartyd over JSON-RPC')
 
-    parser.add_argument('--insight-connect', help='the insight server hostname or IP to connect to')
-    parser.add_argument('--insight-port', type=int, help='the insight server port to connect to')
+    parser.add_argument('--blockchain-service-name', help='the blockchain service name to connect to')
+    parser.add_argument('--blockchain-service-connect', help='the blockchain service server hostname or IP to connect to')
+    parser.add_argument('--blockchain-service-port', type=int, help='the blockchain service server port to connect to')
 
     parser.add_argument('--mongodb-connect', help='the hostname of the mongodb server to connect to')
     parser.add_argument('--mongodb-port', type=int, help='the port used to communicate with mongodb')
@@ -154,31 +155,39 @@ if __name__ == '__main__':
     config.COUNTERPARTYD_RPC = 'http://' + config.COUNTERPARTYD_RPC_CONNECT + ':' + str(config.COUNTERPARTYD_RPC_PORT) + '/api/'
     config.COUNTERPARTYD_AUTH = HTTPBasicAuth(config.COUNTERPARTYD_RPC_USER, config.COUNTERPARTYD_RPC_PASSWORD) if (config.COUNTERPARTYD_RPC_USER and config.COUNTERPARTYD_RPC_PASSWORD) else None
 
-    # insight API host
-    if args.insight_connect:
-        config.INSIGHT_CONNECT = args.insight_connect
-    elif has_config and configfile.has_option('Default', 'insight-connect') and configfile.get('Default', 'insight-connect'):
-        config.INSIGHT_CONNECT = configfile.get('Default', 'insight-connect')
+    # blockchain service name
+    if args.blockchain_service_name:
+        config.BLOCKCHAIN_SERVICE_NAME = args.blockchain_service_name
+    elif has_config and configfile.has_option('Default', 'blockchain-service-name') and configfile.get('Default', 'blockchain-service-name'):
+        config.BLOCKCHAIN_SERVICE_NAME = configfile.get('Default', 'blockchain-service-name')
     else:
-        config.INSIGHT_CONNECT = 'localhost'
+        config.BLOCKCHAIN_SERVICE_NAME = 'insight'
 
-    # insight API port
-    if args.insight_port:
-        config.INSIGHT_PORT = args.insight_port
-    elif has_config and configfile.has_option('Default', 'insight-port') and configfile.get('Default', 'insight-port'):
-        config.INSIGHT_PORT = configfile.get('Default', 'insight-port')
+    # blockchain service API host
+    if args.blockchain_service_connect:
+        config.BLOCKCHAIN_SERVICE_CONNECT = args.blockchain_service_connect
+    elif has_config and configfile.has_option('Default', 'blockchain-service-connect') and configfile.get('Default', 'blockchain-service-connect'):
+        config.BLOCKCHAIN_SERVICE_CONNECT = configfile.get('Default', 'blockchain-service-connect')
+    else:
+        config.BLOCKCHAIN_SERVICE_CONNECT = 'localhost'
+
+    # blockchain service API port
+    if args.blockchain_service_port:
+        config.BLOCKCHAIN_SERVICE_PORT = args.blockchain_service_port
+    elif has_config and configfile.has_option('Default', 'blockchain-service-port') and configfile.get('Default', 'blockchain-service-port'):
+        config.BLOCKCHAIN_SERVICE_PORT = configfile.get('Default', 'blockchain-service-port')
     else:
         if config.TESTNET:
-            config.INSIGHT_PORT = 3001
+            config.BLOCKCHAIN_SERVICE_PORT = 3001
         else:
-            config.INSIGHT_PORT = 3000
+            config.BLOCKCHAIN_SERVICE_PORT = 3000
     try:
-        config.INSIGHT_PORT = int(config.INSIGHT_PORT)
-        assert int(config.INSIGHT_PORT) > 1 and int(config.INSIGHT_PORT) < 65535
+        config.BLOCKCHAIN_SERVICE_PORT = int(config.BLOCKCHAIN_SERVICE_PORT)
+        assert int(config.BLOCKCHAIN_SERVICE_PORT) > 1 and int(config.BLOCKCHAIN_SERVICE_PORT) < 65535
     except:
-        raise Exception("Please specific a valid port number insight-port configuration parameter")
+        raise Exception("Please specific a valid port number blockchain-service-port configuration parameter")
 
-    config.INSIGHT = 'http://' + config.INSIGHT_CONNECT + ':' + str(config.INSIGHT_PORT)
+    config.BLOCKCHAIN_SERVICE_BASE_URL = 'http://' + config.BLOCKCHAIN_SERVICE_CONNECT + ':' + str(config.BLOCKCHAIN_SERVICE_PORT)
 
     # mongodb host
     if args.mongodb_connect:
@@ -601,8 +610,8 @@ if __name__ == '__main__':
     gevent.spawn(blockfeed.process_cpd_blockfeed, zmq_publisher_eventfeed)
 
     #start up event timers that don't depend on the feed being fully caught up
-    logging.debug("Starting event timer: check_insight")
-    gevent.spawn(events.check_insight)
+    logging.debug("Starting event timer: check_blockchain_service")
+    gevent.spawn(events.check_blockchain_service)
     logging.debug("Starting event timer: expire_stale_prefs")
     gevent.spawn(events.expire_stale_prefs)
     logging.debug("Starting event timer: expire_stale_btc_open_order_records")

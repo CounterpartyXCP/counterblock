@@ -133,13 +133,32 @@ def find_feed(db, url_or_address):
         'info_status': 'valid'
     }
     result = {}
-    feeds = db.feeds.find(spec=conditions, fields={'_id': False}, imit=1)
+    feeds = db.feeds.find(spec=conditions, fields={'_id': False}, limit=1)
     for feed in feeds:
         if 'targets' not in feed['info_data'] or ('type' in feed['info_data'] and feed['info_data']['type'] in ['all', 'cfd']):
             feed['info_data']['next_broadcast'] = util.next_interval_date(feed['info_data']['broadcast_date'])
             feed['info_data']['next_deadline'] = util.next_interval_date(feed['info_data']['deadline'])
         result = feed
         result['counters'] = get_feed_counters(feed['source'])
+    
+    if 'counters' not in result:
+        params = {
+            'filters': {
+                'field': 'source',
+                'op': '=',
+                'value': url_or_address
+            },
+            'order_by': 'tx_index',
+            'order_dir': 'DESC',
+            'limit': 10
+        }
+        broadcasts = util.call_jsonrpc_api('get_broadcasts', params)['result']
+        if broadcasts:
+            return {
+                'broadcasts': broadcasts,
+                'counters': get_feed_counters(url_or_address)
+            }
+      
 
     return result
 
@@ -174,9 +193,6 @@ def parse_base64_feed(base64_feed):
         
         feed['feed'] = complete_feed
         return feed
-
-
-
 
 def find_bets(bet_type, feed_address, deadline, target_value=None, leverage=5040, limit=50):  
     bindings = []       

@@ -55,12 +55,12 @@ def assets_to_asset_pair(asset1, asset2):
     """
     base = None
     quote = None
-    if asset1 == 'XCP' or asset2 == 'XCP':
-        base = asset1 if asset1 == 'XCP' else asset2
-        quote = asset2 if asset1 == 'XCP' else asset1
-    elif asset1 == 'BTC' or asset2 == 'BTC':
-        base = asset1 if asset1 == 'BTC' else asset2
-        quote = asset2 if asset1 == 'BTC' else asset1
+    if asset1 == config.XCP  or asset2 == config.XCP :
+        base = asset1 if asset1 == config.XCP  else asset2
+        quote = asset2 if asset1 == config.XCP else asset1
+    elif asset1 == config.BTC or asset2 == config.BTC:
+        base = asset1 if asset1 == config.BTC else asset2
+        quote = asset2 if asset1 == config.BTC else asset1
     else:
         base = asset1 if asset1 < asset2 else asset2
         quote = asset2 if asset1 < asset2 else asset1
@@ -93,13 +93,15 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
         raise Exception("Got back error from server: %s" % result['error'])
     return result
 
-def call_insight_api(request_string, abort_on_error=False):
-    r = grequests.map((grequests.get(config.INSIGHT + request_string),) )[0]
+def call_blockchain_api(request_string, abort_on_error=False):
+    url = config.BLOCKCHAIN_SERVICE_BASE_URL + request_string
+    logging.info("API Query: "+url)
+    r = grequests.map((grequests.get(url),) )[0]
     #^ use requests.Session to utilize connectionpool and keepalive (avoid connection setup/teardown overhead)
     if (not r or not hasattr(r, 'status_code')) and abort_on_error:
-        raise Exception("Could not contact insight!")
+        raise Exception("Could not contact blockchain service!")
     elif r.status_code != 200 and abort_on_error:
-        raise Exception("Bad status code returned from insight: '%s'. result body: '%s'." % (r.status_code, r.text))
+        raise Exception("Bad status code returned from blockchain service: '%s'. result body: '%s'." % (r.status_code, r.text))
     else:
         try:
             result = r.json()
@@ -221,8 +223,8 @@ def decorate_message(message, for_txn_history=False):
     
     if message['_category'] in ['orders', 'order_matches',]:
         message['_btc_below_dust_limit'] = (
-                ('forward_asset' in message and message['forward_asset'] == 'BTC' and message['forward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF)
-             or ('backward_asset' in message and message['backward_asset'] == 'BTC' and message['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF)
+                ('forward_asset' in message and message['forward_asset'] == config.BTC and message['forward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF)
+             or ('backward_asset' in message and message['backward_asset'] == config.BTC and message['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF)
         )
 
     if message['_category'] in ['dividends', 'sends', 'callbacks']:
@@ -286,7 +288,7 @@ def get_btc_supply(normalize=False, at_block_index=None):
 def is_caught_up_well_enough_for_government_work():
     """We don't want to give users 525 errors or login errors if counterblockd/counterpartyd is in the process of
     getting caught up, but we DO if counterblockd is either clearly out of date with the blockchain, or reinitializing its database"""
-    return config.CAUGHT_UP or (config.INSIGHT_LAST_BLOCK and config.CURRENT_BLOCK_INDEX >= config.INSIGHT_LAST_BLOCK - 1)
+    return config.CAUGHT_UP or (config.BLOCKCHAIN_SERVICE_LAST_BLOCK and config.CURRENT_BLOCK_INDEX >= config.BLOCKCHAIN_SERVICE_LAST_BLOCK - 1)
 
 def make_data_dir(subfolder):
     path = os.path.join(config.data_dir, subfolder)

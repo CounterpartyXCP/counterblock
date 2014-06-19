@@ -19,7 +19,7 @@ import pymongo
 from bson import json_util
 from bson.son import SON
 
-from . import (config, siofeeds, util, util_trading, betting)
+from . import (config, siofeeds, util, util_trading, betting, blockchain)
 
 PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
 D = decimal.Decimal
@@ -40,11 +40,11 @@ def serve_api(mongo_db, redis_client):
         If the server is NOT caught up, a 525 error will be returned actually before hitting this point. Thus,
         if we actually return data from this function, it should always be true. (may change this behaviour later)"""
         
-        insightInfo = util.call_insight_api('/api/status?q=getInfo', abort_on_error=True)
+        blockchainInfo = blockchain.getinfo()
         return {
             'caught_up': util.is_caught_up_well_enough_for_government_work(),
             'last_message_index': config.LAST_MESSAGE_INDEX,
-            'block_height': insightInfo['info']['blocks'], 
+            'block_height': blockchainInfo['info']['blocks'], 
             'testnet': config.TESTNET 
         }
     
@@ -65,20 +65,20 @@ def serve_api(mongo_db, redis_client):
         return events
 
     @dispatcher.add_method
-    def get_btc_block_height():
-        data = util.call_insight_api('/api/status?q=getInfo', abort_on_error=True)
+    def get_chain_block_height():
+        data = blockchain.getinfo()
         return data['info']['blocks']
 
     @dispatcher.add_method
-    def get_btc_address_info(addresses, with_uxtos=True, with_last_txn_hashes=4, with_block_height=False):
+    def get_chain_address_info(addresses, with_uxtos=True, with_last_txn_hashes=4, with_block_height=False):
         if not isinstance(addresses, list):
             raise Exception("addresses must be a list of addresses, even if it just contains one address")
         results = []
         if with_block_height:
-            block_height_response = util.call_insight_api('/api/status?q=getInfo', abort_on_error=True)
+            block_height_response = blockchain.getinfo()
             block_height = block_height_response['info']['blocks'] if block_height_response else None
         for address in addresses:
-            info = util.call_insight_api('/api/addr/' + address + '/', abort_on_error=True)
+            info = blockchain.getaddressinfo(address)
             txns = info['transactions']
             del info['transactions']
 
@@ -86,9 +86,9 @@ def serve_api(mongo_db, redis_client):
             result['addr'] = address
             result['info'] = info
             if with_block_height: result['block_height'] = block_height
-            #^ yeah, hacky...it will be the same block height for each address (we do this to avoid an extra API call to get_btc_block_height)
+            #^ yeah, hacky...it will be the same block height for each address (we do this to avoid an extra API call to get_block_height)
             if with_uxtos:
-                result['uxtos'] = util.call_insight_api('/api/addr/' + address + '/utxo/', abort_on_error=True)
+                result['uxtos'] = blockchain.listunspent(address)
             if with_last_txn_hashes:
                 #with last_txns, only show CONFIRMED txns (so skip the first info['unconfirmedTxApperances'] # of txns, if not 0
                 result['last_txns'] = txns[info['unconfirmedTxApperances']:with_last_txn_hashes+info['unconfirmedTxApperances']]
@@ -96,12 +96,12 @@ def serve_api(mongo_db, redis_client):
         return results
 
     @dispatcher.add_method
-    def get_btc_txns_status(txn_hashes):
+    def get_chain_txns_status(txn_hashes):
         if not isinstance(txn_hashes, list):
             raise Exception("txn_hashes must be a list of txn hashes, even if it just contains one hash")
         results = []
         for tx_hash in txn_hashes:
-            tx_info = util.call_insight_api('/api/tx/' + tx_hash + '/', abort_on_error=False)
+            tx_info = blockchain.gettransaction(tx_hash);
             if tx_info:
                 assert tx_info['txid'] == tx_hash
                 results.append({
@@ -117,7 +117,7 @@ def serve_api(mongo_db, redis_client):
         """
         This call augments counterpartyd's get_balances with a normalized_quantity field. It also will include any owned
         assets for an address, even if their balance is zero. 
-        NOTE: Does not retrieve BTC balance. Use get_btc_address_info for that.
+        NOTE: Does not retrieve BTC balance. Use get_address_info for that.
         """
         if not isinstance(addresses, list):
             raise Exception("addresses must be a list of addresses, even if it just contains one address")
@@ -410,7 +410,7 @@ def serve_api(mongo_db, redis_client):
         data = {}
         results = {}
         #^ format is result[market_cap_as][asset] = [[block_time, market_cap], [block_time2, market_cap2], ...] 
-        for market_cap_as in ('XCP', 'BTC'):
+        for market_cap_as in (config.XCP, config.BTC):
             caps = mongo_db.asset_marketcap_history.aggregate([
                 {"$match": {
                     "market_cap_as": market_cap_as,
@@ -470,20 +470,20 @@ def serve_api(mongo_db, redis_client):
         """returns market leaderboard data for both the XCP and BTC markets"""
         #do two queries because we limit by our sorted results, and we might miss an asset with a high BTC trading value
         # but with little or no XCP trading activity, for instance if we just did one query
-        assets_market_info_xcp = list(mongo_db.asset_market_info.find({}, {'_id': 0}).sort('market_cap_in_xcp', pymongo.DESCENDING).limit(limit))
-        assets_market_info_btc = list(mongo_db.asset_market_info.find({}, {'_id': 0}).sort('market_cap_in_btc', pymongo.DESCENDING).limit(limit))
+        assets_market_info_xcp = list(mongo_db.asset_market_info.find({}, {'_id': 0}).sort('market_cap_in_{}'.format(config.XCP.lower()), pymongo.DESCENDING).limit(limit))
+        assets_market_info_btc = list(mongo_db.asset_market_info.find({}, {'_id': 0}).sort('market_cap_in_{}'.format(config.BTC.lower()), pymongo.DESCENDING).limit(limit))
         assets_market_info = {
-            'xcp': [a for a in assets_market_info_xcp if a['price_in_xcp']],
-            'btc': [a for a in assets_market_info_btc if a['price_in_btc']]
+            config.XCP.lower(): [a for a in assets_market_info_xcp if a['price_in_{}'.format(config.XCP.lower())]],
+            config.BTC.lower(): [a for a in assets_market_info_btc if a['price_in_{}'.format(config.BTC.lower())]]
         }
         #throw on extended info, if it exists for a given asset
-        assets = list(set([a['asset'] for a in assets_market_info['xcp']] + [a['asset'] for a in assets_market_info['btc']]))
+        assets = list(set([a['asset'] for a in assets_market_info[config.XCP.lower()]] + [a['asset'] for a in assets_market_info[config.BTC.lower()]]))
         extended_asset_info = mongo_db.asset_extended_info.find({'asset': {'$in': assets}})
         extended_asset_info_dict = {}
         for e in extended_asset_info:
             if not e.get('disabled', False): #skip assets marked disabled
                 extended_asset_info_dict[e['asset']] = e
-        for r in (assets_market_info['xcp'], assets_market_info['btc']):
+        for r in (assets_market_info[config.XCP.lower()], assets_market_info[config.BTC.lower()]):
             for a in r:
                 if a['asset'] in extended_asset_info_dict:
                     extended_info = extended_asset_info_dict[a['asset']]
@@ -622,7 +622,7 @@ def serve_api(mongo_db, redis_client):
             {"field": "get_asset", "op": "==", "value": quote_asset},
             {"field": "give_asset", "op": "==", "value": base_asset},
         ]
-        if base_asset == 'BTC' or quote_asset == 'BTC':
+        if base_asset == config.BTC or quote_asset == config.BTC:
             extra_filters = [
                 {'field': 'give_remaining', 'op': '>', 'value': 0}, #don't show empty BTC orders
                 {'field': 'get_remaining', 'op': '>', 'value': 0}, #don't show empty BTC orders
@@ -649,11 +649,11 @@ def serve_api(mongo_db, redis_client):
             }, abort_on_error=True)['result']
         
         def get_o_pct(o):
-            if o['give_asset'] == 'BTC': #NB: fee_provided could be zero here
+            if o['give_asset'] == config.BTC: #NB: fee_provided could be zero here
                 pct_fee_provided = float(( D(o['fee_provided_remaining']) / D(o['give_quantity']) ).quantize(
                             D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
             else: pct_fee_provided = None
-            if o['get_asset'] == 'BTC': #NB: fee_required could be zero here
+            if o['get_asset'] == config.BTC: #NB: fee_required could be zero here
                 pct_fee_required = float(( D(o['fee_required_remaining']) / D(o['get_quantity']) ).quantize(
                             D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
             else: pct_fee_required = None
@@ -662,7 +662,7 @@ def serve_api(mongo_db, redis_client):
         #filter results by pct_fee_provided and pct_fee_required for BTC pairs as appropriate
         filtered_base_bid_orders = []
         filtered_base_ask_orders = []
-        if base_asset == 'BTC' or quote_asset == 'BTC':      
+        if base_asset == config.BTC or quote_asset == config.BTC:      
             for o in base_bid_orders:
                 pct_fee_provided, pct_fee_required = get_o_pct(o)
                 addToBook = True
@@ -692,7 +692,7 @@ def serve_api(mongo_db, redis_client):
             book = {}
             for o in orders:
                 if o['give_asset'] == base_asset:
-                    if base_asset == 'BTC' and o['give_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF:
+                    if base_asset == config.BTC and o['give_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF:
                         continue #filter dust orders, if necessary
                     
                     give_quantity = util.normalize_quantity(o['give_quantity'], base_asset_info['divisible'])
@@ -701,7 +701,7 @@ def serve_api(mongo_db, redis_client):
                         D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
                     remaining = util.normalize_quantity(o['give_remaining'], base_asset_info['divisible'])
                 else:
-                    if quote_asset == 'BTC' and o['give_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF:
+                    if quote_asset == config.BTC and o['give_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF:
                         continue #filter dust orders, if necessary
 
                     give_quantity = util.normalize_quantity(o['give_quantity'], quote_asset_info['divisible'])
@@ -757,7 +757,7 @@ def serve_api(mongo_db, redis_client):
             
         #for orders where BTC is the give asset, also return online status of the user
         for o in orders:
-            if o['give_asset'] == 'BTC':
+            if o['give_asset'] == config.BTC:
                 r = mongo_db.btc_open_orders.find_one({'order_tx_hash': o['tx_hash']})
                 o['_is_online'] = (r['wallet_id'] in siofeeds.onlineClients) if r else False
             else:
@@ -795,28 +795,28 @@ def serve_api(mongo_db, redis_client):
         ask_book_min_pct_fee_provided = None
         ask_book_min_pct_fee_required = None
         ask_book_max_pct_fee_required = None
-        if base_asset == 'BTC':
-            if buy_asset == 'BTC':
+        if base_asset == config.BTC:
+            if buy_asset == config.BTC:
                 #if BTC is base asset and we're buying it, we're buying the BASE. we require a BTC fee (we're on the bid (bottom) book and we want a lower price)
                 # - show BASE buyers (bid book) that require a BTC fee >= what we require (our side of the book)
                 # - show BASE sellers (ask book) that provide a BTC fee >= what we require
                 bid_book_min_pct_fee_required = pct_fee_required #my competition at the given fee required
                 ask_book_min_pct_fee_provided = pct_fee_required
-            elif sell_asset == 'BTC':
+            elif sell_asset == config.BTC:
                 #if BTC is base asset and we're selling it, we're selling the BASE. we provide a BTC fee (we're on the ask (top) book and we want a higher price)
                 # - show BASE buyers (bid book) that provide a BTC fee >= what we provide 
                 # - show BASE sellers (ask book) that require a BTC fee <= what we provide (our side of the book)
                 bid_book_max_pct_fee_required = pct_fee_provided
                 ask_book_min_pct_fee_provided = pct_fee_provided #my competition at the given fee provided
-        elif quote_asset == 'BTC':
-            assert base_asset == 'XCP' #only time when this is the case
-            if buy_asset == 'BTC':
+        elif quote_asset == config.BTC:
+            assert base_asset == config.XCP #only time when this is the case
+            if buy_asset == config.BTC:
                 #if BTC is quote asset and we're buying it, we're selling the BASE. we require a BTC fee (we're on the ask (top) book and we want a higher price)
                 # - show BASE buyers (bid book) that provide a BTC fee >= what we require 
                 # - show BASE sellers (ask book) that require a BTC fee >= what we require (our side of the book)
                 bid_book_min_pct_fee_provided = pct_fee_required
                 ask_book_min_pct_fee_required = pct_fee_required #my competition at the given fee required
-            elif sell_asset == 'BTC':
+            elif sell_asset == config.BTC:
                 #if BTC is quote asset and we're selling it, we're buying the BASE. we provide a BTC fee (we're on the bid (bottom) book and we want a lower price)
                 # - show BASE buyers (bid book) that provide a BTC fee >= what we provide (our side of the book)
                 # - show BASE sellers (ask book) that require a BTC fee <= what we provide 

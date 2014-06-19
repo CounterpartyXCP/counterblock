@@ -22,3 +22,6 @@ mongo_db = None #will be set on server init
 
 FEED_CATEGORIES = ['sports', 'politics', 'entertainment', 'economics', 'other']
 FEED_TYPES = ['simple', 'cfd']
+
+BTC = 'BTC'
+XCP = 'XCP'

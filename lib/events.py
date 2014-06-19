@@ -14,28 +14,19 @@ import pymongo
 import gevent
 from PIL import Image
 
-from lib import (config, util, util_trading, betting)
+from lib import (config, util, util_trading, betting, blockchain)
 
 D = decimal.Decimal
 COMPILE_MARKET_PAIR_INFO_PERIOD = 10 * 60 #in seconds (this is every 10 minutes currently)
 COMPILE_ASSET_MARKET_INFO_PERIOD = 30 * 60 #in seconds (this is every 30 minutes currently)
 
-def check_insight():
+def check_blockchain_service():
     try:
-        r = grequests.map((grequests.get(config.INSIGHT + '/api/sync/'),) )[0]
-        if (not r or not hasattr(r, 'status_code')):
-            raise Exception("Could not contact insight!")
-        if r.status_code != 200:
-            raise ValueError("Bad status code returned from insight: %s" % r.status_code)
-        result = r.json()
-        if result['status'] == 'error':
-            raise Exception('Insight reports error: %s' % result['error'])
-        if result['status'] == 'syncing':
-            logging.warning("WARNING: Insight is not fully synced to the blockchain: %s%% complete" % result['syncPercentage'])
+        blockchain.check()
     except Exception as e:
-        raise Exception('Could not connect to Insight server: %s' % e)
+        raise Exception('Could not connect to blockchain service: %s' % e)
     finally:
-        gevent.spawn_later(5 * 60, check_insight) #call again in 5 minutes
+        gevent.spawn_later(5 * 60, check_blockchain_service) #call again in 5 minutes
 
 def expire_stale_prefs():
     """
@@ -259,10 +250,10 @@ def compile_asset_pair_market_info():
         _24h_vol_in_btc = None
         _24h_vol_in_xcp = None
         #derive asset price data, expressed in BTC and XCP, for the given volumes
-        if base_asset == 'XCP':
+        if base_asset == config.XCP:
             _24h_vol_in_xcp = e['vol_base']
             _24h_vol_in_btc = util.round_out(e['vol_base'] * xcp_btc_price) if xcp_btc_price else 0
-        elif base_asset == 'BTC':
+        elif base_asset == config.BTC:
             _24h_vol_in_xcp = util.round_out(e['vol_base'] * btc_xcp_price) if btc_xcp_price else 0
             _24h_vol_in_btc = e['vol_base']
         else: #base is not XCP or BTC
@@ -281,8 +272,8 @@ def compile_asset_pair_market_info():
                     _24h_vol_in_xcp = util.round_out(e['vol_quote'] * price_in_xcp)
                 if _24h_vol_in_btc is None and price_in_btc:
                     _24h_vol_in_btc = util.round_out(e['vol_quote'] * price_in_btc)
-            pair_data[pair]['24h_vol_in_xcp'] = _24h_vol_in_xcp #might still be None
-            pair_data[pair]['24h_vol_in_btc'] = _24h_vol_in_btc #might still be None
+            pair_data[pair]['24h_vol_in_{}'.format(config.XCP.lower())] = _24h_vol_in_xcp #might still be None
+            pair_data[pair]['24h_vol_in_{}'.format(config.BTC.lower())] = _24h_vol_in_btc #might still be None
         
         #get % change stats -- start by getting the first trade directly before the 24h period starts
         prev_trade = mongo_db.trades.find({
@@ -428,7 +419,7 @@ def compile_asset_market_info():
         return
 
     mps_xcp_btc, xcp_btc_price, btc_xcp_price = util_trading.get_price_primatives()
-    all_traded_assets = list(set(list(['BTC', 'XCP']) + list(mongo_db.trades.find({}, {'quote_asset': 1, '_id': 0}).distinct('quote_asset'))))
+    all_traded_assets = list(set(list([config.BTC, config.XCP]) + list(mongo_db.trades.find({}, {'quote_asset': 1, '_id': 0}).distinct('quote_asset'))))
     
     #######################
     #get a list of all assets with a trade within the last 24h (not necessarily just against XCP and BTC)
@@ -446,10 +437,10 @@ def compile_asset_market_info():
     non_traded_assets = list(set(all_traded_assets) - set(assets))
     mongo_db.asset_market_info.update( {'asset': {'$in': non_traded_assets}}, {"$set": {
             '24h_summary': {'vol': 0, 'count': 0},
-            '24h_ohlc_in_xcp': {},
-            '24h_ohlc_in_btc': {},
-            '24h_vol_price_change_in_xcp': None,
-            '24h_vol_price_change_in_btc': None,
+            '24h_ohlc_in_{}'.format(config.XCP.lower()): {},
+            '24h_ohlc_in_{}'.format(config.BTC.lower()): {},
+            '24h_vol_price_change_in_{}'.format(config.XCP.lower()): None,
+            '24h_vol_price_change_in_{}'.format(config.BTC.lower()): None,
     }}, multi=True)
     logging.info("Block: %s -- Calculated 24h stats for: %s" % (current_block_index, ', '.join(assets)))
     
@@ -457,7 +448,7 @@ def compile_asset_market_info():
     #get a list of all assets with a trade within the last 7d up against XCP and BTC
     start_dt_7d = datetime.datetime.utcnow() - datetime.timedelta(days=7)
     assets = list(set(
-          list(mongo_db.trades.find({'block_time': {'$gte': start_dt_7d}, 'base_asset': {'$in': ['XCP', 'BTC']}}).distinct('quote_asset'))
+          list(mongo_db.trades.find({'block_time': {'$gte': start_dt_7d}, 'base_asset': {'$in': [config.XCP, config.BTC]}}).distinct('quote_asset'))
         + list(mongo_db.trades.find({'block_time': {'$gte': start_dt_7d}}).distinct('base_asset'))
     ))
     for asset in assets:
@@ -465,8 +456,8 @@ def compile_asset_market_info():
         mongo_db.asset_market_info.update({'asset': asset}, {"$set": market_info_7d})
     non_traded_assets = list(set(all_traded_assets) - set(assets))
     mongo_db.asset_market_info.update( {'asset': {'$in': non_traded_assets}}, {"$set": {
-            '7d_history_in_xcp': [],
-            '7d_history_in_btc': [],
+            '7d_history_in_{}'.format(config.XCP.lower()): [],
+            '7d_history_in_{}'.format(config.BTC.lower()): [],
     }}, multi=True)
     logging.info("Block: %s -- Calculated 7d stats for: %s" % (current_block_index, ', '.join(assets)))
 
@@ -474,7 +465,7 @@ def compile_asset_market_info():
     #update summary market data for assets traded since last_block_assets_compiled
     #get assets that were traded since the last check with either BTC or XCP, and update their market summary data
     assets = list(set(
-          list(mongo_db.trades.find({'block_index': {'$gt': last_block_assets_compiled}, 'base_asset': {'$in': ['XCP', 'BTC']}}).distinct('quote_asset'))
+          list(mongo_db.trades.find({'block_index': {'$gt': last_block_assets_compiled}, 'base_asset': {'$in': [config.XCP, config.BTC]}}).distinct('quote_asset'))
         + list(mongo_db.trades.find({'block_index': {'$gt': last_block_assets_compiled}}).distinct('base_asset'))
     ))
     #update our storage of the latest market info in mongo
@@ -528,8 +519,8 @@ def compile_asset_market_info():
                 #^ this will get price data from the block time of this trade back the standard number of days and trades
                 # to determine our standard market price, relative (anchored) to the time of this trade
         
-                for market_cap_as in ('XCP', 'BTC'):
-                    market_cap = market_cap_in_xcp if market_cap_as == 'XCP' else market_cap_in_btc
+                for market_cap_as in (config.XCP, config.BTC):
+                    market_cap = market_cap_in_xcp if market_cap_as == config.XCP else market_cap_in_btc
                     #if there is a previously stored market cap for this asset, add a new history point only if the two caps differ
                     prev_market_cap_history = mongo_db.asset_marketcap_history.find({'market_cap_as': market_cap_as, 'asset': asset,
                         'block_index': {'$lt': t['block_index']}}).sort('block_index', pymongo.DESCENDING).limit(1)

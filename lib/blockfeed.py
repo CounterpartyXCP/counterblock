@@ -15,7 +15,7 @@ import time
 import pymongo
 import gevent
 
-from lib import (config, util, events, betting)
+from lib import (config, util, events, betting, blockchain)
 
 D = decimal.Decimal
 
@@ -52,7 +52,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         #DO NOT DELETE preferences and chat_handles and chat_history
         
         #create XCP and BTC assets in tracked_assets
-        for asset in ['XCP', 'BTC']:
+        for asset in [config.XCP, config.BTC]:
             base_asset = {
                 'asset': asset,
                 'owner': None,
@@ -128,7 +128,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
 
     config.CURRENT_BLOCK_INDEX = 0 #initialize (last processed block index -- i.e. currently active block)
     config.LAST_MESSAGE_INDEX = -1 #initialize (last processed message index)
-    config.INSIGHT_LAST_BLOCK = 0 #simply for printing/alerting purposes
+    config.BLOCKCHAIN_SERVICE_LAST_BLOCK = 0 #simply for printing/alerting purposes
     config.CAUGHT_UP_STARTED_EVENTS = False
     #^ set after we are caught up and start up the recurring events that depend on us being caught up with the blockchain 
     
@@ -408,7 +408,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 #book trades
                 if (msg['category'] == 'order_matches'
                     and ((msg['command'] == 'update' and msg_data['status'] == 'completed') #for a trade with BTC involved, but that is settled (completed)
-                         or ('forward_asset' in msg_data and msg_data['forward_asset'] != 'BTC' and msg_data['backward_asset'] != 'BTC'))): #or for a trade without BTC on either end
+                         or ('forward_asset' in msg_data and msg_data['forward_asset'] != config.BTC and msg_data['backward_asset'] != config.BTC))): #or for a trade without BTC on either end
 
                     if msg['command'] == 'update' and msg_data['status'] == 'completed':
                         #an order is being updated to a completed status (i.e. a BTCpay has completed)
@@ -429,9 +429,9 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                     base_asset, quote_asset = util.assets_to_asset_pair(order_match['forward_asset'], order_match['backward_asset'])
                     
                     #don't create trade records from order matches with BTC that are under the dust limit
-                    if    (order_match['forward_asset'] == 'BTC' and order_match['forward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF) \
-                       or (order_match['backward_asset'] == 'BTC' and order_match['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF):
-                        logging.debug("Order match %s ignored due to BTC under dust limit." % (order_match['tx0_hash'] + order_match['tx1_hash']))
+                    if    (order_match['forward_asset'] == config.BTC and order_match['forward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF) \
+                       or (order_match['backward_asset'] == config.BTC and order_match['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF):
+                        logging.debug("Order match %s ignored due to %s under dust limit." % (order_match['tx0_hash'] + order_match['tx1_hash'], config.BTC))
                         continue
 
                     #take divisible trade quantities to floating point
@@ -489,14 +489,14 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             mongo_db.processed_blocks.insert(new_block)
             my_latest_block = new_block
             config.CURRENT_BLOCK_INDEX = cur_block_index
-            #get the current insight block
-            if config.INSIGHT_LAST_BLOCK == 0 or config.INSIGHT_LAST_BLOCK - config.CURRENT_BLOCK_INDEX < 10:
-                #update as CURRENT_BLOCK_INDEX catches up with INSIGHT_LAST_BLOCK and/or surpasses it (i.e. if insight gets behind for some reason)
-                block_height_response = util.call_insight_api('/api/status?q=getInfo', abort_on_error=False)
-                config.INSIGHT_LAST_BLOCK = block_height_response['info']['blocks'] if block_height_response else 0
-            logging.info("Block: %i (message_index height=%s) (insight latest block=%s)" % (config.CURRENT_BLOCK_INDEX,
+            #get the current blockchain service block
+            if config.BLOCKCHAIN_SERVICE_LAST_BLOCK == 0 or config.BLOCKCHAIN_SERVICE_LAST_BLOCK - config.CURRENT_BLOCK_INDEX < 10:
+                #update as CURRENT_BLOCK_INDEX catches up with BLOCKCHAIN_SERVICE_LAST_BLOCK and/or surpasses it (i.e. if blockchain service gets behind for some reason)
+                block_height_response = blockchain.getinfo()
+                config.BLOCKCHAIN_SERVICE_LAST_BLOCK = block_height_response['info']['blocks'] if block_height_response else 0
+            logging.info("Block: %i (message_index height=%s) (blockchain latest block=%s)" % (config.CURRENT_BLOCK_INDEX,
                 config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX != -1 else '???',
-                config.INSIGHT_LAST_BLOCK if config.INSIGHT_LAST_BLOCK else '???'))
+                config.BLOCKCHAIN_SERVICE_LAST_BLOCK if config.BLOCKCHAIN_SERVICE_LAST_BLOCK else '???'))
         elif my_latest_block['block_index'] > last_processed_block['block_index']:
             #we have stale blocks (i.e. most likely a reorg happened in counterpartyd)?? this shouldn't happen, as we
             # should get a reorg message. Just to be on the safe side, prune back 10 blocks before what counterpartyd is saying if we see this
