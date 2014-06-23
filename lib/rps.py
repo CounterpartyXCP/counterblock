@@ -65,28 +65,31 @@ def get_user_rps(addresses):
 
     for rps_match in rps_matches:
 
-        status = 'tie' if rps_match['status'] == 'concluded: tie' else 'pending'
+        if rps_match['status'] == 'concluded: tie':
+            status = 'tie'
+        elif rps_match['status'] in ['resolved and pending', 'pending and resolved']:
+            status = 'resolved'
+        else:
+            status = 'pending'
         
         if rps_match['tx0_address'] in addresses:
             txn = 0
-            if rps_match['status'] == 'resolved and pending':
-                status = 'resolved'
-            elif rps_match['status'] == 'concluded: first player wins':
+            if rps_match['status'] == 'concluded: first player wins':
                 status = 'win'
             elif rps_match['status'] == 'concluded: second player wins':
                 status = 'lose'     
 
         elif rps_match['tx1_address'] in addresses:
             txn = 1
-            if rps_match['status'] == 'pending and resolved':
-                status = 'resolved'
-            elif rps_match['status'] == 'concluded: second player wins':
+            if rps_match['status'] == 'concluded: second player wins':
                 status = 'win'
             elif rps_match['status'] == 'concluded: first player wins':
                 status = 'lose'
         
         if status != 'pending':
             resolved_bindings.append(rps_match['id'])
+        if status == 'resolved':
+            status = 'pending'
 
         match_games[rps_match['id']] = {
             'block_index': rps_match['tx{}_block_index'.format(txn)],
