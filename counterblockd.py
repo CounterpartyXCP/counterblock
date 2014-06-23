@@ -27,6 +27,8 @@ redis.connection.socket = gevent.socket #make redis play well with gevent
 from socketio import server as socketio_server
 from requests.auth import HTTPBasicAuth
 
+import pygeoip
+
 from lib import (config, api, events, blockfeed, siofeeds, util)
 
 
@@ -478,6 +480,9 @@ if __name__ == '__main__':
             rollbar.report_exc_info((ex_cls, ex, tb))
             raise ex #re-raise
         sys.excepthook = report_errors
+
+    # GeoIP
+    config.GEOIP = util.init_geoip()
 
     #Connect to mongodb
     mongo_client = pymongo.MongoClient(config.MONGODB_CONNECT, config.MONGODB_PORT)

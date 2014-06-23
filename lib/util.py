@@ -18,6 +18,8 @@ from PIL import Image
 
 import dateutil.parser
 import calendar
+import subprocess
+import pygeoip
 
 from jsonschema import FormatChecker, Draft4Validator, FormatError
 # not needed here but to ensure that installed
@@ -394,5 +396,35 @@ def next_interval_date(interval):
         return None
     else:
         return next.isoformat()
+
+def subprocess_cmd(command):
+    process = subprocess.Popen(command,stdout=subprocess.PIPE, shell=True)
+    proc_stdout = process.communicate()[0].strip()
+    print proc_stdout
+
+def download_geoip_data():
+    logging.info("Check GeoIP.dat")
+
+    download = False;
+    data_path = os.path.join(config.data_dir, 'GeoIP.dat')
+    if not os.path.isfile(data_path):
+        download = True
+    else:
+        one_week_ago = time.time() - 60*60*24*7
+        file_stat = os.stat(data_path)
+        if file_stat.st_ctime < one_week_ago:
+            download = True
+
+    if download:
+        logging.info("Downloading GeoIP.dat")
+        cmd = "cd {}; wget -N -q http://geolite.maxmind.com/download/geoip/database/GeoLiteCountry/GeoIP.dat.gz; gzip -d GeoIP.dat.gz".format(config.data_dir)
+        subprocess_cmd(cmd)
+    else:
+        logging.info("GeoIP.dat OK")
+
+def init_geoip():
+    download_geoip_data();
+    return pygeoip.GeoIP(os.path.join(config.data_dir, 'GeoIP.dat'))
+
 
 

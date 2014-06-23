@@ -41,19 +41,26 @@ def serve_api(mongo_db, redis_client):
         if we actually return data from this function, it should always be true. (may change this behaviour later)"""
         
         blockchainInfo = blockchain.getinfo()
+        ip = cherrypy.request.headers.get('X-Real-Ip', cherrypy.request.headers.get('Remote-Addr', ''))
+        country = config.GEOIP.country_code_by_addr(ip)
         return {
             'caught_up': util.is_caught_up_well_enough_for_government_work(),
             'last_message_index': config.LAST_MESSAGE_INDEX,
             'block_height': blockchainInfo['info']['blocks'], 
-            'testnet': config.TESTNET 
+            'testnet': config.TESTNET,
+            'ip': ip,
+            'country': country
         }
     
     @dispatcher.add_method
     def get_reflected_host_info():
         """Allows the requesting host to get some info about itself, such as its IP. Used for troubleshooting."""
+        ip = cherrypy.request.headers.get('X-Real-Ip', cherrypy.request.headers.get('Remote-Addr', ''))
+        country = config.GEOIP.country_code_by_addr(ip)
         return {
-            'ip': cherrypy.request.headers.get('X-Real-Ip', cherrypy.request.headers.get('Remote-Addr', '')),
-            'cookie': cherrypy.request.headers.get('Cookie', '')
+            'ip': ip,
+            'cookie': cherrypy.request.headers.get('Cookie', ''),
+            'country': country
         }
     
     @dispatcher.add_method
