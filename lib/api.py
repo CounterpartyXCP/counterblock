@@ -19,7 +19,7 @@ import pymongo
 from bson import json_util
 from bson.son import SON
 
-from . import (config, siofeeds, util, util_trading, betting, blockchain)
+from . import (config, siofeeds, util, util_trading, betting, rps, blockchain)
 
 PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
 D = decimal.Decimal
@@ -1337,6 +1337,17 @@ def serve_api(mongo_db, redis_client):
     def parse_base64_feed(base64_feed):
         feed = betting.parse_base64_feed(base64_feed)
         return feed
+
+    @dispatcher.add_method
+    def get_open_rps_count(exclude_addresses = []):
+        return rps.get_open_rps_count(exclude_addresses)
+
+    @dispatcher.add_method
+    def get_user_rps(addresses):
+        try:
+            return rps.get_user_rps(addresses)
+        except Exception as e:
+            logging.error(e)
 
     class API(object):
         @cherrypy.expose
