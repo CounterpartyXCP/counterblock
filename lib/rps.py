@@ -8,10 +8,10 @@ import json
 D = decimal.Decimal
 
 
-def get_open_rps_count(exclude_addresses = []):
+def get_open_rps_count(possible_moves = 3, exclude_addresses = []):
     
-    bindings = ['open']
-    sql = 'SELECT wager, COUNT(*) AS game_count FROM rps WHERE status = ? '
+    bindings = ['open', possible_moves]
+    sql = 'SELECT wager, COUNT(*) AS game_count FROM rps WHERE status = ? AND possible_moves = ? '
     if isinstance(exclude_addresses, list) and len(exclude_addresses)>0:
         sql += 'AND source NOT IN ({}) '.format(','.join(['?' for e in range(0,len(exclude_addresses))]))
         bindings += exclude_addresses
@@ -41,7 +41,8 @@ def get_user_rps(addresses):
             'wager': rps['wager'],
             'move': 0,
             'counter_move': 0,
-            'status': 'open'
+            'status': 'open',
+            'possible_moves': rps['possible_moves']
         })
 
     filters = [
@@ -98,7 +99,8 @@ def get_user_rps(addresses):
             'wager': rps_match['wager'],
             'move': 0,
             'counter_move': 0,
-            'status': status
+            'status': status,
+            'possible_moves': rps_match['possible_moves']
         }
 
     if len(resolved_bindings) > 0:

@@ -1339,15 +1339,12 @@ def serve_api(mongo_db, redis_client):
         return feed
 
     @dispatcher.add_method
-    def get_open_rps_count(exclude_addresses = []):
-        return rps.get_open_rps_count(exclude_addresses)
+    def get_open_rps_count(possible_moves = 3, exclude_addresses = []):
+        return rps.get_open_rps_count(possible_moves, exclude_addresses)
 
     @dispatcher.add_method
     def get_user_rps(addresses):
-        try:
-            return rps.get_user_rps(addresses)
-        except Exception as e:
-            logging.error(e)
+        return rps.get_user_rps(addresses)
 
     class API(object):
         @cherrypy.expose
