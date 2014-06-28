@@ -95,7 +95,7 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
 
 def call_blockchain_api(request_string, abort_on_error=False):
     url = config.BLOCKCHAIN_SERVICE_BASE_URL + request_string
-    logging.info("API Query: "+url)
+    # logging.info("API Query: "+url)
     r = grequests.map((grequests.get(url),) )[0]
     #^ use requests.Session to utilize connectionpool and keepalive (avoid connection setup/teardown overhead)
     if (not r or not hasattr(r, 'status_code')) and abort_on_error:
