@@ -585,6 +585,9 @@ if __name__ == '__main__':
     mongo_db.feeds.ensure_index('owner')
     mongo_db.feeds.ensure_index('category')
 
+    #mempool
+    mongo_db.mempool.ensure_index('tx_hash')
+
     #Connect to redis
     if config.REDIS_ENABLE_APICACHE:
         logging.info("Enabling redis read API caching... (%s:%s)" % (config.REDIS_CONNECT, config.REDIS_PORT))

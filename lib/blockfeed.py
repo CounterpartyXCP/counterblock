@@ -125,6 +125,46 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             if os.path.exists(imagePath):
                 os.remove(imagePath)
 
+    # fetch new tx from mempool
+    def publish_mempool_tx():
+        tx_hashes = []
+        mempool_txs = mongo_db.mempool.find(fields={'tx_hash': True})
+        for mempool_tx in mempool_txs:
+            tx_hashes.append(str(mempool_tx['tx_hash']))
+
+        params = None
+        if len(tx_hashes) > 0:
+            params = {
+                'filters': [
+                    {'field':'tx_hash', 'op': 'NOT IN', 'value': tx_hashes},
+                    {'field':'category', 'op': 'IN', 'value': ['sends', 'btcpays', 'issuances', 'dividends', 'callbacks']}
+                ],
+                'filterop': 'AND'
+            }
+        new_txs = util.call_jsonrpc_api("get_mempool", params, abort_on_error=True)
+
+        for new_tx in new_txs['result']:
+            tx = {
+                'tx_hash': new_tx['tx_hash'],
+                'command': new_tx['command'],
+                'category': new_tx['category'],
+                'bindings': new_tx['bindings'],
+                'timestamp': new_tx['timestamp'],
+                'viewed_in_block': config.CURRENT_BLOCK_INDEX
+            }
+            
+            mongo_db.mempool.insert(tx)
+            del(tx['_id'])
+            tx['_category'] = tx['category']
+            tx['_message_index'] = 'mempool'
+            logging.info("publish mempool tx:")
+            logging.info(tx)
+            zmq_publisher_eventfeed.send_json(tx)
+            
+    # clean mempool transactions older than 10 blocks
+    def clean_mempool_tx():
+        mongo_db.mempool.remove({"viewed_in_block": {"$lt": config.CURRENT_BLOCK_INDEX - 10}})
+
 
     config.CURRENT_BLOCK_INDEX = 0 #initialize (last processed block index -- i.e. currently active block)
     config.LAST_MESSAGE_INDEX = -1 #initialize (last processed message index)
@@ -498,6 +538,9 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             logging.info("Block: %i (message_index height=%s) (blockchain latest block=%s)" % (config.CURRENT_BLOCK_INDEX,
                 config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX != -1 else '???',
                 config.BLOCKCHAIN_SERVICE_LAST_BLOCK if config.BLOCKCHAIN_SERVICE_LAST_BLOCK else '???'))
+
+            clean_mempool_tx()
+
         elif my_latest_block['block_index'] > last_processed_block['block_index']:
             #we have stale blocks (i.e. most likely a reorg happened in counterpartyd)?? this shouldn't happen, as we
             # should get a reorg message. Just to be on the safe side, prune back 10 blocks before what counterpartyd is saying if we see this
@@ -531,6 +574,6 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 gevent.spawn(events.compile_extended_feed_info)
 
                 config.CAUGHT_UP_STARTED_EVENTS = True
-                
-            
+
+            publish_mempool_tx()
             time.sleep(2) #counterblockd itself is at least caught up, wait a bit to query again for the latest block from cpd
