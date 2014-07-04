@@ -42,7 +42,8 @@ def get_user_rps(addresses):
             'move': 0,
             'counter_move': 0,
             'status': 'open',
-            'possible_moves': rps['possible_moves']
+            'possible_moves': rps['possible_moves'],
+            'expiration': rps['expire_index']
         })
 
     filters = [
@@ -88,7 +89,8 @@ def get_user_rps(addresses):
                 'move': 0,
                 'counter_move': 0,
                 'status': 'pending' if status == 'resolved' else status,
-                'possible_moves': rps_match['possible_moves']
+                'possible_moves': rps_match['possible_moves'],
+                'expiration': rps_match['match_expire_index']
             }
 
         if rps_match['tx1_address'] in addresses:
@@ -106,7 +108,8 @@ def get_user_rps(addresses):
                 'move': 0,
                 'counter_move': 0,
                 'status': 'pending' if status == 'resolved' else status,
-                'possible_moves': rps_match['possible_moves']
+                'possible_moves': rps_match['possible_moves'],
+                'expiration': rps_match['match_expire_index']
             }
         
         if status != 'pending':
