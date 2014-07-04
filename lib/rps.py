@@ -78,30 +78,40 @@ def get_user_rps(addresses):
             if rps_match['status'] == 'concluded: first player wins':
                 status = 'win'
             elif rps_match['status'] == 'concluded: second player wins':
-                status = 'lose'     
+                status = 'lose'  
 
-        elif rps_match['tx1_address'] in addresses:
+            match_games[rps_match['tx0_address'] + "_" + rps_match['id']] = {
+                'block_index': rps_match['tx0_block_index'],
+                'address': rps_match['tx0_address'],
+                'tx_hash': rps_match['tx0_hash'],
+                'wager': rps_match['wager'],
+                'move': 0,
+                'counter_move': 0,
+                'status': 'pending' if status == 'resolved' else status,
+                'possible_moves': rps_match['possible_moves']
+            }
+
+        if rps_match['tx1_address'] in addresses:
             txn = 1
             if rps_match['status'] == 'concluded: second player wins':
                 status = 'win'
             elif rps_match['status'] == 'concluded: first player wins':
                 status = 'lose'
+
+            match_games[rps_match['tx1_address'] + "_" + rps_match['id']] = {
+                'block_index': rps_match['tx1_block_index'],
+                'address': rps_match['tx1_address'],
+                'tx_hash': rps_match['tx1_hash'],
+                'wager': rps_match['wager'],
+                'move': 0,
+                'counter_move': 0,
+                'status': 'pending' if status == 'resolved' else status,
+                'possible_moves': rps_match['possible_moves']
+            }
         
         if status != 'pending':
             resolved_bindings.append(rps_match['id'])
-        if status == 'resolved':
-            status = 'pending'
-
-        match_games[rps_match['id']] = {
-            'block_index': rps_match['tx{}_block_index'.format(txn)],
-            'address': rps_match['tx{}_address'.format(txn)],
-            'tx_hash': rps_match['tx{}_hash'.format(txn)],
-            'wager': rps_match['wager'],
-            'move': 0,
-            'counter_move': 0,
-            'status': status,
-            'possible_moves': rps_match['possible_moves']
-        }
+        
 
     if len(resolved_bindings) > 0:
 
@@ -116,10 +126,14 @@ def get_user_rps(addresses):
 
         for rpsresolve in rpsresolves:
             rps_match_id = rpsresolve['rps_match_id']
-            if match_games[rps_match_id]['address'] == rpsresolve['source']:
-                match_games[rps_match_id]['move'] = rpsresolve['move']
-            else:
-                match_games[rps_match_id]['counter_move'] = rpsresolve['move']
+            game_key = rpsresolve['source'] + '_' + rps_match_id
+            if game_key in match_games:
+                match_games[game_key]['move'] = rpsresolve['move']
+            
+            for countergame_key in match_games:
+                if countergame_key != game_key and countergame_key.split('_')[1] == rps_match_id:
+                    match_games[countergame_key]['counter_move'] = rpsresolve['move']
+                    break
 
     for match_games_key in match_games:
         games.append(match_games[match_games_key])
