@@ -8,17 +8,19 @@ import time
 import copy
 import decimal
 import cgi
+import itertools
+import StringIO
+import subprocess
 
+import gevent
 import numpy
 import pymongo
 import grequests
 import lxml.html
-import StringIO
 from PIL import Image
 
 import dateutil.parser
 import calendar
-import subprocess
 import pygeoip
 
 from jsonschema import FormatChecker, Draft4Validator, FormatError
@@ -80,13 +82,12 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
     }
     r = grequests.map(
         (grequests.post(endpoint,
-            data=json.dumps(payload),
-            headers={'content-type': 'application/json'},
-            auth=auth),)
-    )[0]
-    #^ use requests.Session to utilize connectionpool and keepalive (avoid connection setup/teardown overhead)
+            data=json.dumps(payload), headers={'content-type': 'application/json'}, auth=auth),))
+    if not len(r):
+        raise Exception("Could not contact counterpartyd (%s)" % method)
+    r = r[0]
     if not r:
-        raise Exception("Could not contact counterpartyd!")
+        raise Exception("Could not contact counterpartyd (%s)" % method)
     elif r.status_code != 200:
         raise Exception("Bad status code returned from counterpartyd: '%s'. result body: '%s'." % (r.status_code, r.text))
     else:
@@ -125,6 +126,15 @@ def get_address_cols_for_entity(entity):
         return ['tx0_address', 'tx1_address']
     else:
         raise Exception("Unknown entity type: %s" % entity)
+
+def grouper(n, iterable, fillmissing=False, fillvalue=None):
+    #Modified from http://stackoverflow.com/a/1625013
+    "grouper(3, 'ABCDEFG', 'x') --> ABC DEF Gxx"
+    args = [iter(iterable)] * n
+    data = itertools.izip_longest(*args, fillvalue=fillvalue)
+    if not fillmissing:
+        data = [[e for e in g if e != fillvalue] for g in data]
+    return data
 
 def multikeysort(items, columns):
     """http://stackoverflow.com/a/1144405"""
@@ -298,24 +308,63 @@ def make_data_dir(subfolder):
         os.makedirs(path)
     return path
 
-def fetch_json(url, max_size=4*1024):
-    try:
-        if url[:7] != 'http://' and url[:8] != 'https://':
-            url = 'http://' + url
-        r = grequests.map((grequests.get(url, timeout=1, stream=True, verify=False),), stream=True)[0]
+def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spacing=0, max_fetch_size=4*1024, fetch_timeout=1, is_json=True):
+    completed_urls = {}
+    def request_exception_handler(r, e):
+        completed_urls[r.url] = (False, str(e))
+        if len(completed_urls) == len(urls): #all done, trigger callback
+            return hook_on_complete(completed_urls)
+        
+    def stream_fetch_response_hook(r, **kwargs):
         try:
-            if not r: raise Exception("Invalid response")
-            if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
+            if not r: data = (False, "Invalid response")
+            if r.status_code != 200: data = (False, "Got non-successful response code of: %s" % r.status_code)
             
-            #read up to 4KB and try to convert to JSON
-            raw_data = r.raw.read(max_size, decode_content=True)
+            #read up to max_fetch_size
+            raw_data = r.raw.read(max_fetch_size, decode_content=True)
+
+            if is_json: #try to convert to JSON
+                try:
+                    data = json.loads(raw_data)
+                except Exception, e:
+                    data = (False, "Invalid JSON data: %s" % e)
+                else:
+                    data = (True, data)
+            else: #keep raw
+                data = (True, raw_data)
+        except Exception, e:
+            data = (False, "Request error: %s" % e)
         finally:
             if r and r.raw:
-                r.raw.release_conn() 
-        data = json.loads(raw_data)
-    except Exception, e:
-        return False
-    return data
+                r.raw.release_conn()
+        
+        completed_urls[r.url] = data
+        if len(completed_urls) == len(urls): #all done, trigger callback
+            return hook_on_complete(completed_urls)
+    
+    def process_group(group):
+        group_results = []
+        for url in group:
+            if not is_valid_url(url, allow_no_protocol=True):
+                completed_urls[url] = (False, "Invalid URL")
+                continue
+            assert url.startswith('http://') or url.startswith('https://')
+            r = grequests.get(url, timeout=fetch_timeout, stream=True,
+                verify=False, hooks=dict(response=stream_fetch_response_hook))
+            group_results.append(r)
+        rgroup = grequests.map(group_results, stream=True, exception_handler=request_exception_handler)
+
+    if not isinstance(urls, (list, tuple)):
+        urls = [urls,]
+    urls = list(set(urls)) #remove duplicates (so we only fetch any given URL, once)
+        
+    groups = grouper(urls_group_size, urls)
+    for i in xrange(len(groups)):
+        group = groups[i]
+        if urls_group_time_spacing and i != 0:
+            gevent.spawn_later(urls_group_time_spacing, process_group, group)
+        else:
+            process_group(group)
 
 def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimensions=(48, 48)):
     try:
@@ -403,7 +452,7 @@ def subprocess_cmd(command):
     print proc_stdout
 
 def download_geoip_data():
-    logging.info("Check GeoIP.dat")
+    logging.info("Checking/updating GeoIP.dat ...")
 
     download = False;
     data_path = os.path.join(config.data_dir, 'GeoIP.dat')

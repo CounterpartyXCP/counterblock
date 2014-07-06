@@ -584,6 +584,7 @@ if __name__ == '__main__':
     mongo_db.feeds.ensure_index('source')
     mongo_db.feeds.ensure_index('owner')
     mongo_db.feeds.ensure_index('category')
+    mongo_db.feeds.ensure_index('info_url')
 
     #mempool
     mongo_db.mempool.ensure_index('tx_hash')

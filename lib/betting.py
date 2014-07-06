@@ -5,6 +5,8 @@ import decimal
 import base64
 import json
 
+from . import (config, util)
+
 D = decimal.Decimal
 
 def parse_broadcast(db, message):
@@ -40,7 +42,7 @@ def parse_broadcast(db, message):
         return True
     return False
 
-def inc_fetch_retry(db, feed, max_retry = 3, new_status = 'error', errors=[]):
+def inc_fetch_retry(db, feed, max_retry=3, new_status='error', errors=[]):
     feed['fetch_info_retry'] += 1
     feed['errors'] = errors
     if feed['fetch_info_retry'] == max_retry:
@@ -65,56 +67,78 @@ def sanitize_json_data(data):
             if isinstance(data['customs'][key], str): data['customs'][key] = util.sanitize_eliteness(data['customs'][key])
     return data
 
-def fetch_feed_info(db, feed):
+def process_feed_info(db, feed, info_data):
     # sanity check
-    if feed['info_status'] != 'needfetch': return False
-    if 'info_url' not in feed: return False
-    if not util.is_valid_url(feed['info_url'], allow_no_protocol=True): return False
+    assert feed['info_status'] == 'needfetch'
+    assert 'info_url' in feed
+    assert util.is_valid_url(feed['info_url'], allow_no_protocol=True) #already validated in the fetch
 
-    logging.info('Fetching enhanced feed info: ' + feed['info_url'])
-
-    data = util.fetch_json(feed['info_url'])
-    if not data: 
-        inc_fetch_retry(db, feed, errors=['Fetch json failed'])
-        return False
-
-    errors = util.is_valid_json(data, config.FEED_SCHEMA)
-
-    if feed['source'] != data['address']:
+    errors = util.is_valid_json(info_data, config.FEED_SCHEMA)
+    
+    if not isinstance(info_data, dict) or 'address' not in info_data:
+        errors.append('Invalid data format')
+    elif feed['source'] != info_data['address']:
         errors.append('Invalid address')
    
-    if len(errors)>0:
-        inc_fetch_retry(db, feed, new_status = 'invalid', errors=errors) 
-        return False 
+    if len(errors) > 0:
+        inc_fetch_retry(db, feed, new_status='invalid', errors=errors)
+        return (False, errors) 
 
     feed['info_status'] = 'valid'
 
-    if 'operator' in data and 'image' in data['operator']:
-        data['operator']['valid_image'] = util.fetch_image(data['operator']['image'], config.SUBDIR_FEED_IMAGES, feed['source']+'_owner')
+    #fetch any associated images...
+    #TODO: parallelize this 2nd level feed image fetching ... (e.g. just compose a list here, and process it in later on)
+    if 'image' in info_data:
+        info_data['valid_image'] = util.fetch_image(info_data['image'], config.SUBDIR_FEED_IMAGES, feed['source'] + '_topic')
+    if 'operator' in info_data and 'image' in info_data['operator']:
+        info_data['operator']['valid_image'] = util.fetch_image(info_data['operator']['image'],
+            config.SUBDIR_FEED_IMAGES, feed['source'] + '_owner')
+    if 'targets' in info_data:
+        for i in range(len(info_data['targets'])):
+            if 'image' in info_data['targets'][i]:
+                image_name = feed['source'] + '_tv_' + str(info_data['targets'][i]['value'])
+                info_data['targets'][i]['valid_image'] = util.fetch_image(
+                    info_data['targets'][i]['image'], config.SUBDIR_FEED_IMAGES, image_name)
 
-    if 'image' in data:
-        data['valid_image'] = util.fetch_image(data['image'], config.SUBDIR_FEED_IMAGES, feed['source']+'_topic')
-
-    if 'targets' in data:
-        for i in range(len(data['targets'])):
-            if 'image' in data['targets'][i]:
-                image_name = feed['source']+'_tv_'+str(data['targets'][i]['value'])
-                data['targets'][i]['valid_image'] = util.fetch_image(data['targets'][i]['image'], config.SUBDIR_FEED_IMAGES, image_name)
-
-    feed['info_data'] = sanitize_json_data(data)
-
+    feed['info_data'] = sanitize_json_data(info_data)
     db.feeds.save(feed)
+    return (True, None)
 
 def fetch_all_feed_info(db):
+    def feed_fetch_complete_hook(urls_data):
+        logging.info("Enhanced feed info fetching complete. %s unique URLs fetched. Processing..." % len(urls_data))
+        feeds = db.feeds.find({'info_status': 'needfetch'})
+        for feed in list(feeds):
+            #logging.debug("Looking at feed %s: %s" % (feed, feed['info_url']))
+            if feed['info_url']:
+                info_url = ('http://' + feed['info_url']) \
+                    if not feed['info_url'].startswith('http://') or not feed['info_url'].startswith('https://') else feed['info_url']
+                assert info_url in urls_data
+                if not urls_data[info_url][0]: #request was not successful
+                    max_retry = 3
+                    inc_fetch_retry(db, feed, max_retry=max_retry, errors=[urls_data[info_url][1]])
+                    logging.error("Fetch for feed at %s not successful: %s (try %i of %i)" % (info_url, urls_data[info_url][1], feed['fetch_info_retry'], max_retry))
+                else:
+                    result = process_feed_info(db, feed, urls_data[info_url][1])
+                    if not result[0]:
+                        logging.info("Processing for feed at %s not successful: %s" % (info_url, result[1]))
+                    else:
+                        logging.info("Processing for feed at %s successful" % info_url)
+        
+    #compose and fetch all info URLs in all feeds with them
     feeds = db.feeds.find({'info_status': 'needfetch'})
+    feed_info_urls = []
     for feed in feeds:
-        try:
-            fetch_feed_info(db, feed)
-        except Exception, e:
-            inc_fetch_retry(db, feed, errors=[str(e)])
-            logging.error(e)
+        if not feed['info_url']: continue
+        feed_info_urls.append(('http://' + feed['info_url']) \
+            if not feed['info_url'].startswith('http://') or not feed['info_url'].startswith('https://') else feed['info_url'])
+    feed_info_urls_str = ', '.join(feed_info_urls)
+    feed_info_urls_str = (feed_info_urls_str[:2000] + ' ...') if len(feed_info_urls_str) > 2000 else feed_info_urls_str #truncate if necessary
+    if len(feed_info_urls):
+        logging.info('Fetching enhanced feed info for %i feeds: %s' % (len(feed_info_urls), feed_info_urls_str))
+        util.stream_fetch(feed_info_urls, feed_fetch_complete_hook,
+            fetch_timeout=5, max_fetch_size=4*1024, urls_group_size=50, urls_group_time_spacing=10)
 
-# TODO: counter cache
 def get_feed_counters(feed_address):
     counters = {}        
     sql  = 'SELECT COUNT(*) AS bet_count, SUM(wager_quantity) AS wager_quantity, SUM(wager_remaining) AS wager_remaining, status FROM bets '

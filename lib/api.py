@@ -12,6 +12,7 @@ import uuid
 
 from logging import handlers as logging_handlers
 from gevent import pywsgi
+import grequests
 import cherrypy
 from cherrypy.process import plugins
 from jsonrpc import JSONRPCResponseManager, dispatcher
@@ -850,8 +851,8 @@ def serve_api(mongo_db, redis_client):
     def get_transaction_stats(start_ts=None, end_ts=None):
         if not end_ts: #default to current datetime
             end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
-        if not start_ts: #default to 30 days before the end date
-            start_ts = end_ts - (30 * 24 * 60 * 60)
+        if not start_ts: #default to 360 days before the end date
+            start_ts = end_ts - (360 * 24 * 60 * 60)
                 
         stats = mongo_db.transaction_stats.aggregate([
             {"$match": {
@@ -898,8 +899,8 @@ def serve_api(mongo_db, redis_client):
     def get_wallet_stats(start_ts=None, end_ts=None):
         if not end_ts: #default to current datetime
             end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
-        if not start_ts: #default to 30 days before the end date
-            start_ts = end_ts - (30 * 24 * 60 * 60)
+        if not start_ts: #default to 360 days before the end date
+            start_ts = end_ts - (360 * 24 * 60 * 60)
             
         num_wallets_mainnet = mongo_db.preferences.find({'network': 'mainnet'}).count()
         num_wallets_testnet = mongo_db.preferences.find({'network': 'testnet'}).count()
@@ -916,10 +917,6 @@ def serve_api(mongo_db, redis_client):
             distinct_login_counts = []
             for e in stats:
                 d = int(time.mktime(datetime.datetime(e['when'].year, e['when'].month, e['when'].day).timetuple()) * 1000)
-                
-                '''distinct_login_counts.append([ d, e['distinct_login_count'] if 'distinct_login_count' in e else 0])
-                login_counts.append([ d, e['login_count'] if 'login_count' in e else 0])
-                new_wallet_counts.append([ d, e['new_count'] if 'new_count' in e else 0])'''
                 
                 if 'distinct_login_count' in e: distinct_login_counts.append([ d, e['distinct_login_count'] ])
                 if 'login_count' in e: login_counts.append([ d, e['login_count'] ])
@@ -1270,8 +1267,11 @@ def serve_api(mongo_db, redis_client):
         if len(preferences_json) >= PREFERENCES_MAX_LENGTH:
             raise Exception("Preferences object is too big.")
         
-        if for_login: #mark this as a new signup
-            mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now, 'network': network, 'action': 'create', 'referer': referer})
+        if for_login: #mark this as a new signup IF the wallet doesn't exist already
+            existing_record = mongo_db.login_history.find({'wallet_id': wallet_id, 'network': network, 'action': 'create'})
+            if existing_record.count() == 0:
+                mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now, 'network': network, 'action': 'create', 'referer': referer})
+                mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now, 'network': network, 'action': 'login'}) #also log a wallet login
         
         now_ts = time.mktime(time.gmtime())
         mongo_db.preferences.update(
@@ -1370,16 +1370,53 @@ def serve_api(mongo_db, redis_client):
             cherrypy.response.headers["Content-Type"] = 'application/json'
             
             if cherrypy.request.method == "GET": #handle GET statistics checking
-                #"ping" counterpartyd to test, as well
+                #"ping" counterpartyd to test
+                cpd_result_valid = True
                 try:
-                    cpd_status = util.call_jsonrpc_api("get_running_info", [], abort_on_error=True)['result']
+                    cpd_status = util.call_jsonrpc_api("get_running_info", abort_on_error=True)['result']
                 except:
+                    cpd_result_valid = False
+
+                #"ping" counterblockd to test, as well
+                cbd_result_valid = True
+                cbd_result_error_code = None
+                payload = {
+                  "id": 0,
+                  "jsonrpc": "2.0",
+                  "method": "is_ready",
+                  "params": [],
+                }
+                try:
+                    r = grequests.map(
+                        (grequests.post("http://127.0.0.1:%s/api/" % config.RPC_PORT,
+                            data=json.dumps(payload), headers={'content-type': 'application/json'}),))
+                except Exception, e:
+                    cbd_result_valid = False
+                    cbd_result_error_code = "GOT EXCEPTION: %s" % e
+                else:
+                    if not r or r[0].status_code != 200:
+                        cbd_result_valid = False
+                        cbd_result_error_code = "GOT STATUS %s" % r[0].status_code if r else 'COULD NOT CONTACT'
+                    elif 'error' in r[0]:
+                        cbd_result_valid = False
+                        cbd_result_error_code = "GOT ERROR: %s" % r[0]['error']
+                    else:
+                        cbd_result = r[0].json()
+                
+                if not cpd_result_valid or not cbd_result_valid:
                     cherrypy.response.status = 500
                 else:
                     cherrypy.response.status = 200
+                
                 result = {
-                    'counterblockd': 'OK',
-                    'counterpartyd': 'OK' if cherrypy.response.status == 200 else 'NOT OK'
+                    'counterpartyd': 'OK' if cpd_result_valid else 'NOT OK',
+                    'counterblockd': 'OK' if cbd_result_valid else 'NOT OK',
+                    'counterblockd_error': cbd_result_error_code,
+                    'counterpartyd_ver': '%s.%s.%s' % (
+                        cpd_status['version_major'], cpd_status['version_minor'], cpd_status['version_revision']),
+                    'counterblockd_ver': config.VERSION,
+                    'counterpartyd_last_block': cpd_status['last_block'],
+                    'counterpartyd_last_message_index': cpd_status['last_message_index'],
                 }
                 return json.dumps(result)
 

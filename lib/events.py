@@ -67,7 +67,8 @@ def generate_wallet_stats():
         latest_stat = latest_stat[0] if latest_stat.count() else None
         new_entries = {}
         
-        #aggregate over the same peroid for new logins, adding the referrers to a set
+        #the queries below work with data that happened on or after the date of the latest stat present
+        #aggregate over the same period for new logins, adding the referrers to a set
         match_criteria = {'when': {"$gte": latest_stat['when']}, 'network': network, 'action': 'create'} \
             if latest_stat else {'when': {"$lte": now}, 'network': network, 'action': 'create'}
         new_wallets = mongo_db.login_history.aggregate([
@@ -90,6 +91,7 @@ def generate_wallet_stats():
                 'network': network,
                 'new_count': e['new_count'],
             }
+        logging.info("GENERATED new_wallets: %s" % new_wallets)
     
         referer_counts = mongo_db.login_history.aggregate([
             {"$match": match_criteria },
@@ -114,7 +116,7 @@ def generate_wallet_stats():
             if e['_id']['referer'] not in new_entries[ts]['referers']: new_entries[ts]['referers'][referer_key] = 0
             new_entries[ts]['referers'][referer_key] += 1
     
-        #logins (not new wallets) - generate stats from an aggregation from that date (minus 1 day, to be safe, just in case it was a partial accounting for that day) to the present date
+        #logins (not new wallets) - generate stats
         match_criteria = {'when': {"$gte": latest_stat['when']}, 'network': network, 'action': 'login'} \
             if latest_stat else {'when': {"$lte": now}, 'network': network, 'action': 'login'}
         logins = mongo_db.login_history.aggregate([
@@ -127,11 +129,12 @@ def generate_wallet_stats():
             }},
             {"$group": {
                 "_id":   {"year": "$year", "month": "$month", "day": "$day"},
-                "distinct_wallets":   {"$addToSet": "wallet_id"},
                 "login_count":   {"$sum": 1},
+                "distinct_wallets":   {"$addToSet": "$wallet_id"},
             }}
         ])
         logins = [] if not logins['ok'] else logins['result']
+        logging.info("GENERATED LOGINS: %s" % logins)
         for e in logins:
             ts = time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple())
             if ts not in new_entries:
@@ -146,18 +149,20 @@ def generate_wallet_stats():
             
         #add/replace the wallet_stats data
         if latest_stat:
-            updated_entry_ts = time.mktime(datetime.datetime(latest_stat['when'].year, latest_stat['when'].month, latest_stat['when'].day).timetuple())
+            updated_entry_ts = time.mktime(datetime.datetime(
+                latest_stat['when'].year, latest_stat['when'].month, latest_stat['when'].day).timetuple())
             if updated_entry_ts in new_entries:
                 updated_entry = new_entries[updated_entry_ts]
                 del new_entries[updated_entry_ts]
                 assert updated_entry['when'] == latest_stat['when']
                 del updated_entry['when'] #not required for the upsert
-                logging.info("Updated wallet statistics for %s-%s-%s: %s" % (latest_stat['when'].year, latest_stat['when'].month, latest_stat['when'].day, updated_entry))
+                logging.info("Revised wallet statistics for partial day %s-%s-%s: %s" % (
+                    latest_stat['when'].year, latest_stat['when'].month, latest_stat['when'].day, updated_entry))
                 mongo_db.wallet_stats.update({'when': latest_stat['when']},
                     {"$set": updated_entry}, upsert=True)
         
         if new_entries: #insert the rest
-            logging.info("new entries: %s" % new_entries.values())
+            logging.info("Stats, new entries: %s" % new_entries.values())
             mongo_db.wallet_stats.insert(new_entries.values())
             logging.info("Added wallet statistics for %i full days" % len(new_entries.values()))
         
@@ -392,8 +397,9 @@ def compile_extended_asset_info():
 
 def compile_extended_feed_info():
     betting.fetch_all_feed_info(config.mongo_db)
+    
     #call again in 5 minutes
-    gevent.spawn_later(60 * 1, compile_extended_feed_info)
+    gevent.spawn_later(60 * 5, compile_extended_feed_info)
 
 def compile_asset_market_info():
     """

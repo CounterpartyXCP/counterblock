@@ -125,8 +125,8 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             if os.path.exists(imagePath):
                 os.remove(imagePath)
 
-    # fetch new tx from mempool
     def publish_mempool_tx():
+        """fetch new tx from mempool"""
         tx_hashes = []
         mempool_txs = mongo_db.mempool.find(fields={'tx_hash': True})
         for mempool_tx in mempool_txs:
@@ -157,12 +157,11 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             del(tx['_id'])
             tx['_category'] = tx['category']
             tx['_message_index'] = 'mempool'
-            logging.info("publish mempool tx:")
-            logging.info(tx)
+            logging.debug("Spotted mempool tx: %s" % tx)
             zmq_publisher_eventfeed.send_json(tx)
             
-    # clean mempool transactions older than 10 blocks
     def clean_mempool_tx():
+        """clean mempool transactions older than 10 blocks"""
         mongo_db.mempool.remove({"viewed_in_block": {"$lt": config.CURRENT_BLOCK_INDEX - 10}})
 
 
