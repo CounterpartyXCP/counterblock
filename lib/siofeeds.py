@@ -12,7 +12,7 @@ from socketio import socketio_manage
 from socketio.mixins import BroadcastMixin
 from socketio.namespace import BaseNamespace
 
-from . import (config, util)
+from lib import config, util
 
 onlineClients = {} #key = walletID, value = datetime when connected
 #^ tracks "online status" via the chat feed

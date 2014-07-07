@@ -15,7 +15,8 @@ import time
 import pymongo
 import gevent
 
-from lib import (config, util, events, betting, blockchain)
+from lib import config, util, events, blockchain
+from lib.components import assets, betting
 
 D = decimal.Decimal
 
@@ -24,7 +25,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
     mongo_db = config.mongo_db
 
     def blow_away_db():
-        #boom! blow away all applicable collections in mongo
+        """boom! blow away all applicable collections in mongo"""
         mongo_db.processed_blocks.drop()
         mongo_db.tracked_assets.drop()
         mongo_db.trades.drop()
@@ -111,20 +112,6 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         latest_block = mongo_db.processed_blocks.find_one({"block_index": max_block_index}) or LATEST_BLOCK_INIT
         return latest_block
     
-    def modify_extended_asset_info(asset, description):
-        """adds an asset to asset_extended_info collection if the description is a valid json link. or, if the link
-        is not a valid json link, will remove the asset entry from the table if it exists"""
-        if util.is_valid_url(description, suffix='.json'):
-            mongo_db.asset_extended_info.update({'asset': asset},
-                {'$set': {'url': description}}, upsert=True)
-            #additional fields will be added later in events, once the asset info is pulled
-        else:
-            mongo_db.asset_extended_info.remove({ 'asset': asset })
-            #remove any saved asset image data
-            imagePath = os.path.join(config.data_dir, config.SUBDIR_ASSET_IMAGES, asset + '.png')
-            if os.path.exists(imagePath):
-                os.remove(imagePath)
-
     def publish_mempool_tx():
         """fetch new tx from mempool"""
         tx_hashes = []
@@ -268,7 +255,6 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             cur_block['block_time_obj'] = datetime.datetime.utcfromtimestamp(cur_block['block_time'])
             cur_block['block_time_str'] = cur_block['block_time_obj'].isoformat()
             
-            #logging.info("Processing block %i ..." % (cur_block_index,))
             try:
                 block_data = util.call_jsonrpc_api("get_messages", [cur_block_index,], abort_on_error=True)['result']
             except Exception, e:
@@ -331,77 +317,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 
                 #track assets
                 if msg['category'] == 'issuances':
-                    tracked_asset = mongo_db.tracked_assets.find_one(
-                        {'asset': msg_data['asset']}, {'_id': 0, '_history': 0})
-                    #^ pulls the tracked asset without the _id and history fields. This may be None
-                    
-                    if msg_data['locked']: #lock asset
-                        assert tracked_asset is not None
-                        mongo_db.tracked_assets.update(
-                            {'asset': msg_data['asset']},
-                            {"$set": {
-                                '_at_block': cur_block_index,
-                                '_at_block_time': cur_block['block_time_obj'], 
-                                '_change_type': 'locked',
-                                'locked': True,
-                             },
-                             "$push": {'_history': tracked_asset } }, upsert=False)
-                    elif msg_data['transfer']: #transfer asset
-                        assert tracked_asset is not None
-                        mongo_db.tracked_assets.update(
-                            {'asset': msg_data['asset']},
-                            {"$set": {
-                                '_at_block': cur_block_index,
-                                '_at_block_time': cur_block['block_time_obj'], 
-                                '_change_type': 'transferred',
-                                'owner': msg_data['issuer'],
-                             },
-                             "$push": {'_history': tracked_asset } }, upsert=False)
-                    elif msg_data['quantity'] == 0 and tracked_asset is not None: #change description
-                        mongo_db.tracked_assets.update(
-                            {'asset': msg_data['asset']},
-                            {"$set": {
-                                '_at_block': cur_block_index,
-                                '_at_block_time': cur_block['block_time_obj'], 
-                                '_change_type': 'changed_description',
-                                'description': msg_data['description'],
-                             },
-                             "$push": {'_history': tracked_asset } }, upsert=False)
-                        modify_extended_asset_info(msg_data['asset'], msg_data['description'])
-                    else: #issue new asset or issue addition qty of an asset
-                        if not tracked_asset: #new issuance
-                            tracked_asset = {
-                                '_change_type': 'created',
-                                '_at_block': cur_block_index, #the block ID this asset is current for
-                                '_at_block_time': cur_block['block_time_obj'], 
-                                #^ NOTE: (if there are multiple asset tracked changes updates in a single block for the same
-                                # asset, the last one with _at_block == that block id in the history array is the
-                                # final version for that asset at that block
-                                'asset': msg_data['asset'],
-                                'owner': msg_data['issuer'],
-                                'description': msg_data['description'],
-                                'divisible': msg_data['divisible'],
-                                'locked': False,
-                                'total_issued': msg_data['quantity'],
-                                'total_issued_normalized': util.normalize_quantity(msg_data['quantity'], msg_data['divisible']),
-                                '_history': [] #to allow for block rollbacks
-                            }
-                            mongo_db.tracked_assets.insert(tracked_asset)
-                            modify_extended_asset_info(msg_data['asset'], msg_data['description'])
-                        else: #issuing additional of existing asset
-                            assert tracked_asset is not None
-                            mongo_db.tracked_assets.update(
-                                {'asset': msg_data['asset']},
-                                {"$set": {
-                                    '_at_block': cur_block_index,
-                                    '_at_block_time': cur_block['block_time_obj'], 
-                                    '_change_type': 'issued_more',
-                                 },
-                                 "$inc": {
-                                     'total_issued': msg_data['quantity'],
-                                     'total_issued_normalized': util.normalize_quantity(msg_data['quantity'], msg_data['divisible'])
-                                 },
-                                 "$push": {'_history': tracked_asset} }, upsert=False)
+                    assets.parse_issuance(mongo_db, msg_data, cur_block_index, cur_block)
                 
                 #track balance changes for each address
                 bal_change = None

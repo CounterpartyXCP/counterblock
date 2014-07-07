@@ -419,7 +419,8 @@ if __name__ == '__main__':
     # current dir
     config.COUNTERBLOCKD_DIR = os.path.dirname(os.path.realpath(__file__))
 
-    # initialize json schema for json feed validation
+    # initialize json schema for json asset and feed validation
+    config.ASSET_SCHEMA = json.load(open(os.path.join(config.COUNTERBLOCKD_DIR, 'schemas', 'asset.schema.json')))
     config.FEED_SCHEMA = json.load(open(os.path.join(config.COUNTERBLOCKD_DIR, 'schemas', 'feed.schema.json')))
 
     #Create/update pid file
@@ -543,6 +544,7 @@ if __name__ == '__main__':
     mongo_db.asset_pair_market_info.ensure_index('last_updated')
     #asset_extended_info
     mongo_db.asset_extended_info.ensure_index('asset', unique=True)
+    mongo_db.asset_extended_info.ensure_index('info_status')
     #btc_open_orders
     mongo_db.btc_open_orders.ensure_index('when_created')
     mongo_db.btc_open_orders.ensure_index('order_tx_hash', unique=True)

@@ -20,7 +20,8 @@ import pymongo
 from bson import json_util
 from bson.son import SON
 
-from . import (config, siofeeds, util, util_trading, betting, rps, blockchain)
+from lib import config, siofeeds, util, blockchain
+from lib.components import betting, rps, assets_trading
 
 PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
 D = decimal.Decimal
@@ -404,7 +405,7 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def get_market_price_summary(asset1, asset2, with_last_trades=0):
-        result = util_trading.get_market_price_summary(asset1, asset2, with_last_trades)
+        result = assets_trading.get_market_price_summary(asset1, asset2, with_last_trades)
         return result if result is not None else False
         #^ due to current bug in our jsonrpc stack, just return False if None is returned
 
@@ -465,10 +466,10 @@ def serve_api(mongo_db, redis_client):
         for a in assets_market_info:
             if a['asset'] in extended_asset_info_dict and extended_asset_info_dict[a['asset']].get('processed', False):
                 extended_info = extended_asset_info_dict[a['asset']]
-                a['extended_image'] = bool(extended_info['image'])
-                a['extended_description'] = extended_info['description']
-                a['extended_website'] = extended_info['website']
-                a['extended_pgpsig'] = extended_info['pgpsig']
+                a['extended_image'] = bool(extended_info.get('image', ''))
+                a['extended_description'] = extended_info.get('description', '')
+                a['extended_website'] = extended_info.get('website', '')
+                a['extended_pgpsig'] = extended_info.get('pgpsig', '')
             else:
                 a['extended_image'] = a['extended_description'] = a['extended_website'] = a['extended_pgpsig'] = ''
         return assets_market_info
@@ -497,9 +498,9 @@ def serve_api(mongo_db, redis_client):
                     extended_info = extended_asset_info_dict[a['asset']]
                     if 'extended_image' not in a or 'extended_description' not in a or 'extended_website' not in a:
                         continue #asset has been recognized as having a JSON file description, but has not been successfully processed yet
-                    a['extended_image'] = bool(extended_info['image'])
-                    a['extended_description'] = extended_info['description']
-                    a['extended_website'] = extended_info['website']
+                    a['extended_image'] = bool(extended_info.get('image', ''))
+                    a['extended_description'] = extended_info.get('description', '')
+                    a['extended_website'] = extended_info.get('website', '')
                 else:
                     a['extended_image'] = a['extended_description'] = a['extended_website'] = ''
         return assets_market_info

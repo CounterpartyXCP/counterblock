@@ -27,7 +27,7 @@ from jsonschema import FormatChecker, Draft4Validator, FormatError
 # not needed here but to ensure that installed
 import strict_rfc3339, rfc3987, aniso8601
 
-from . import (config,)
+from lib import config
 
 D = decimal.Decimal
 
@@ -302,12 +302,6 @@ def is_caught_up_well_enough_for_government_work():
     getting caught up, but we DO if counterblockd is either clearly out of date with the blockchain, or reinitializing its database"""
     return config.CAUGHT_UP or (config.BLOCKCHAIN_SERVICE_LAST_BLOCK and config.CURRENT_BLOCK_INDEX >= config.BLOCKCHAIN_SERVICE_LAST_BLOCK - 1)
 
-def make_data_dir(subfolder):
-    path = os.path.join(config.data_dir, subfolder)
-    if not os.path.exists(path):
-        os.makedirs(path)
-    return path
-
 def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spacing=0, max_fetch_size=4*1024, fetch_timeout=1, is_json=True):
     completed_urls = {}
     def request_exception_handler(r, e):
@@ -367,6 +361,12 @@ def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spa
             process_group(group)
 
 def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimensions=(48, 48)):
+    def make_data_dir(subfolder):
+        path = os.path.join(config.data_dir, subfolder)
+        if not os.path.exists(path):
+            os.makedirs(path)
+        return path
+    
     try:
         #fetch the image data 
         r = grequests.map((grequests.get(url, timeout=1, stream=True, verify=False),), stream=True)[0]

@@ -1,11 +1,10 @@
-from lib import config, util
 from datetime import datetime
 import logging
 import decimal
 import base64
 import json
 
-from . import (config, util)
+from lib import config, util
 
 D = decimal.Decimal
 
@@ -112,7 +111,7 @@ def fetch_all_feed_info(db):
             #logging.debug("Looking at feed %s: %s" % (feed, feed['info_url']))
             if feed['info_url']:
                 info_url = ('http://' + feed['info_url']) \
-                    if not feed['info_url'].startswith('http://') or not feed['info_url'].startswith('https://') else feed['info_url']
+                    if not feed['info_url'].startswith('http://') and not feed['info_url'].startswith('https://') else feed['info_url']
                 assert info_url in urls_data
                 if not urls_data[info_url][0]: #request was not successful
                     max_retry = 3
@@ -131,7 +130,7 @@ def fetch_all_feed_info(db):
     for feed in feeds:
         if not feed['info_url']: continue
         feed_info_urls.append(('http://' + feed['info_url']) \
-            if not feed['info_url'].startswith('http://') or not feed['info_url'].startswith('https://') else feed['info_url'])
+            if not feed['info_url'].startswith('http://') and not feed['info_url'].startswith('https://') else feed['info_url'])
     feed_info_urls_str = ', '.join(feed_info_urls)
     feed_info_urls_str = (feed_info_urls_str[:2000] + ' ...') if len(feed_info_urls_str) > 2000 else feed_info_urls_str #truncate if necessary
     if len(feed_info_urls):
