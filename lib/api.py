@@ -1235,7 +1235,9 @@ def serve_api(mongo_db, redis_client):
         now = datetime.datetime.utcnow()
          
         if for_login: #record user login
-            mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now, 'network': network, 'action': 'login'})
+            ip = cherrypy.request.headers.get('X-Real-Ip', cherrypy.request.headers.get('Remote-Addr', ''))
+            ua = cherrypy.request.headers.get('User-Agent', '')
+            mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now, 'network': network, 'action': 'login', 'ip': ip, 'ua': ua})
         
         result['last_touched'] = time.mktime(time.gmtime())
         mongo_db.preferences.save(result)
@@ -1271,8 +1273,12 @@ def serve_api(mongo_db, redis_client):
         if for_login: #mark this as a new signup IF the wallet doesn't exist already
             existing_record = mongo_db.login_history.find({'wallet_id': wallet_id, 'network': network, 'action': 'create'})
             if existing_record.count() == 0:
-                mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now, 'network': network, 'action': 'create', 'referer': referer})
-                mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now, 'network': network, 'action': 'login'}) #also log a wallet login
+                ip = cherrypy.request.headers.get('X-Real-Ip', cherrypy.request.headers.get('Remote-Addr', ''))
+                ua = cherrypy.request.headers.get('User-Agent', '')
+                mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now,
+                    'network': network, 'action': 'create', 'referer': referer, 'ip': ip, 'ua': ua})
+                mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now,
+                    'network': network, 'action': 'login', 'ip': ip, 'ua': ua}) #also log a wallet login
         
         now_ts = time.mktime(time.gmtime())
         mongo_db.preferences.update(
