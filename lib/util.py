@@ -15,6 +15,7 @@ import subprocess
 import gevent
 import numpy
 import pymongo
+import requests
 import grequests
 import lxml.html
 from PIL import Image
@@ -30,6 +31,9 @@ import strict_rfc3339, rfc3987, aniso8601
 from lib import config
 
 D = decimal.Decimal
+#Don't use sessions for requests where stream=True, for now at least... (afraid of CLOSE_WAIT type scenarios...)
+blockchain_api_session = requests.session()
+jsonrpc_session = requests.session()
 
 def sanitize_eliteness(text):
     #strip out html data to avoid XSS-vectors
@@ -70,19 +74,23 @@ def assets_to_asset_pair(asset1, asset2):
         quote = asset2 if asset1 < asset2 else asset1
     return (base, quote)
 
+grequest_exception_handler = lambda r, r_exception: logging.warning("Got request error: %s" % r_exception)
+
 def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False):
     if not endpoint: endpoint = config.COUNTERPARTYD_RPC
     if not auth: auth = config.COUNTERPARTYD_AUTH
+    if not params: params = {}
     
     payload = {
       "id": 0,
       "jsonrpc": "2.0",
       "method": method,
-      "params": params or [],
+      "params": params,
     }
     r = grequests.map(
         (grequests.post(endpoint,
-            data=json.dumps(payload), headers={'content-type': 'application/json'}, auth=auth),))
+            data=json.dumps(payload), headers={'content-type': 'application/json'}, auth=auth, session=jsonrpc_session),),
+        exception_handler=grequest_exception_handler)
     if not len(r):
         raise Exception("Could not contact counterpartyd (%s)" % method)
     r = r[0]
@@ -98,9 +106,12 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
 
 def call_blockchain_api(request_string, abort_on_error=False):
     url = config.BLOCKCHAIN_SERVICE_BASE_URL + request_string
-    # logging.info("API Query: "+url)
-    r = grequests.map((grequests.get(url),) )[0]
-    #^ use requests.Session to utilize connectionpool and keepalive (avoid connection setup/teardown overhead)
+
+    r = grequests.map((grequests.get(url, session=blockchain_api_session),),
+        exception_handler=grequest_exception_handler)
+    if not len(r):
+        raise Exception("Could not contact counterpartyd (%s)" % method)
+    r = r[0]
     if (not r or not hasattr(r, 'status_code')) and abort_on_error:
         raise Exception("Could not contact blockchain service!")
     elif r.status_code != 200 and abort_on_error:
@@ -369,8 +380,11 @@ def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimens
     
     try:
         #fetch the image data 
-        r = grequests.map((grequests.get(url, timeout=1, stream=True, verify=False),), stream=True)[0]
+        r = grequests.map((grequests.get(url, timeout=1, stream=True, verify=False),),
+            stream=True, exception_handler=grequest_exception_handler)
         try:
+            if not len(r): raise Exception("Invalid response")
+            r = r[0]
             if not r: raise Exception("Invalid response")
             if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
             #read up to 20KB and try to convert to JSON
