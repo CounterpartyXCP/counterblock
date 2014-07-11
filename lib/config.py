@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-VERSION = 0.1
+VERSION = "1.3.0" #should keep up with the counterwallet version it works with (for now at least)
 
 DB_VERSION = 22 #a db version increment will cause counterblockd to rebuild its database off of counterpartyd 
 
@@ -22,3 +22,6 @@ mongo_db = None #will be set on server init
 
 FEED_CATEGORIES = ['sports', 'politics', 'entertainment', 'economics', 'other']
 FEED_TYPES = ['simple', 'cfd']
+
+BTC = 'BTC'
+XCP = 'XCP'

@@ -15,7 +15,8 @@ import time
 import pymongo
 import gevent
 
-from lib import (config, util, events, betting)
+from lib import config, util, events, blockchain
+from lib.components import assets, betting
 
 D = decimal.Decimal
 
@@ -24,7 +25,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
     mongo_db = config.mongo_db
 
     def blow_away_db():
-        #boom! blow away all applicable collections in mongo
+        """boom! blow away all applicable collections in mongo"""
         mongo_db.processed_blocks.drop()
         mongo_db.tracked_assets.drop()
         mongo_db.trades.drop()
@@ -52,7 +53,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         #DO NOT DELETE preferences and chat_handles and chat_history
         
         #create XCP and BTC assets in tracked_assets
-        for asset in ['XCP', 'BTC']:
+        for asset in [config.XCP, config.BTC]:
             base_asset = {
                 'asset': asset,
                 'owner': None,
@@ -111,24 +112,49 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         latest_block = mongo_db.processed_blocks.find_one({"block_index": max_block_index}) or LATEST_BLOCK_INIT
         return latest_block
     
-    def modify_extended_asset_info(asset, description):
-        """adds an asset to asset_extended_info collection if the description is a valid json link. or, if the link
-        is not a valid json link, will remove the asset entry from the table if it exists"""
-        if util.is_valid_url(description, suffix='.json'):
-            mongo_db.asset_extended_info.update({'asset': asset},
-                {'$set': {'url': description}}, upsert=True)
-            #additional fields will be added later in events, once the asset info is pulled
-        else:
-            mongo_db.asset_extended_info.remove({ 'asset': asset })
-            #remove any saved asset image data
-            imagePath = os.path.join(config.data_dir, config.SUBDIR_ASSET_IMAGES, asset + '.png')
-            if os.path.exists(imagePath):
-                os.remove(imagePath)
+    def publish_mempool_tx():
+        """fetch new tx from mempool"""
+        tx_hashes = []
+        mempool_txs = mongo_db.mempool.find(fields={'tx_hash': True})
+        for mempool_tx in mempool_txs:
+            tx_hashes.append(str(mempool_tx['tx_hash']))
+
+        params = None
+        if len(tx_hashes) > 0:
+            params = {
+                'filters': [
+                    {'field':'tx_hash', 'op': 'NOT IN', 'value': tx_hashes},
+                    {'field':'category', 'op': 'IN', 'value': ['sends', 'btcpays', 'issuances', 'dividends', 'callbacks']}
+                ],
+                'filterop': 'AND'
+            }
+        new_txs = util.call_jsonrpc_api("get_mempool", params, abort_on_error=True)
+
+        for new_tx in new_txs['result']:
+            tx = {
+                'tx_hash': new_tx['tx_hash'],
+                'command': new_tx['command'],
+                'category': new_tx['category'],
+                'bindings': new_tx['bindings'],
+                'timestamp': new_tx['timestamp'],
+                'viewed_in_block': config.CURRENT_BLOCK_INDEX
+            }
+            
+            mongo_db.mempool.insert(tx)
+            del(tx['_id'])
+            tx['_category'] = tx['category']
+            tx['_message_index'] = 'mempool'
+            logging.debug("Spotted mempool tx: %s" % tx)
+            zmq_publisher_eventfeed.send_json(tx)
+            
+    def clean_mempool_tx():
+        """clean mempool transactions older than 10 blocks"""
+        mongo_db.mempool.remove({"viewed_in_block": {"$lt": config.CURRENT_BLOCK_INDEX - 10}})
 
 
     config.CURRENT_BLOCK_INDEX = 0 #initialize (last processed block index -- i.e. currently active block)
     config.LAST_MESSAGE_INDEX = -1 #initialize (last processed message index)
-    config.INSIGHT_LAST_BLOCK = 0 #simply for printing/alerting purposes
+    config.BLOCKCHAIN_SERVICE_LAST_BLOCK = 0 #simply for printing/alerting purposes
     config.CAUGHT_UP_STARTED_EVENTS = False
     #^ set after we are caught up and start up the recurring events that depend on us being caught up with the blockchain 
     
@@ -229,7 +255,6 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             cur_block['block_time_obj'] = datetime.datetime.utcfromtimestamp(cur_block['block_time'])
             cur_block['block_time_str'] = cur_block['block_time_obj'].isoformat()
             
-            #logging.info("Processing block %i ..." % (cur_block_index,))
             try:
                 block_data = util.call_jsonrpc_api("get_messages", [cur_block_index,], abort_on_error=True)['result']
             except Exception, e:
@@ -264,7 +289,8 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 #track message types, for compiling of statistics
                 if msg['command'] == 'insert' \
                    and msg['category'] not in ["debits", "credits", "order_matches", "bet_matches",
-                       "order_expirations", "bet_expirations", "order_match_expirations", "bet_match_expirations"]:
+                       "order_expirations", "bet_expirations", "order_match_expirations", "bet_match_expirations",
+                       "rps_matches", "rps_expirations", "rps_match_expirations", "rpsresolves", "bet_match_resolutions"]:
                     mongo_db.transaction_stats.insert({
                         'block_index': cur_block_index,
                         'block_time': cur_block['block_time_obj'],
@@ -291,77 +317,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 
                 #track assets
                 if msg['category'] == 'issuances':
-                    tracked_asset = mongo_db.tracked_assets.find_one(
-                        {'asset': msg_data['asset']}, {'_id': 0, '_history': 0})
-                    #^ pulls the tracked asset without the _id and history fields. This may be None
-                    
-                    if msg_data['locked']: #lock asset
-                        assert tracked_asset is not None
-                        mongo_db.tracked_assets.update(
-                            {'asset': msg_data['asset']},
-                            {"$set": {
-                                '_at_block': cur_block_index,
-                                '_at_block_time': cur_block['block_time_obj'], 
-                                '_change_type': 'locked',
-                                'locked': True,
-                             },
-                             "$push": {'_history': tracked_asset } }, upsert=False)
-                    elif msg_data['transfer']: #transfer asset
-                        assert tracked_asset is not None
-                        mongo_db.tracked_assets.update(
-                            {'asset': msg_data['asset']},
-                            {"$set": {
-                                '_at_block': cur_block_index,
-                                '_at_block_time': cur_block['block_time_obj'], 
-                                '_change_type': 'transferred',
-                                'owner': msg_data['issuer'],
-                             },
-                             "$push": {'_history': tracked_asset } }, upsert=False)
-                    elif msg_data['quantity'] == 0 and tracked_asset is not None: #change description
-                        mongo_db.tracked_assets.update(
-                            {'asset': msg_data['asset']},
-                            {"$set": {
-                                '_at_block': cur_block_index,
-                                '_at_block_time': cur_block['block_time_obj'], 
-                                '_change_type': 'changed_description',
-                                'description': msg_data['description'],
-                             },
-                             "$push": {'_history': tracked_asset } }, upsert=False)
-                        modify_extended_asset_info(msg_data['asset'], msg_data['description'])
-                    else: #issue new asset or issue addition qty of an asset
-                        if not tracked_asset: #new issuance
-                            tracked_asset = {
-                                '_change_type': 'created',
-                                '_at_block': cur_block_index, #the block ID this asset is current for
-                                '_at_block_time': cur_block['block_time_obj'], 
-                                #^ NOTE: (if there are multiple asset tracked changes updates in a single block for the same
-                                # asset, the last one with _at_block == that block id in the history array is the
-                                # final version for that asset at that block
-                                'asset': msg_data['asset'],
-                                'owner': msg_data['issuer'],
-                                'description': msg_data['description'],
-                                'divisible': msg_data['divisible'],
-                                'locked': False,
-                                'total_issued': msg_data['quantity'],
-                                'total_issued_normalized': util.normalize_quantity(msg_data['quantity'], msg_data['divisible']),
-                                '_history': [] #to allow for block rollbacks
-                            }
-                            mongo_db.tracked_assets.insert(tracked_asset)
-                            modify_extended_asset_info(msg_data['asset'], msg_data['description'])
-                        else: #issuing additional of existing asset
-                            assert tracked_asset is not None
-                            mongo_db.tracked_assets.update(
-                                {'asset': msg_data['asset']},
-                                {"$set": {
-                                    '_at_block': cur_block_index,
-                                    '_at_block_time': cur_block['block_time_obj'], 
-                                    '_change_type': 'issued_more',
-                                 },
-                                 "$inc": {
-                                     'total_issued': msg_data['quantity'],
-                                     'total_issued_normalized': util.normalize_quantity(msg_data['quantity'], msg_data['divisible'])
-                                 },
-                                 "$push": {'_history': tracked_asset} }, upsert=False)
+                    assets.parse_issuance(mongo_db, msg_data, cur_block_index, cur_block)
                 
                 #track balance changes for each address
                 bal_change = None
@@ -408,7 +364,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 #book trades
                 if (msg['category'] == 'order_matches'
                     and ((msg['command'] == 'update' and msg_data['status'] == 'completed') #for a trade with BTC involved, but that is settled (completed)
-                         or ('forward_asset' in msg_data and msg_data['forward_asset'] != 'BTC' and msg_data['backward_asset'] != 'BTC'))): #or for a trade without BTC on either end
+                         or ('forward_asset' in msg_data and msg_data['forward_asset'] != config.BTC and msg_data['backward_asset'] != config.BTC))): #or for a trade without BTC on either end
 
                     if msg['command'] == 'update' and msg_data['status'] == 'completed':
                         #an order is being updated to a completed status (i.e. a BTCpay has completed)
@@ -429,9 +385,9 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                     base_asset, quote_asset = util.assets_to_asset_pair(order_match['forward_asset'], order_match['backward_asset'])
                     
                     #don't create trade records from order matches with BTC that are under the dust limit
-                    if    (order_match['forward_asset'] == 'BTC' and order_match['forward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF) \
-                       or (order_match['backward_asset'] == 'BTC' and order_match['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF):
-                        logging.debug("Order match %s ignored due to BTC under dust limit." % (order_match['tx0_hash'] + order_match['tx1_hash']))
+                    if    (order_match['forward_asset'] == config.BTC and order_match['forward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF) \
+                       or (order_match['backward_asset'] == config.BTC and order_match['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF):
+                        logging.debug("Order match %s ignored due to %s under dust limit." % (order_match['tx0_hash'] + order_match['tx1_hash'], config.BTC))
                         continue
 
                     #take divisible trade quantities to floating point
@@ -489,14 +445,17 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             mongo_db.processed_blocks.insert(new_block)
             my_latest_block = new_block
             config.CURRENT_BLOCK_INDEX = cur_block_index
-            #get the current insight block
-            if config.INSIGHT_LAST_BLOCK == 0 or config.INSIGHT_LAST_BLOCK - config.CURRENT_BLOCK_INDEX < 10:
-                #update as CURRENT_BLOCK_INDEX catches up with INSIGHT_LAST_BLOCK and/or surpasses it (i.e. if insight gets behind for some reason)
-                block_height_response = util.call_insight_api('/api/status?q=getInfo', abort_on_error=False)
-                config.INSIGHT_LAST_BLOCK = block_height_response['info']['blocks'] if block_height_response else 0
-            logging.info("Block: %i (message_index height=%s) (insight latest block=%s)" % (config.CURRENT_BLOCK_INDEX,
+            #get the current blockchain service block
+            if config.BLOCKCHAIN_SERVICE_LAST_BLOCK == 0 or config.BLOCKCHAIN_SERVICE_LAST_BLOCK - config.CURRENT_BLOCK_INDEX < 10:
+                #update as CURRENT_BLOCK_INDEX catches up with BLOCKCHAIN_SERVICE_LAST_BLOCK and/or surpasses it (i.e. if blockchain service gets behind for some reason)
+                block_height_response = blockchain.getinfo()
+                config.BLOCKCHAIN_SERVICE_LAST_BLOCK = block_height_response['info']['blocks'] if block_height_response else 0
+            logging.info("Block: %i (message_index height=%s) (blockchain latest block=%s)" % (config.CURRENT_BLOCK_INDEX,
                 config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX != -1 else '???',
-                config.INSIGHT_LAST_BLOCK if config.INSIGHT_LAST_BLOCK else '???'))
+                config.BLOCKCHAIN_SERVICE_LAST_BLOCK if config.BLOCKCHAIN_SERVICE_LAST_BLOCK else '???'))
+
+            clean_mempool_tx()
+
         elif my_latest_block['block_index'] > last_processed_block['block_index']:
             #we have stale blocks (i.e. most likely a reorg happened in counterpartyd)?? this shouldn't happen, as we
             # should get a reorg message. Just to be on the safe side, prune back 10 blocks before what counterpartyd is saying if we see this
@@ -530,6 +489,6 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 gevent.spawn(events.compile_extended_feed_info)
 
                 config.CAUGHT_UP_STARTED_EVENTS = True
-                
-            
+
+            publish_mempool_tx()
             time.sleep(2) #counterblockd itself is at least caught up, wait a bit to query again for the latest block from cpd

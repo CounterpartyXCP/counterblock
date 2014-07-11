@@ -1,0 +1,33 @@
+{
+    "type":"object",
+    "$schema": "http://json-schema.org/draft-03/schema",
+    "properties":{
+        "asset": {
+            "type":"string",
+            "required":true
+        },
+        "description": {
+            "type":"string",
+            "required":false,
+            "maxLength": 2048
+        },
+        "image": {
+            "type":"string",
+            "format": "uri",
+            "required":false,
+            "maxLength": 100
+        },
+        "pgpsig": {
+            "type":"string",
+            "format": "uri",
+            "required":false,
+            "maxLength": 100
+        },
+        "website": {
+            "type":"string",
+            "format": "uri",
+            "required":false,
+            "maxLength": 100
+        }
+    }
+}

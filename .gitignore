@@ -35,3 +35,7 @@ nosetests.xml
 
 # tests
 schema.py
+
+# MACOS Files
+.DS_Store
+._.*

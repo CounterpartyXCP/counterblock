@@ -8,24 +8,32 @@ import time
 import copy
 import decimal
 import cgi
+import itertools
+import StringIO
+import subprocess
 
+import gevent
 import numpy
 import pymongo
+import requests
 import grequests
 import lxml.html
-import StringIO
 from PIL import Image
 
 import dateutil.parser
 import calendar
+import pygeoip
 
 from jsonschema import FormatChecker, Draft4Validator, FormatError
 # not needed here but to ensure that installed
 import strict_rfc3339, rfc3987, aniso8601
 
-from . import (config,)
+from lib import config
 
 D = decimal.Decimal
+#Don't use sessions for requests where stream=True, for now at least... (afraid of CLOSE_WAIT type scenarios...)
+blockchain_api_session = requests.session()
+jsonrpc_session = requests.session()
 
 def sanitize_eliteness(text):
     #strip out html data to avoid XSS-vectors
@@ -55,36 +63,39 @@ def assets_to_asset_pair(asset1, asset2):
     """
     base = None
     quote = None
-    if asset1 == 'XCP' or asset2 == 'XCP':
-        base = asset1 if asset1 == 'XCP' else asset2
-        quote = asset2 if asset1 == 'XCP' else asset1
-    elif asset1 == 'BTC' or asset2 == 'BTC':
-        base = asset1 if asset1 == 'BTC' else asset2
-        quote = asset2 if asset1 == 'BTC' else asset1
+    if asset1 == config.XCP  or asset2 == config.XCP :
+        base = asset1 if asset1 == config.XCP  else asset2
+        quote = asset2 if asset1 == config.XCP else asset1
+    elif asset1 == config.BTC or asset2 == config.BTC:
+        base = asset1 if asset1 == config.BTC else asset2
+        quote = asset2 if asset1 == config.BTC else asset1
     else:
         base = asset1 if asset1 < asset2 else asset2
         quote = asset2 if asset1 < asset2 else asset1
     return (base, quote)
 
+grequest_exception_handler = lambda r, r_exception: logging.warning("Got request error: %s" % r_exception)
+
 def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False):
     if not endpoint: endpoint = config.COUNTERPARTYD_RPC
     if not auth: auth = config.COUNTERPARTYD_AUTH
+    if not params: params = {}
     
     payload = {
       "id": 0,
       "jsonrpc": "2.0",
       "method": method,
-      "params": params or [],
+      "params": params,
     }
     r = grequests.map(
         (grequests.post(endpoint,
-            data=json.dumps(payload),
-            headers={'content-type': 'application/json'},
-            auth=auth),)
-    )[0]
-    #^ use requests.Session to utilize connectionpool and keepalive (avoid connection setup/teardown overhead)
+            data=json.dumps(payload), headers={'content-type': 'application/json'}, auth=auth, session=jsonrpc_session),),
+        exception_handler=grequest_exception_handler)
+    if not len(r):
+        raise Exception("Could not contact counterpartyd (%s)" % method)
+    r = r[0]
     if not r:
-        raise Exception("Could not contact counterpartyd!")
+        raise Exception("Could not contact counterpartyd (%s)" % method)
     elif r.status_code != 200:
         raise Exception("Bad status code returned from counterpartyd: '%s'. result body: '%s'." % (r.status_code, r.text))
     else:
@@ -93,13 +104,18 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
         raise Exception("Got back error from server: %s" % result['error'])
     return result
 
-def call_insight_api(request_string, abort_on_error=False):
-    r = grequests.map((grequests.get(config.INSIGHT + request_string),) )[0]
-    #^ use requests.Session to utilize connectionpool and keepalive (avoid connection setup/teardown overhead)
+def call_blockchain_api(request_string, abort_on_error=False):
+    url = config.BLOCKCHAIN_SERVICE_BASE_URL + request_string
+
+    r = grequests.map((grequests.get(url, session=blockchain_api_session),),
+        exception_handler=grequest_exception_handler)
+    if not len(r):
+        raise Exception("Could not contact counterpartyd (%s)" % method)
+    r = r[0]
     if (not r or not hasattr(r, 'status_code')) and abort_on_error:
-        raise Exception("Could not contact insight!")
+        raise Exception("Could not contact blockchain service!")
     elif r.status_code != 200 and abort_on_error:
-        raise Exception("Bad status code returned from insight: '%s'. result body: '%s'." % (r.status_code, r.text))
+        raise Exception("Bad status code returned from blockchain service: '%s'. result body: '%s'." % (r.status_code, r.text))
     else:
         try:
             result = r.json()
@@ -121,6 +137,15 @@ def get_address_cols_for_entity(entity):
         return ['tx0_address', 'tx1_address']
     else:
         raise Exception("Unknown entity type: %s" % entity)
+
+def grouper(n, iterable, fillmissing=False, fillvalue=None):
+    #Modified from http://stackoverflow.com/a/1625013
+    "grouper(3, 'ABCDEFG', 'x') --> ABC DEF Gxx"
+    args = [iter(iterable)] * n
+    data = itertools.izip_longest(*args, fillvalue=fillvalue)
+    if not fillmissing:
+        data = [[e for e in g if e != fillvalue] for g in data]
+    return data
 
 def multikeysort(items, columns):
     """http://stackoverflow.com/a/1144405"""
@@ -221,8 +246,8 @@ def decorate_message(message, for_txn_history=False):
     
     if message['_category'] in ['orders', 'order_matches',]:
         message['_btc_below_dust_limit'] = (
-                ('forward_asset' in message and message['forward_asset'] == 'BTC' and message['forward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF)
-             or ('backward_asset' in message and message['backward_asset'] == 'BTC' and message['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF)
+                ('forward_asset' in message and message['forward_asset'] == config.BTC and message['forward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF)
+             or ('backward_asset' in message and message['backward_asset'] == config.BTC and message['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF)
         )
 
     if message['_category'] in ['dividends', 'sends', 'callbacks']:
@@ -286,38 +311,80 @@ def get_btc_supply(normalize=False, at_block_index=None):
 def is_caught_up_well_enough_for_government_work():
     """We don't want to give users 525 errors or login errors if counterblockd/counterpartyd is in the process of
     getting caught up, but we DO if counterblockd is either clearly out of date with the blockchain, or reinitializing its database"""
-    return config.CAUGHT_UP or (config.INSIGHT_LAST_BLOCK and config.CURRENT_BLOCK_INDEX >= config.INSIGHT_LAST_BLOCK - 1)
+    return config.CAUGHT_UP or (config.BLOCKCHAIN_SERVICE_LAST_BLOCK and config.CURRENT_BLOCK_INDEX >= config.BLOCKCHAIN_SERVICE_LAST_BLOCK - 1)
 
-def make_data_dir(subfolder):
-    path = os.path.join(config.data_dir, subfolder)
-    if not os.path.exists(path):
-        os.makedirs(path)
-    return path
-
-def fetch_json(url, max_size=4*1024):
-    try:
-        if url[:7] != 'http://' and url[:8] != 'https://':
-            url = 'http://' + url
-        r = grequests.map((grequests.get(url, timeout=1, stream=True, verify=False),), stream=True)[0]
+def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spacing=0, max_fetch_size=4*1024, fetch_timeout=1, is_json=True):
+    completed_urls = {}
+    def request_exception_handler(r, e):
+        completed_urls[r.url] = (False, str(e))
+        if len(completed_urls) == len(urls): #all done, trigger callback
+            return hook_on_complete(completed_urls)
+        
+    def stream_fetch_response_hook(r, **kwargs):
         try:
-            if not r: raise Exception("Invalid response")
-            if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
+            if not r: data = (False, "Invalid response")
+            if r.status_code != 200: data = (False, "Got non-successful response code of: %s" % r.status_code)
             
-            #read up to 4KB and try to convert to JSON
-            raw_data = r.raw.read(max_size, decode_content=True)
+            #read up to max_fetch_size
+            raw_data = r.raw.read(max_fetch_size, decode_content=True)
+
+            if is_json: #try to convert to JSON
+                try:
+                    data = json.loads(raw_data)
+                except Exception, e:
+                    data = (False, "Invalid JSON data: %s" % e)
+                else:
+                    data = (True, data)
+            else: #keep raw
+                data = (True, raw_data)
+        except Exception, e:
+            data = (False, "Request error: %s" % e)
         finally:
             if r and r.raw:
-                r.raw.release_conn() 
-        data = json.loads(raw_data)
-    except Exception, e:
-        return False
-    return data
+                r.raw.release_conn()
+        
+        completed_urls[r.url] = data
+        if len(completed_urls) == len(urls): #all done, trigger callback
+            return hook_on_complete(completed_urls)
+    
+    def process_group(group):
+        group_results = []
+        for url in group:
+            if not is_valid_url(url, allow_no_protocol=True):
+                completed_urls[url] = (False, "Invalid URL")
+                continue
+            assert url.startswith('http://') or url.startswith('https://')
+            r = grequests.get(url, timeout=fetch_timeout, stream=True,
+                verify=False, hooks=dict(response=stream_fetch_response_hook))
+            group_results.append(r)
+        rgroup = grequests.map(group_results, stream=True, exception_handler=request_exception_handler)
+
+    if not isinstance(urls, (list, tuple)):
+        urls = [urls,]
+    urls = list(set(urls)) #remove duplicates (so we only fetch any given URL, once)
+        
+    groups = grouper(urls_group_size, urls)
+    for i in xrange(len(groups)):
+        group = groups[i]
+        if urls_group_time_spacing and i != 0:
+            gevent.spawn_later(urls_group_time_spacing, process_group, group)
+        else:
+            process_group(group)
 
 def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimensions=(48, 48)):
+    def make_data_dir(subfolder):
+        path = os.path.join(config.data_dir, subfolder)
+        if not os.path.exists(path):
+            os.makedirs(path)
+        return path
+    
     try:
         #fetch the image data 
-        r = grequests.map((grequests.get(url, timeout=1, stream=True, verify=False),), stream=True)[0]
+        r = grequests.map((grequests.get(url, timeout=1, stream=True, verify=False),),
+            stream=True, exception_handler=grequest_exception_handler)
         try:
+            if not len(r): raise Exception("Invalid response")
+            r = r[0]
             if not r: raise Exception("Invalid response")
             if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
             #read up to 20KB and try to convert to JSON
@@ -392,5 +459,35 @@ def next_interval_date(interval):
         return None
     else:
         return next.isoformat()
+
+def subprocess_cmd(command):
+    process = subprocess.Popen(command,stdout=subprocess.PIPE, shell=True)
+    proc_stdout = process.communicate()[0].strip()
+    print proc_stdout
+
+def download_geoip_data():
+    logging.info("Checking/updating GeoIP.dat ...")
+
+    download = False;
+    data_path = os.path.join(config.data_dir, 'GeoIP.dat')
+    if not os.path.isfile(data_path):
+        download = True
+    else:
+        one_week_ago = time.time() - 60*60*24*7
+        file_stat = os.stat(data_path)
+        if file_stat.st_ctime < one_week_ago:
+            download = True
+
+    if download:
+        logging.info("Downloading GeoIP.dat")
+        cmd = "cd {}; wget -N -q http://geolite.maxmind.com/download/geoip/database/GeoLiteCountry/GeoIP.dat.gz; gzip -d GeoIP.dat.gz".format(config.data_dir)
+        subprocess_cmd(cmd)
+    else:
+        logging.info("GeoIP.dat OK")
+
+def init_geoip():
+    download_geoip_data();
+    return pygeoip.GeoIP(os.path.join(config.data_dir, 'GeoIP.dat'))
+
 
 
