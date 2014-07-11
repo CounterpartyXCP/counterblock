@@ -315,33 +315,36 @@ def is_caught_up_well_enough_for_government_work():
 
 def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spacing=0, max_fetch_size=4*1024, fetch_timeout=1, is_json=True):
     completed_urls = {}
+    
     def request_exception_handler(r, e):
         completed_urls[r.url] = (False, str(e))
         if len(completed_urls) == len(urls): #all done, trigger callback
             return hook_on_complete(completed_urls)
         
     def stream_fetch_response_hook(r, **kwargs):
-        try:
-            if not r: data = (False, "Invalid response")
-            if r.status_code != 200: data = (False, "Got non-successful response code of: %s" % r.status_code)
-            
-            #read up to max_fetch_size
-            raw_data = r.raw.read(max_fetch_size, decode_content=True)
-
-            if is_json: #try to convert to JSON
-                try:
-                    data = json.loads(raw_data)
-                except Exception, e:
-                    data = (False, "Invalid JSON data: %s" % e)
-                else:
-                    data = (True, data)
-            else: #keep raw
-                data = (True, raw_data)
-        except Exception, e:
-            data = (False, "Request error: %s" % e)
-        finally:
-            if r and r.raw:
-                r.raw.release_conn()
+        if not r:
+            data = (False, "Invalid response")
+        elif r.status_code != 200:
+            data = (False, "Got non-successful response code of: %s" % r.status_code)
+        else:
+            try:
+                #read up to max_fetch_size
+                raw_data = r.raw.read(max_fetch_size, decode_content=True)
+    
+                if is_json: #try to convert to JSON
+                    try:
+                        data = json.loads(raw_data)
+                    except Exception, e:
+                        data = (False, "Invalid JSON data: %s" % e)
+                    else:
+                        data = (True, data)
+                else: #keep raw
+                    data = (True, raw_data)
+            except Exception, e:
+                data = (False, "Request error: %s" % e)
+            finally:
+                if r and r.raw:
+                    r.raw.release_conn()
         
         completed_urls[r.url] = data
         if len(completed_urls) == len(urls): #all done, trigger callback
@@ -352,7 +355,10 @@ def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spa
         for url in group:
             if not is_valid_url(url, allow_no_protocol=True):
                 completed_urls[url] = (False, "Invalid URL")
-                continue
+                if len(completed_urls) == len(urls): #all done, trigger callback
+                    return hook_on_complete(completed_urls)
+                else:
+                    continue
             assert url.startswith('http://') or url.startswith('https://')
             r = grequests.get(url, timeout=fetch_timeout, stream=True,
                 verify=False, hooks=dict(response=stream_fetch_response_hook))
@@ -361,13 +367,13 @@ def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spa
 
     if not isinstance(urls, (list, tuple)):
         urls = [urls,]
-    urls = list(set(urls)) #remove duplicates (so we only fetch any given URL, once)
         
+    urls = list(set(urls)) #remove duplicates (so we only fetch any given URL, once)
     groups = grouper(urls_group_size, urls)
     for i in xrange(len(groups)):
         group = groups[i]
         if urls_group_time_spacing and i != 0:
-            gevent.spawn_later(urls_group_time_spacing, process_group, group)
+            gevent.spawn_later(urls_group_time_spacing * i, process_group, group)
         else:
             process_group(group)
 
