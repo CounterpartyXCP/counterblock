@@ -104,14 +104,20 @@ def process_feed_info(db, feed, info_data):
     return (True, None)
 
 def fetch_all_feed_info(db):
+    feeds = list(db.feeds.find({'info_status': 'needfetch'}))
+    feed_info_urls = []
+
     def feed_fetch_complete_hook(urls_data):
         logging.info("Enhanced feed info fetching complete. %s unique URLs fetched. Processing..." % len(urls_data))
         feeds = db.feeds.find({'info_status': 'needfetch'})
-        for feed in list(feeds):
+        for feed in feeds:
             #logging.debug("Looking at feed %s: %s" % (feed, feed['info_url']))
             if feed['info_url']:
                 info_url = ('http://' + feed['info_url']) \
                     if not feed['info_url'].startswith('http://') and not feed['info_url'].startswith('https://') else feed['info_url']
+                if info_url not in urls_data:
+                    logging.error("URL %s not properly fetched (not one of %i entries in urls_data), skipping..." % (info_url, len(urls_data)))
+                    continue
                 assert info_url in urls_data
                 if not urls_data[info_url][0]: #request was not successful
                     max_retry = 3
@@ -125,10 +131,8 @@ def fetch_all_feed_info(db):
                         logging.info("Processing for feed at %s successful" % info_url)
         
     #compose and fetch all info URLs in all feeds with them
-    feeds = db.feeds.find({'info_status': 'needfetch'})
-    feed_info_urls = []
     for feed in feeds:
-        if not feed['info_url']: continue
+        assert feed['info_url']
         feed_info_urls.append(('http://' + feed['info_url']) \
             if not feed['info_url'].startswith('http://') and not feed['info_url'].startswith('https://') else feed['info_url'])
     feed_info_urls_str = ', '.join(feed_info_urls)
@@ -136,7 +140,7 @@ def fetch_all_feed_info(db):
     if len(feed_info_urls):
         logging.info('Fetching enhanced feed info for %i feeds: %s' % (len(feed_info_urls), feed_info_urls_str))
         util.stream_fetch(feed_info_urls, feed_fetch_complete_hook,
-            fetch_timeout=5, max_fetch_size=4*1024, urls_group_size=50, urls_group_time_spacing=10)
+            fetch_timeout=5, max_fetch_size=4*1024, urls_group_size=50, urls_group_time_spacing=6)
 
 def get_feed_counters(feed_address):
     counters = {}        
