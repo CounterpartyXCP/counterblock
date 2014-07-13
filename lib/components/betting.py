@@ -186,7 +186,6 @@ def find_feed(db, url_or_address):
                 'counters': get_feed_counters(url_or_address)
             }
       
-
     return result
 
 def parse_base64_feed(base64_feed):
