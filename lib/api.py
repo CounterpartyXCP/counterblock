@@ -361,12 +361,14 @@ def serve_api(mongo_db, redis_client):
         
         asset_cache = {} #ghetto cache to speed asset lookups within the scope of a function call
         
+        now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not end_ts: #default to current datetime
-            end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+            end_ts = now_ts
         if not start_ts: #default to 30 days before the end date
-            start_ts = end_ts - (30 * 24 * 60 * 60) 
+            start_ts = end_ts - (30 * 24 * 60 * 60)
         start_block_index, end_block_index = util.get_block_indexes_for_dates(
-            datetime.datetime.utcfromtimestamp(start_ts), datetime.datetime.utcfromtimestamp(end_ts))
+            start_dt=datetime.datetime.utcfromtimestamp(start_ts),
+            end_dt=datetime.datetime.utcfromtimestamp(end_ts) if now_ts != end_ts else None)
         
         #make API call to counterpartyd to get all of the data for the specified address
         txns = []
@@ -411,8 +413,9 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def get_market_cap_history(start_ts=None, end_ts=None):
+        now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not end_ts: #default to current datetime
-            end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+            end_ts = now_ts
         if not start_ts: #default to 30 days before the end date
             start_ts = end_ts - (30 * 24 * 60 * 60) 
         
@@ -424,9 +427,11 @@ def serve_api(mongo_db, redis_client):
                 {"$match": {
                     "market_cap_as": market_cap_as,
                     "block_time": {
+                        "$gte": datetime.datetime.utcfromtimestamp(start_ts)
+                    } if end_ts == now_ts else {
                         "$gte": datetime.datetime.utcfromtimestamp(start_ts),
-                        "$lte": datetime.datetime.utcfromtimestamp(end_ts)
-                    }
+                        "$lte": datetime.datetime.utcfromtimestamp(end_ts)                    
+                    }                    
                 }},
                 {"$project": {
                     "year":  {"$year": "$block_time"},
@@ -514,8 +519,9 @@ def serve_api(mongo_db, redis_client):
             
         Aggregate on an an hourly basis 
         """
+        now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not end_ts: #default to current datetime
-            end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+            end_ts = now_ts
         if not start_ts: #default to 180 days before the end date
             start_ts = end_ts - (180 * 24 * 60 * 60) 
         base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
@@ -526,9 +532,11 @@ def serve_api(mongo_db, redis_client):
                 "base_asset": base_asset,
                 "quote_asset": quote_asset,
                 "block_time": {
+                    "$gte": datetime.datetime.utcfromtimestamp(start_ts)
+                } if end_ts == now_ts else {
                     "$gte": datetime.datetime.utcfromtimestamp(start_ts),
-                    "$lte": datetime.datetime.utcfromtimestamp(end_ts)
-                }
+                    "$lte": datetime.datetime.utcfromtimestamp(end_ts)                    
+                }                
             }},
             {"$project": {
                 "year":  {"$year": "$block_time"},
@@ -584,17 +592,20 @@ def serve_api(mongo_db, redis_client):
         if limit > 500:
             raise Exception("Requesting history of too many trades")
 
+        now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not end_ts: #default to current datetime
-            end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+            end_ts = now_ts
         if not start_ts: #default to 30 days before the end date
             start_ts = end_ts - (30 * 24 * 60 * 60) 
 
         filters = {
             "block_time": {
+                "$gte": datetime.datetime.utcfromtimestamp(start_ts)
+            } if end_ts == now_ts else {
                 "$gte": datetime.datetime.utcfromtimestamp(start_ts),
-                "$lte": datetime.datetime.utcfromtimestamp(end_ts)
+                "$lte": datetime.datetime.utcfromtimestamp(end_ts)                    
             }
-        }            
+        }
         if asset1 and asset2:
             base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
             filters["base_asset"] = base_asset
@@ -850,17 +861,20 @@ def serve_api(mongo_db, redis_client):
     
     @dispatcher.add_method
     def get_transaction_stats(start_ts=None, end_ts=None):
+        now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not end_ts: #default to current datetime
-            end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+            end_ts = now_ts
         if not start_ts: #default to 360 days before the end date
             start_ts = end_ts - (360 * 24 * 60 * 60)
                 
         stats = mongo_db.transaction_stats.aggregate([
             {"$match": {
                 "block_time": {
+                    "$gte": datetime.datetime.utcfromtimestamp(start_ts)
+                } if end_ts == now_ts else {
                     "$gte": datetime.datetime.utcfromtimestamp(start_ts),
-                    "$lte": datetime.datetime.utcfromtimestamp(end_ts)
-                }
+                    "$lte": datetime.datetime.utcfromtimestamp(end_ts)                    
+                }                
             }},
             {"$project": {
                 "year":  {"$year": "$block_time"},
@@ -898,8 +912,9 @@ def serve_api(mongo_db, redis_client):
     
     @dispatcher.add_method
     def get_wallet_stats(start_ts=None, end_ts=None):
+        now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not end_ts: #default to current datetime
-            end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+            end_ts = now_ts
         if not start_ts: #default to 360 days before the end date
             start_ts = end_ts - (360 * 24 * 60 * 60)
             
@@ -907,12 +922,18 @@ def serve_api(mongo_db, redis_client):
         num_wallets_testnet = mongo_db.preferences.find({'network': 'testnet'}).count()
         num_wallets_unknown = mongo_db.preferences.find({'network': None}).count()
         wallet_stats = []
+        
         for net in ['mainnet', 'testnet']:
-            stats = mongo_db.wallet_stats.find(
-                    {'when': {
-                        "$gte": datetime.datetime.utcfromtimestamp(start_ts),
-                        "$lte": datetime.datetime.utcfromtimestamp(end_ts)
-                     }, 'network': net }).sort('when', pymongo.ASCENDING)
+            filters = {
+                "when": {
+                    "$gte": datetime.datetime.utcfromtimestamp(start_ts)
+                } if end_ts == now_ts else {
+                    "$gte": datetime.datetime.utcfromtimestamp(start_ts),
+                    "$lte": datetime.datetime.utcfromtimestamp(end_ts)                    
+                },
+                'network': net
+            }
+            stats = mongo_db.wallet_stats.find(filters).sort('when', pymongo.ASCENDING)
             new_wallet_counts = []
             login_counts = []
             distinct_login_counts = []
@@ -1111,8 +1132,9 @@ def serve_api(mongo_db, redis_client):
         if not asset_info:
             raise Exception("Asset does not exist.")
             
+        now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not end_ts: #default to current datetime
-            end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+            end_ts = now_ts
         if not start_ts: #default to 30 days before the end date
             start_ts = end_ts - (30 * 24 * 60 * 60)
         results = []
@@ -1121,17 +1143,20 @@ def serve_api(mongo_db, redis_client):
                 'address': address,
                 'asset': asset,
                 "block_time": {
+                    "$gte": datetime.datetime.utcfromtimestamp(start_ts)
+                } if end_ts == now_ts else {
                     "$gte": datetime.datetime.utcfromtimestamp(start_ts),
-                    "$lte": datetime.datetime.utcfromtimestamp(end_ts)
+                    "$lte": datetime.datetime.utcfromtimestamp(end_ts)                    
                 }
             }).sort("block_time", pymongo.ASCENDING)
-            results.append({
+            entry = {
                 'name': address,
                 'data': [
                     (time.mktime(r['block_time'].timetuple()) * 1000,
                      r['new_balance_normalized'] if normalize else r['new_balance']
                     ) for r in result]
-            })
+            }
+            results.append(entry)
         return results
 
     @dispatcher.add_method
@@ -1192,16 +1217,20 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def get_chat_history(start_ts=None, end_ts=None, handle=None, limit=1000):
+        now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not end_ts: #default to current datetime
-            end_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+            end_ts = now_ts
         if not start_ts: #default to 5 days before the end date
             start_ts = end_ts - (30 * 24 * 60 * 60)
             
         if limit >= 5000:
             raise Exception("Requesting too many lines (limit too high")
         
+        
         filters = {
             "when": {
+                "$gte": datetime.datetime.utcfromtimestamp(start_ts)
+            } if end_ts == now_ts else {
                 "$gte": datetime.datetime.utcfromtimestamp(start_ts),
                 "$lte": datetime.datetime.utcfromtimestamp(end_ts)
             }
@@ -1359,6 +1388,7 @@ def serve_api(mongo_db, redis_client):
     @dispatcher.add_method
     def get_user_rps(addresses):
         return rps.get_user_rps(addresses)
+    
 
     class API(object):
         @cherrypy.expose
@@ -1420,7 +1450,7 @@ def serve_api(mongo_db, redis_client):
                     'counterblockd': 'OK' if cbd_result_valid else 'NOT OK',
                     'counterblockd_error': cbd_result_error_code,
                     'counterpartyd_ver': '%s.%s.%s' % (
-                        cpd_status['version_major'], cpd_status['version_minor'], cpd_status['version_revision']),
+                        cpd_status['version_major'], cpd_status['version_minor'], cpd_status['version_revision']) if cpd_result_valid else '?',
                     'counterblockd_ver': config.VERSION,
                     'counterpartyd_last_block': cpd_status['last_block'],
                     'counterpartyd_last_message_index': cpd_status['last_message_index'],
