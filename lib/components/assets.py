@@ -13,7 +13,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
     def modify_extended_asset_info(asset, description):
         """adds an asset to asset_extended_info collection if the description is a valid json link. or, if the link
         is not a valid json link, will remove the asset entry from the table if it exists"""
-        if util.is_valid_url(description, allow_no_protocol=True):
+        if util.is_valid_url(description, suffix='.json', allow_no_protocol=True):
             db.asset_extended_info.update({'asset': asset},
                 {'$set': {
                     'info_url': description,
@@ -147,10 +147,12 @@ def process_asset_info(db, asset, info_data):
     return (True, None)
 
 def fetch_all_asset_info(db):
+    assets = list(db.asset_extended_info.find({'info_status': 'needfetch'}))
+    asset_info_urls = []
+
     def asset_fetch_complete_hook(urls_data):
         logging.info("Enhanced asset info fetching complete. %s unique URLs fetched. Processing..." % len(urls_data))
-        assets = db.asset_extended_info.find({'info_status': 'needfetch'})
-        for asset in list(assets):
+        for asset in assets:
             #logging.debug("Looking at asset %s: %s" % (asset, asset['info_url']))
             if asset['info_url']:
                 info_url = ('http://' + asset['info_url']) \
@@ -168,8 +170,6 @@ def fetch_all_asset_info(db):
                         logging.info("Processing for asset %s at %s successful" % (asset['asset'], info_url))
         
     #compose and fetch all info URLs in all assets with them
-    assets = db.asset_extended_info.find({'info_status': 'needfetch'})
-    asset_info_urls = []
     for asset in assets:
         if not asset['info_url']: continue
         
