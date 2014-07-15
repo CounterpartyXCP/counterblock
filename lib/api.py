@@ -1483,8 +1483,10 @@ def serve_api(mongo_db, redis_client):
         #don't do anything if we're not caught up
         if not util.is_caught_up_well_enough_for_government_work():
             obj_error = jsonrpc.exceptions.JSONRPCServerError(data="Server is not caught up. Please try again later.")
-            return flask.Response(obj_error.json.encode(), 525, mimetype='application/json')
+            response = flask.Response(obj_error.json.encode(), 525, mimetype='application/json')
             #^ 525 is a custom response code we use for this one purpose
+            _set_cors_headers(response)
+            return response
 
         try:
             request_json = flask.request.get_data().decode('utf-8')
@@ -1493,13 +1495,17 @@ def serve_api(mongo_db, redis_client):
             # params may be omitted 
         except:
             obj_error = jsonrpc.exceptions.JSONRPCInvalidRequest(data="Invalid JSON-RPC 2.0 request format")
-            return flask.Response(obj_error.json.encode(), 200, mimetype='application/json')
+            response = flask.Response(obj_error.json.encode(), 200, mimetype='application/json')
+            _set_cors_headers(response)
+            return response
             
         #only arguments passed as a dict are supported
         if request_data.get('params', None) and not isinstance(request_data['params'], dict):
             obj_error = jsonrpc.exceptions.JSONRPCInvalidRequest(
                 data='Arguments must be passed as a JSON object (list of unnamed arguments not supported)')
-            return flask.Response(obj_error.json.encode(), 200, mimetype='application/json')
+            response = flask.Response(obj_error.json.encode(), 200, mimetype='application/json')
+            _set_cors_headers(response)
+            return response
         
         rpc_response = jsonrpc.JSONRPCResponseManager.handle(request_json, dispatcher)
         rpc_response_json = json.dumps(rpc_response.data, default=util.json_dthandler).encode()
