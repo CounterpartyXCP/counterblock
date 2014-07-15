@@ -280,9 +280,10 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                     
                 logging.info("Received message %s: %s ..." % (msg['message_index'], msg))
                 
-                #don't process invalid messages, but do forward them along to clients
+                #don't process invalid messages, but do forward them along to clients (but don't forward along while we're catching up)
                 status = msg_data.get('status', 'valid').lower()
-                if status.startswith('invalid'):
+                if     status.startswith('invalid') \
+                   and last_processed_block['block_index'] - my_latest_block['block_index'] < 10: #>= max likely reorg size we'd ever see
                     event = util.decorate_message_for_feed(msg, msg_data=msg_data)
                     zmq_publisher_eventfeed.send_json(event)
                     config.LAST_MESSAGE_INDEX = msg['message_index']
@@ -311,10 +312,11 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                     running_info = util.call_jsonrpc_api("get_running_info", abort_on_error=True)['result']
                     config.LAST_MESSAGE_INDEX = running_info['last_message_index']
                     
-                    #send out the message to listening clients
-                    msg_data['_last_message_index'] = config.LAST_MESSAGE_INDEX 
-                    event = util.decorate_message_for_feed(msg, msg_data=msg_data)
-                    zmq_publisher_eventfeed.send_json(event)
+                    #send out the message to listening clients (but don't forward along while we're catching up)
+                    if last_processed_block['block_index'] - my_latest_block['block_index'] < 10: #>= max likely reorg size we'd ever see
+                        msg_data['_last_message_index'] = config.LAST_MESSAGE_INDEX
+                        event = util.decorate_message_for_feed(msg, msg_data=msg_data)
+                        zmq_publisher_eventfeed.send_json(event)
                     break #break out of inner loop
                 
                 #track assets
