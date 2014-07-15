@@ -9,13 +9,14 @@ import operator
 import logging
 import copy
 import uuid
+import functools
 
 from logging import handlers as logging_handlers
 from gevent import pywsgi
 import grequests
-import cherrypy
-from cherrypy.process import plugins
-from jsonrpc import JSONRPCResponseManager, dispatcher
+import flask
+import jsonrpc
+from jsonrpc import dispatcher
 import pymongo
 from bson import json_util
 from bson.son import SON
@@ -24,6 +25,8 @@ from lib import config, siofeeds, util, blockchain
 from lib.components import betting, rps, assets_trading
 
 PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
+API_MAX_LOG_SIZE = 10 * 1024 * 1024 #max log size of 20 MB before rotation (make configurable later)
+API_MAX_LOG_COUNT = 10
 D = decimal.Decimal
 
 
@@ -34,6 +37,7 @@ def serve_api(mongo_db, redis_client):
     # whatever data they need
     
     DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD = 60 #in seconds
+    app = flask.Flask(__name__)
     tx_logger = logging.getLogger("transaction_log") #get transaction logger
     
     @dispatcher.add_method
@@ -41,9 +45,9 @@ def serve_api(mongo_db, redis_client):
         """this method used by the client to check if the server is alive, caught up, and ready to accept requests.
         If the server is NOT caught up, a 525 error will be returned actually before hitting this point. Thus,
         if we actually return data from this function, it should always be true. (may change this behaviour later)"""
-        
+
         blockchainInfo = blockchain.getinfo()
-        ip = cherrypy.request.headers.get('X-Real-Ip', cherrypy.request.headers.get('Remote-Addr', ''))
+        ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
         country = config.GEOIP.country_code_by_addr(ip)
         return {
             'caught_up': util.is_caught_up_well_enough_for_government_work(),
@@ -57,11 +61,11 @@ def serve_api(mongo_db, redis_client):
     @dispatcher.add_method
     def get_reflected_host_info():
         """Allows the requesting host to get some info about itself, such as its IP. Used for troubleshooting."""
-        ip = cherrypy.request.headers.get('X-Real-Ip', cherrypy.request.headers.get('Remote-Addr', ''))
+        ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
         country = config.GEOIP.country_code_by_addr(ip)
         return {
             'ip': ip,
-            'cookie': cherrypy.request.headers.get('Cookie', ''),
+            'cookie': flask.request.headers.get('Cookie', ''),
             'country': country
         }
     
@@ -1264,8 +1268,8 @@ def serve_api(mongo_db, redis_client):
         now = datetime.datetime.utcnow()
          
         if for_login: #record user login
-            ip = cherrypy.request.headers.get('X-Real-Ip', cherrypy.request.headers.get('Remote-Addr', ''))
-            ua = cherrypy.request.headers.get('User-Agent', '')
+            ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
+            ua = flask.request.headers.get('User-Agent', '')
             mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now, 'network': network, 'action': 'login', 'ip': ip, 'ua': ua})
         
         result['last_touched'] = time.mktime(time.gmtime())
@@ -1302,8 +1306,8 @@ def serve_api(mongo_db, redis_client):
         if for_login: #mark this as a new signup IF the wallet doesn't exist already
             existing_record = mongo_db.login_history.find({'wallet_id': wallet_id, 'network': network, 'action': 'create'})
             if existing_record.count() == 0:
-                ip = cherrypy.request.headers.get('X-Real-Ip', cherrypy.request.headers.get('Remote-Addr', ''))
-                ua = cherrypy.request.headers.get('User-Agent', '')
+                ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
+                ua = flask.request.headers.get('User-Agent', '')
                 mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now,
                     'network': network, 'action': 'create', 'referer': referer, 'ip': ip, 'ua': ua})
                 mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now,
@@ -1389,152 +1393,140 @@ def serve_api(mongo_db, redis_client):
     def get_user_rps(addresses):
         return rps.get_user_rps(addresses)
     
+    def _set_cors_headers(response):
+        if config.RPC_ALLOW_CORS:
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = 'DNT,X-Mx-ReqToken,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type';
 
-    class API(object):
-        @cherrypy.expose
-        def index(self):
-            if cherrypy.request.headers.get("Content-Type", None) == 'application/csp-report':
-                try:
-                    data_json = cherrypy.request.body.read().decode('utf-8')
-                    data = json.loads(data_json)
-                    assert 'csp-report' in data
-                except Exception, e:
-                    raise cherrypy.HTTPError(400, 'Invalid JSON document')
-                tx_logger.info("***CSP SECURITY --- %s" % data_json)
-                cherrypy.response.status = 200
-                return ""
-            
-            cherrypy.response.headers["Content-Type"] = 'application/json'
-            
-            if cherrypy.request.method == "GET": #handle GET statistics checking
-                #"ping" counterpartyd to test
-                cpd_s = time.time()
-                cpd_result_valid = True
-                try:
-                    cpd_status = util.call_jsonrpc_api("get_running_info", abort_on_error=True)['result']
-                except:
-                    cpd_result_valid = False
-                cpd_e = time.time()
-
-                #"ping" counterblockd to test, as well
-                cbd_s = time.time()
-                cbd_result_valid = True
-                cbd_result_error_code = None
-                payload = {
-                  "id": 0,
-                  "jsonrpc": "2.0",
-                  "method": "is_ready",
-                  "params": [],
-                }
-                try:
-                    r = grequests.map(
-                        (grequests.post("http://127.0.0.1:%s/api/" % config.RPC_PORT,
-                            data=json.dumps(payload), headers={'content-type': 'application/json'}),))
-                except Exception, e:
-                    cbd_result_valid = False
-                    cbd_result_error_code = "GOT EXCEPTION: %s" % e
-                else:
-                    if not r or r[0].status_code != 200:
-                        cbd_result_valid = False
-                        cbd_result_error_code = "GOT STATUS %s" % r[0].status_code if r else 'COULD NOT CONTACT'
-                    elif 'error' in r[0]:
-                        cbd_result_valid = False
-                        cbd_result_error_code = "GOT ERROR: %s" % r[0]['error']
-                    else:
-                        cbd_result = r[0].json()
-                cbd_e = time.time()
-                
-                if not cpd_result_valid or not cbd_result_valid:
-                    cherrypy.response.status = 500
-                else:
-                    cherrypy.response.status = 200
-                
-                result = {
-                    'counterpartyd': 'OK' if cpd_result_valid else 'NOT OK',
-                    'counterblockd': 'OK' if cbd_result_valid else 'NOT OK',
-                    'counterblockd_error': cbd_result_error_code,
-                    'counterpartyd_ver': '%s.%s.%s' % (
-                        cpd_status['version_major'], cpd_status['version_minor'], cpd_status['version_revision']) if cpd_result_valid else '?',
-                    'counterblockd_ver': config.VERSION,
-                    'counterpartyd_last_block': cpd_status['last_block'],
-                    'counterpartyd_last_message_index': cpd_status['last_message_index'],
-                    'counterpartyd_check_elapsed': cpd_e - cpd_s,
-                    'counterblockd_check_elapsed': cbd_e - cbd_s,
-                    'local_online_users': len(siofeeds.onlineClients),
-                }
-                return json.dumps(result)
-
-            if config.ALLOW_CORS:
-                cherrypy.response.headers['Access-Control-Allow-Origin'] = '*'
-                cherrypy.response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-                cherrypy.response.headers['Access-Control-Allow-Headers'] = 'DNT,X-Mx-ReqToken,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type';            
-                if cherrypy.request.method == "OPTIONS":
-                    cherrypy.response.status = 204
-                    return ""
-            
-            #don't do jack if we're not caught up
-            if not util.is_caught_up_well_enough_for_government_work():
-                raise cherrypy.HTTPError(525, 'Server is not caught up. Please try again later.')
-                #^ 525 is a custom response code we use for this one purpose
+    @app.route('/', methods=["OPTIONS",])
+    @app.route('/api/', methods=["OPTIONS",])
+    def handle_options():
+        response = flask.Response('', 204)
+        _set_cors_headers(response)
+        return response
+    
+    @app.route('/', methods=["GET",])
+    @app.route('/api/', methods=["GET",])
+    def handle_get():
+        if flask.request.headers.get("Content-Type", None) == 'application/csp-report':
             try:
-                data_json = cherrypy.request.body.read().decode('utf-8')
-            except ValueError:
-                raise cherrypy.HTTPError(400, 'Invalid JSON document')
-            response = JSONRPCResponseManager.handle(data_json, dispatcher)
-            response_json = json.dumps(response.data, default=util.json_dthandler).encode()
-            
-            #log the request data to mongo
-            try:
+                data_json = flask.request.get_data().decode('utf-8')
                 data = json.loads(data_json)
-                assert 'method' in data
-                tx_logger.info("TRANSACTION --- %s ||| REQUEST: %s ||| RESPONSE: %s" % (data['method'], data_json, response_json))
+                assert 'csp-report' in data
             except Exception, e:
-                logging.info("Could not log transaction: Invalid format: %s" % e)
-                
-            return response_json
+                obj_error = jsonrpc.exceptions.JSONRPCInvalidRequest(data="Invalid JSON-RPC 2.0 request format")
+                return flask.Response(obj_error.json.encode(), 200, mimetype='application/json')
+            
+            tx_logger.info("***CSP SECURITY --- %s" % data_json)
+            return flask.Response('', 200)
         
-    cherrypy.config.update({
-        'log.screen': False,
-        "environment": "embedded",
-        'log.error_log.propagate': False,
-        'log.access_log.propagate': False,
-        "server.logToScreen" : False
-    })
-    app_config = {
-        '/': {
-            'tools.trailing_slash.on': False,
-        },
-        '/asset_img': {
-            'tools.staticdir.on': True,
-            'tools.staticdir.dir': os.path.join(config.data_dir, 'asset_img'),
-            'tools.staticdir.content_types': {'png': 'image/png'}
-        }
-    }
-    application = cherrypy.Application(API(), script_name="/api", config=app_config)
+        #"ping" counterpartyd to test
+        cpd_s = time.time()
+        cpd_result_valid = True
+        try:
+            cpd_status = util.call_jsonrpc_api("get_running_info", abort_on_error=True)['result']
+        except:
+            cpd_result_valid = False
+        cpd_e = time.time()
 
-    #disable logging of the access and error logs to the screen
-    application.log.access_log.propagate = False
-    application.log.error_log.propagate = False
+        #"ping" counterblockd to test, as well
+        cbd_s = time.time()
+        cbd_result_valid = True
+        cbd_result_error_code = None
+        payload = {
+          "id": 0,
+          "jsonrpc": "2.0",
+          "method": "is_ready",
+          "params": [],
+        }
+        try:
+            r = grequests.map(
+                (grequests.post("http://127.0.0.1:%s/api/" % config.RPC_PORT,
+                    data=json.dumps(payload), headers={'content-type': 'application/json'}),))
+        except Exception, e:
+            cbd_result_valid = False
+            cbd_result_error_code = "GOT EXCEPTION: %s" % e
+        else:
+            if not r or r[0].status_code != 200:
+                cbd_result_valid = False
+                cbd_result_error_code = "GOT STATUS %s" % r[0].status_code if r else 'COULD NOT CONTACT'
+            elif 'error' in r[0]:
+                cbd_result_valid = False
+                cbd_result_error_code = "GOT ERROR: %s" % r[0]['error']
+            else:
+                cbd_result = r[0].json()
+        cbd_e = time.time()
         
-    #set up a rotating log handler for this application
-    # Remove the default FileHandlers if present.
-    application.log.error_file = ""
-    application.log.access_file = ""
-    maxBytes = getattr(application.log, "rot_maxBytes", 10000000)
-    backupCount = getattr(application.log, "rot_backupCount", 1000)
-    # Make a new RotatingFileHandler for the error log.
-    fname = getattr(application.log, "rot_error_file", os.path.join(config.data_dir, "api.error.log"))
-    h = logging_handlers.RotatingFileHandler(fname, 'a', maxBytes, backupCount)
-    h.setLevel(logging.DEBUG)
-    h.setFormatter(cherrypy._cplogging.logfmt)
-    application.log.error_log.addHandler(h)
-    # Make a new RotatingFileHandler for the access log.
-    fname = getattr(application.log, "rot_access_file", os.path.join(config.data_dir, "api.access.log"))
-    h = logging_handlers.RotatingFileHandler(fname, 'a', maxBytes, backupCount)
-    h.setLevel(logging.DEBUG)
-    h.setFormatter(cherrypy._cplogging.logfmt)
-    application.log.access_log.addHandler(h)
+        response_code = 200
+        if not cpd_result_valid or not cbd_result_valid:
+            response_code = 500
+        
+        result = {
+            'counterpartyd': 'OK' if cpd_result_valid else 'NOT OK',
+            'counterblockd': 'OK' if cbd_result_valid else 'NOT OK',
+            'counterblockd_error': cbd_result_error_code,
+            'counterpartyd_ver': '%s.%s.%s' % (
+                cpd_status['version_major'], cpd_status['version_minor'], cpd_status['version_revision']) if cpd_result_valid else '?',
+            'counterblockd_ver': config.VERSION,
+            'counterpartyd_last_block': cpd_status['last_block'],
+            'counterpartyd_last_message_index': cpd_status['last_message_index'],
+            'counterpartyd_check_elapsed': cpd_e - cpd_s,
+            'counterblockd_check_elapsed': cbd_e - cbd_s,
+            'local_online_users': len(siofeeds.onlineClients),
+        }
+        return flask.Response(json.dumps(result), response_code, mimetype='application/json')
+        
+    @app.route('/', methods=["POST",])
+    @app.route('/api/', methods=["POST",])
+    def handle_post():
+        #don't do anything if we're not caught up
+        if not util.is_caught_up_well_enough_for_government_work():
+            obj_error = jsonrpc.exceptions.JSONRPCServerError(data="Server is not caught up. Please try again later.")
+            return flask.Response(obj_error.json.encode(), 525, mimetype='application/json')
+            #^ 525 is a custom response code we use for this one purpose
+
+        try:
+            request_json = flask.request.get_data().decode('utf-8')
+            request_data = json.loads(request_json)
+            assert 'id' in request_data and request_data['jsonrpc'] == "2.0" and request_data['method']
+            # params may be omitted 
+        except:
+            obj_error = jsonrpc.exceptions.JSONRPCInvalidRequest(data="Invalid JSON-RPC 2.0 request format")
+            return flask.Response(obj_error.json.encode(), 200, mimetype='application/json')
+            
+        #only arguments passed as a dict are supported
+        if request_data.get('params', None) and not isinstance(request_data['params'], dict):
+            obj_error = jsonrpc.exceptions.JSONRPCInvalidRequest(
+                data='Arguments must be passed as a JSON object (list of unnamed arguments not supported)')
+            return flask.Response(obj_error.json.encode(), 200, mimetype='application/json')
+        
+        rpc_response = jsonrpc.JSONRPCResponseManager.handle(request_json, dispatcher)
+        rpc_response_json = json.dumps(rpc_response.data, default=util.json_dthandler).encode()
+        
+        #log the request data
+        try:
+            assert 'method' in request_data
+            tx_logger.info("TRANSACTION --- %s ||| REQUEST: %s ||| RESPONSE: %s" % (request_data['method'], request_json, rpc_response_json))
+        except Exception, e:
+            logging.info("Could not log transaction: Invalid format: %s" % e)
+            
+        response = flask.Response(rpc_response_json, 200, mimetype='application/json')
+        _set_cors_headers(response)
+        return response
+    
+    #make a new RotatingFileHandler for the access log.
+    api_logger = logging.getLogger("api_log")
+    h = logging_handlers.RotatingFileHandler(os.path.join(config.DATA_DIR, "api.access.log"), 'a', API_MAX_LOG_SIZE, API_MAX_LOG_COUNT)
+    api_logger.setLevel(logging.INFO)
+    api_logger.addHandler(h)
+    api_logger.propagate = False
+    
+    #hack to allow wsgiserver logging to use python logging module...
+    def trimlog(log, msg):
+        log.info(msg.rstrip())
+    api_logger.write = functools.partial(trimlog, api_logger)    
     
     #start up the API listener/handler
-    server = pywsgi.WSGIServer((config.RPC_HOST, int(config.RPC_PORT)), application, log=None)
+    server = pywsgi.WSGIServer((config.RPC_HOST, int(config.RPC_PORT)), app, log=api_logger)
     server.serve_forever()

@@ -376,7 +376,7 @@ def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spa
 
 def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimensions=(48, 48)):
     def make_data_dir(subfolder):
-        path = os.path.join(config.data_dir, subfolder)
+        path = os.path.join(config.DATA_DIR, subfolder)
         if not os.path.exists(path):
             os.makedirs(path)
         return path
@@ -472,7 +472,7 @@ def download_geoip_data():
     logging.info("Checking/updating GeoIP.dat ...")
 
     download = False;
-    data_path = os.path.join(config.data_dir, 'GeoIP.dat')
+    data_path = os.path.join(config.DATA_DIR, 'GeoIP.dat')
     if not os.path.isfile(data_path):
         download = True
     else:
@@ -483,14 +483,14 @@ def download_geoip_data():
 
     if download:
         logging.info("Downloading GeoIP.dat")
-        cmd = "cd {}; wget -N -q http://geolite.maxmind.com/download/geoip/database/GeoLiteCountry/GeoIP.dat.gz; gzip -d GeoIP.dat.gz".format(config.data_dir)
+        cmd = "cd {}; wget -N -q http://geolite.maxmind.com/download/geoip/database/GeoLiteCountry/GeoIP.dat.gz; gzip -dfq GeoIP.dat.gz".format(config.DATA_DIR)
         subprocess_cmd(cmd)
     else:
         logging.info("GeoIP.dat OK")
 
 def init_geoip():
     download_geoip_data();
-    return pygeoip.GeoIP(os.path.join(config.data_dir, 'GeoIP.dat'))
+    return pygeoip.GeoIP(os.path.join(config.DATA_DIR, 'GeoIP.dat'))
 
 
 

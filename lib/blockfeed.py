@@ -247,7 +247,8 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             cur_block_index = my_latest_block['block_index'] + 1
             #get the blocktime for the next block we have to process 
             try:
-                cur_block = util.call_jsonrpc_api("get_block_info", [cur_block_index,], abort_on_error=True)['result']
+                cur_block = util.call_jsonrpc_api("get_block_info",
+                    {'block_index': cur_block_index}, abort_on_error=True)['result']
             except Exception, e:
                 logging.warn(str(e) + " Waiting 3 seconds before trying again...")
                 time.sleep(3)
@@ -256,7 +257,8 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             cur_block['block_time_str'] = cur_block['block_time_obj'].isoformat()
             
             try:
-                block_data = util.call_jsonrpc_api("get_messages", [cur_block_index,], abort_on_error=True)['result']
+                block_data = util.call_jsonrpc_api("get_messages",
+                    {'block_index': cur_block_index}, abort_on_error=True)['result']
             except Exception, e:
                 logging.warn(str(e) + " Waiting 5 seconds before trying again...")
                 time.sleep(5)
