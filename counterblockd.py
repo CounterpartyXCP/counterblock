@@ -75,13 +75,12 @@ if __name__ == '__main__':
     #THINGS WE HOST
     parser.add_argument('--rpc-host', help='the IP of the interface to bind to for providing JSON-RPC API access (0.0.0.0 for all interfaces)')
     parser.add_argument('--rpc-port', type=int, help='port on which to provide the counterblockd JSON-RPC API')
+    parser.add_argument('--rpc-allow-cors', action='store_true', default=True, help='Allow ajax cross domain request')
     parser.add_argument('--socketio-host', help='the interface on which to host the counterblockd socket.io API')
     parser.add_argument('--socketio-port', type=int, help='port on which to provide the counterblockd socket.io API')
     parser.add_argument('--socketio-chat-host', help='the interface on which to host the counterblockd socket.io chat API')
     parser.add_argument('--socketio-chat-port', type=int, help='port on which to provide the counterblockd socket.io chat API')
 
-    parser.add_argument('--allow-cors', action='store_true', default=False, help='Allow ajax cross domain request')
-    
     parser.add_argument('--rollbar-token', help='the API token to use with rollbar (leave blank to disable rollbar integration)')
     parser.add_argument('--rollbar-env', help='the environment name for the rollbar integration (if enabled). Defaults to \'production\'')
 
@@ -89,14 +88,14 @@ if __name__ == '__main__':
 
     # Data directory
     if not args.data_dir:
-        config.data_dir = appdirs.user_data_dir(appauthor='Counterparty', appname='counterblockd', roaming=True)
+        config.DATA_DIR = appdirs.user_data_dir(appauthor='Counterparty', appname='counterblockd', roaming=True)
     else:
-        config.data_dir = args.data_dir
-    if not os.path.isdir(config.data_dir): os.mkdir(config.data_dir)
+        config.DATA_DIR = args.data_dir
+    if not os.path.isdir(config.DATA_DIR): os.mkdir(config.DATA_DIR)
 
     #Read config file
     configfile = ConfigParser.ConfigParser()
-    config_path = os.path.join(config.data_dir, 'counterblockd.conf')
+    config_path = os.path.join(config.DATA_DIR, 'counterblockd.conf')
     configfile.read(config_path)
     has_config = configfile.has_section('Default')
 
@@ -311,6 +310,14 @@ if __name__ == '__main__':
     except:
         raise Exception("Please specific a valid port number rpc-port configuration parameter")
 
+     # RPC CORS
+    if args.rpc_allow_cors:
+        config.RPC_ALLOW_CORS = args.rpc_allow_cors
+    elif has_config and configfile.has_option('Default', 'rpc-allow-cors'):
+        config.RPC_ALLOW_CORS = configfile.getboolean('Default', 'rpc-allow-cors')
+    else:
+        config.RPC_ALLOW_CORS = True
+
     # socket.io host
     if args.socketio_host:
         config.SOCKETIO_HOST = args.socketio_host
@@ -375,14 +382,14 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'log-file'):
         config.LOG = configfile.get('Default', 'log-file')
     else:
-        config.LOG = os.path.join(config.data_dir, 'counterblockd.log')
+        config.LOG = os.path.join(config.DATA_DIR, 'counterblockd.log')
         
     if args.tx_log_file:
         config.TX_LOG = args.tx_log_file
     elif has_config and configfile.has_option('Default', 'tx-log-file'):
         config.TX_LOG = configfile.get('Default', 'tx-log-file')
     else:
-        config.TX_LOG = os.path.join(config.data_dir, 'counterblockd-tx.log')
+        config.TX_LOG = os.path.join(config.DATA_DIR, 'counterblockd-tx.log')
     
 
     # PID
@@ -391,16 +398,8 @@ if __name__ == '__main__':
     elif has_config and configfile.has_option('Default', 'pid-file'):
         config.PID = configfile.get('Default', 'pid-file')
     else:
-        config.PID = os.path.join(config.data_dir, 'counterblockd.pid')
+        config.PID = os.path.join(config.DATA_DIR, 'counterblockd.pid')
 
-     # CORS
-    if args.allow_cors:
-        config.ALLOW_CORS = args.allow_cors
-    elif has_config and configfile.has_option('Default', 'allow-cors'):
-        config.ALLOW_CORS = configfile.getboolean('Default', 'allow-cors')
-    else:
-        config.ALLOW_CORS = True
-    
      # ROLLBAR INTEGRATION
     if args.rollbar_token:
         config.ROLLBAR_TOKEN = args.rollbar_token
