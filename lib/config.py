@@ -25,3 +25,5 @@ FEED_TYPES = ['simple', 'cfd']
 
 BTC = 'BTC'
 XCP = 'XCP'
+
+MAX_REORG_NUM_BLOCKS = 10 #max reorg we'd likely ever see

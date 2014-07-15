@@ -148,8 +148,8 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             zmq_publisher_eventfeed.send_json(tx)
             
     def clean_mempool_tx():
-        """clean mempool transactions older than 10 blocks"""
-        mongo_db.mempool.remove({"viewed_in_block": {"$lt": config.CURRENT_BLOCK_INDEX - 10}})
+        """clean mempool transactions older than MAX_REORG_NUM_BLOCKS blocks"""
+        mongo_db.mempool.remove({"viewed_in_block": {"$lt": config.CURRENT_BLOCK_INDEX - config.MAX_REORG_NUM_BLOCKS}})
 
 
     config.CURRENT_BLOCK_INDEX = 0 #initialize (last processed block index -- i.e. currently active block)
@@ -283,10 +283,13 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 #don't process invalid messages, but do forward them along to clients
                 status = msg_data.get('status', 'valid').lower()
                 if status.startswith('invalid'):
-                    event = util.decorate_message_for_feed(msg, msg_data=msg_data)
-                    zmq_publisher_eventfeed.send_json(event)
-                    config.LAST_MESSAGE_INDEX = msg['message_index']
-                    continue
+                    #(but don't forward along while we're catching up)
+                    if last_processed_block['block_index'] - my_latest_block['block_index'] < config.MAX_REORG_NUM_BLOCKS:
+                        event = util.decorate_message_for_feed(msg, msg_data=msg_data)
+                        zmq_publisher_eventfeed.send_json(event)
+                
+                config.LAST_MESSAGE_INDEX = msg['message_index']
+                continue
 
                 #track message types, for compiling of statistics
                 if msg['command'] == 'insert' \
@@ -311,10 +314,11 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                     running_info = util.call_jsonrpc_api("get_running_info", abort_on_error=True)['result']
                     config.LAST_MESSAGE_INDEX = running_info['last_message_index']
                     
-                    #send out the message to listening clients
-                    msg_data['_last_message_index'] = config.LAST_MESSAGE_INDEX 
-                    event = util.decorate_message_for_feed(msg, msg_data=msg_data)
-                    zmq_publisher_eventfeed.send_json(event)
+                    #send out the message to listening clients (but don't forward along while we're catching up)
+                    if last_processed_block['block_index'] - my_latest_block['block_index'] < config.MAX_REORG_NUM_BLOCKS:
+                        msg_data['_last_message_index'] = config.LAST_MESSAGE_INDEX
+                        event = util.decorate_message_for_feed(msg, msg_data=msg_data)
+                        zmq_publisher_eventfeed.send_json(event)
                     break #break out of inner loop
                 
                 #track assets
@@ -427,10 +431,10 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 if msg['category'] == 'broadcasts':
                     betting.parse_broadcast(mongo_db, msg_data)
 
-                #if we're catching up beyond 10 blocks out, make sure not to send out any socket.io events, as to not flood
-                # on a resync (as we may give a 525 to kick the logged in clients out, but we can't guarantee that the
-                # socket.io connection will always be severed as well??)
-                if last_processed_block['block_index'] - my_latest_block['block_index'] < 10: #>= max likely reorg size we'd ever see
+                #if we're catching up beyond MAX_REORG_NUM_BLOCKS blocks out, make sure not to send out any socket.io
+                # events, as to not flood on a resync (as we may give a 525 to kick the logged in clients out, but we
+                # can't guarantee that the socket.io connection will always be severed as well??)
+                if last_processed_block['block_index'] - my_latest_block['block_index'] < config.MAX_REORG_NUM_BLOCKS:
                     #send out the message to listening clients
                     event = util.decorate_message_for_feed(msg, msg_data=msg_data)
                     zmq_publisher_eventfeed.send_json(event)
@@ -448,7 +452,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             my_latest_block = new_block
             config.CURRENT_BLOCK_INDEX = cur_block_index
             #get the current blockchain service block
-            if config.BLOCKCHAIN_SERVICE_LAST_BLOCK == 0 or config.BLOCKCHAIN_SERVICE_LAST_BLOCK - config.CURRENT_BLOCK_INDEX < 10:
+            if config.BLOCKCHAIN_SERVICE_LAST_BLOCK == 0 or config.BLOCKCHAIN_SERVICE_LAST_BLOCK - config.CURRENT_BLOCK_INDEX < config.MAX_REORG_NUM_BLOCKS:
                 #update as CURRENT_BLOCK_INDEX catches up with BLOCKCHAIN_SERVICE_LAST_BLOCK and/or surpasses it (i.e. if blockchain service gets behind for some reason)
                 block_height_response = blockchain.getinfo()
                 config.BLOCKCHAIN_SERVICE_LAST_BLOCK = block_height_response['info']['blocks'] if block_height_response else 0
@@ -460,9 +464,10 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
 
         elif my_latest_block['block_index'] > last_processed_block['block_index']:
             #we have stale blocks (i.e. most likely a reorg happened in counterpartyd)?? this shouldn't happen, as we
-            # should get a reorg message. Just to be on the safe side, prune back 10 blocks before what counterpartyd is saying if we see this
-            logging.error("Very odd: Ahead of counterpartyd with block indexes! Pruning back 10 blocks to be safe.")
-            my_latest_block = prune_my_stale_blocks(last_processed_block['block_index'] - 10)
+            # should get a reorg message. Just to be on the safe side, prune back MAX_REORG_NUM_BLOCKS blocks
+            # before what counterpartyd is saying if we see this
+            logging.error("Very odd: Ahead of counterpartyd with block indexes! Pruning back %s blocks to be safe." % config.MAX_REORG_NUM_BLOCKS)
+            my_latest_block = prune_my_stale_blocks(last_processed_block['block_index'] - config.MAX_REORG_NUM_BLOCKS)
         else:
             #...we may be caught up (to counterpartyd), but counterpartyd may not be (to the blockchain). And if it isn't, we aren't
             config.CAUGHT_UP = running_info['db_caught_up']
