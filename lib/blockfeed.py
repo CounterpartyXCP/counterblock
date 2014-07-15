@@ -482,12 +482,11 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 logging.debug("Starting event timer: compile_asset_market_info")
                 gevent.spawn(events.compile_asset_market_info)
 
-                #xnova (2014-07-14): DISABLE THESE CHECKS FOR NOW UNTIL WE REWORK THE GUTS LATER THIS WEEK
-                #logging.debug("Starting event timer: compile_extended_asset_info")
-                #gevent.spawn(events.compile_extended_asset_info)
+                logging.debug("Starting event timer: compile_extended_asset_info")
+                gevent.spawn(events.compile_extended_asset_info)
 
-                #logging.debug("Starting event timer: compile_extended_feed_info")
-                #gevent.spawn(events.compile_extended_feed_info)
+                logging.debug("Starting event timer: compile_extended_feed_info")
+                gevent.spawn(events.compile_extended_feed_info)
 
                 config.CAUGHT_UP_STARTED_EVENTS = True
 
