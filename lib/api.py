@@ -1469,7 +1469,7 @@ def serve_api(mongo_db, redis_client):
             'counterpartyd_ver': '%s.%s.%s' % (
                 cpd_status['version_major'], cpd_status['version_minor'], cpd_status['version_revision']) if cpd_result_valid else '?',
             'counterblockd_ver': config.VERSION,
-            'counterpartyd_last_block': cpd_status['last_block'],
+            'counterpartyd_last_block': cpd_status['last_block'] if cpd_result_valid else '?',
             'counterpartyd_last_message_index': cpd_status['last_message_index'],
             'counterpartyd_check_elapsed': cpd_e - cpd_s,
             'counterblockd_check_elapsed': cbd_e - cbd_s,
