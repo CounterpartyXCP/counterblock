@@ -1408,13 +1408,16 @@ def serve_api(mongo_db, redis_client):
             
             if cherrypy.request.method == "GET": #handle GET statistics checking
                 #"ping" counterpartyd to test
+                cpd_s = time.time()
                 cpd_result_valid = True
                 try:
                     cpd_status = util.call_jsonrpc_api("get_running_info", abort_on_error=True)['result']
                 except:
                     cpd_result_valid = False
+                cpd_e = time.time()
 
                 #"ping" counterblockd to test, as well
+                cbd_s = time.time()
                 cbd_result_valid = True
                 cbd_result_error_code = None
                 payload = {
@@ -1439,6 +1442,7 @@ def serve_api(mongo_db, redis_client):
                         cbd_result_error_code = "GOT ERROR: %s" % r[0]['error']
                     else:
                         cbd_result = r[0].json()
+                cbd_e = time.time()
                 
                 if not cpd_result_valid or not cbd_result_valid:
                     cherrypy.response.status = 500
@@ -1454,6 +1458,8 @@ def serve_api(mongo_db, redis_client):
                     'counterblockd_ver': config.VERSION,
                     'counterpartyd_last_block': cpd_status['last_block'],
                     'counterpartyd_last_message_index': cpd_status['last_message_index'],
+                    'counterpartyd_check_elapsed': cpd_e - cpd_s,
+                    'counterblockd_check_elapsed': cbd_e - cbd_s,
                 }
                 return json.dumps(result)
 

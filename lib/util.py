@@ -31,9 +31,6 @@ import strict_rfc3339, rfc3987, aniso8601
 from lib import config
 
 D = decimal.Decimal
-#Don't use sessions for requests where stream=True, for now at least... (afraid of CLOSE_WAIT type scenarios...)
-blockchain_api_session = requests.session()
-jsonrpc_session = requests.session()
 
 def sanitize_eliteness(text):
     #strip out html data to avoid XSS-vectors
@@ -89,7 +86,7 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
     }
     r = grequests.map(
         (grequests.post(endpoint,
-            data=json.dumps(payload), headers={'content-type': 'application/json'}, auth=auth, session=jsonrpc_session),),
+            data=json.dumps(payload), headers={'content-type': 'application/json'}, auth=auth),),
         exception_handler=grequest_exception_handler)
     if not len(r):
         raise Exception("Could not contact counterpartyd (%s)" % method)
@@ -107,7 +104,7 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
 def call_blockchain_api(request_string, abort_on_error=False):
     url = config.BLOCKCHAIN_SERVICE_BASE_URL + request_string
 
-    r = grequests.map((grequests.get(url, session=blockchain_api_session),),
+    r = grequests.map((grequests.get(url),),
         exception_handler=grequest_exception_handler)
     if not len(r):
         raise Exception("Could not contact counterpartyd (%s)" % method)
