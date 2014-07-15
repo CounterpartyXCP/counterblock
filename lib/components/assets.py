@@ -153,7 +153,7 @@ def fetch_all_asset_info(db):
     def asset_fetch_complete_hook(urls_data):
         logging.info("Enhanced asset info fetching complete. %s unique URLs fetched. Processing..." % len(urls_data))
         for asset in assets:
-            #logging.debug("Looking at asset %s: %s" % (asset, asset['info_url']))
+            logging.debug("Looking at asset %s: %s" % (asset, asset['info_url']))
             if asset['info_url']:
                 info_url = ('http://' + asset['info_url']) \
                     if not asset['info_url'].startswith('http://') and not asset['info_url'].startswith('https://') else asset['info_url']

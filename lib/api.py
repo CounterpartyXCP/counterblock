@@ -1460,6 +1460,7 @@ def serve_api(mongo_db, redis_client):
                     'counterpartyd_last_message_index': cpd_status['last_message_index'],
                     'counterpartyd_check_elapsed': cpd_e - cpd_s,
                     'counterblockd_check_elapsed': cbd_e - cbd_s,
+                    'local_online_users': len(siofeeds.onlineClients),
                 }
                 return json.dumps(result)
 
