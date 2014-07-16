@@ -32,6 +32,8 @@ from lib import config
 
 D = decimal.Decimal
 
+grequest_exception_handler = lambda r, r_exception: logging.warning("Got request error: %s" % r_exception)
+
 def sanitize_eliteness(text):
     #strip out html data to avoid XSS-vectors
     return cgi.escape(lxml.html.document_fromstring(text).text_content())
@@ -71,8 +73,6 @@ def assets_to_asset_pair(asset1, asset2):
         quote = asset2 if asset1 < asset2 else asset1
     return (base, quote)
 
-grequest_exception_handler = lambda r, r_exception: logging.warning("Got request error: %s" % r_exception)
-
 def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False):
     if not endpoint: endpoint = config.COUNTERPARTYD_RPC
     if not auth: auth = config.COUNTERPARTYD_AUTH
@@ -84,9 +84,13 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
       "method": method,
       "params": params,
     }
+    headers = {
+        'Content-Type': 'application/json',
+        'Connection':'close', #no keepalive
+    }
     r = grequests.map(
         (grequests.post(endpoint,
-            data=json.dumps(payload), headers={'content-type': 'application/json'}, auth=auth),),
+            data=json.dumps(payload), headers=headers, auth=auth),),
         exception_handler=grequest_exception_handler)
     if not len(r):
         raise Exception("Could not contact counterpartyd (%s)" % method)
@@ -103,8 +107,11 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
 
 def call_blockchain_api(request_string, abort_on_error=False):
     url = config.BLOCKCHAIN_SERVICE_BASE_URL + request_string
+    headers = {
+        'Connection':'close', #no keepalive
+    }
 
-    r = grequests.map((grequests.get(url),),
+    r = grequests.map((grequests.get(url, headers=headers),),
         exception_handler=grequest_exception_handler)
     if not len(r):
         raise Exception("Could not contact counterpartyd (%s)" % method)
@@ -314,7 +321,11 @@ def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spa
     completed_urls = {}
     
     def request_exception_handler(r, e):
+        assert r
+        if r.raw:
+            r.raw.release_conn()
         completed_urls[r.url] = (False, str(e))
+        
         if len(completed_urls) == len(urls): #all done, trigger callback
             return hook_on_complete(completed_urls)
         
@@ -357,7 +368,7 @@ def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spa
                 else:
                     continue
             assert url.startswith('http://') or url.startswith('https://')
-            r = grequests.get(url, timeout=fetch_timeout, stream=True,
+            r = grequests.get(url, headers={'Connection':'close'}, timeout=fetch_timeout, stream=True,
                 verify=False, hooks=dict(response=stream_fetch_response_hook))
             group_results.append(r)
         rgroup = grequests.map(group_results, stream=True, exception_handler=request_exception_handler)
@@ -374,17 +385,23 @@ def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spa
         else:
             process_group(group)
 
-def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimensions=(48, 48)):
+def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimensions=(48, 48), fetch_timeout=1):
     def make_data_dir(subfolder):
         path = os.path.join(config.DATA_DIR, subfolder)
         if not os.path.exists(path):
             os.makedirs(path)
         return path
     
+    def request_exception_handler(r, e):
+        logging.warning("Got request error: %s" % e)
+        assert r
+        if r.raw:
+            r.raw.release_conn()
+    
     try:
         #fetch the image data 
-        r = grequests.map((grequests.get(url, timeout=1, stream=True, verify=False),),
-            stream=True, exception_handler=grequest_exception_handler)
+        r = grequests.map((grequests.get(url, headers={'Connection':'close'}, timeout=fetch_timeout, stream=True, verify=False),),
+            stream=True, exception_handler=request_exception_handler)
         try:
             if not len(r): raise Exception("Invalid response")
             r = r[0]

@@ -140,7 +140,8 @@ def process_asset_info(db, asset, info_data):
     #fetch any associated images...
     #TODO: parallelize this 2nd level asset image fetching ... (e.g. just compose a list here, and process it in later on)
     if 'image' in info_data:
-        info_data['valid_image'] = util.fetch_image(info_data['image'], config.SUBDIR_ASSET_IMAGES, asset['asset'])
+        info_data['valid_image'] = util.fetch_image(info_data['image'],
+            config.SUBDIR_ASSET_IMAGES, asset['asset'], fetch_timeout=5)
         
     asset['info_data'] = sanitize_json_data(info_data)
     db.asset_extended_info.save(asset)

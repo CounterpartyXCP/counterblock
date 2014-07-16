@@ -88,16 +88,17 @@ def process_feed_info(db, feed, info_data):
     #fetch any associated images...
     #TODO: parallelize this 2nd level feed image fetching ... (e.g. just compose a list here, and process it in later on)
     if 'image' in info_data:
-        info_data['valid_image'] = util.fetch_image(info_data['image'], config.SUBDIR_FEED_IMAGES, feed['source'] + '_topic')
+        info_data['valid_image'] = util.fetch_image(info_data['image'],
+            config.SUBDIR_FEED_IMAGES, feed['source'] + '_topic', fetch_timeout=5)
     if 'operator' in info_data and 'image' in info_data['operator']:
         info_data['operator']['valid_image'] = util.fetch_image(info_data['operator']['image'],
-            config.SUBDIR_FEED_IMAGES, feed['source'] + '_owner')
+            config.SUBDIR_FEED_IMAGES, feed['source'] + '_owner', fetch_timeout=5)
     if 'targets' in info_data:
         for i in range(len(info_data['targets'])):
             if 'image' in info_data['targets'][i]:
                 image_name = feed['source'] + '_tv_' + str(info_data['targets'][i]['value'])
                 info_data['targets'][i]['valid_image'] = util.fetch_image(
-                    info_data['targets'][i]['image'], config.SUBDIR_FEED_IMAGES, image_name)
+                    info_data['targets'][i]['image'], config.SUBDIR_FEED_IMAGES, image_name, fetch_timeout=5)
 
     feed['info_data'] = sanitize_json_data(info_data)
     db.feeds.save(feed)
