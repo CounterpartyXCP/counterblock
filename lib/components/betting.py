@@ -6,6 +6,7 @@ import json
 
 from lib import config, util
 
+FEED_MAX_RETRY = 3
 D = decimal.Decimal
 
 def parse_broadcast(db, message):
@@ -18,7 +19,7 @@ def parse_broadcast(db, message):
         feed['source'] = message['source']
         feed['info_url'] = message['text']
         feed['info_status'] = 'needfetch' #needfetch, valid (included in CW feed directory), invalid, error 
-        feed['fetch_info_retry'] = 0 # retry 3 times to fetch info from info_url
+        feed['fetch_info_retry'] = 0 # retry FEED_MAX_RETRY times to fetch info from info_url
         feed['info_data'] = {}
         feed['fee_fraction_int'] = message['fee_fraction_int']
         feed['locked'] = False
@@ -41,7 +42,7 @@ def parse_broadcast(db, message):
         return True
     return False
 
-def inc_fetch_retry(db, feed, max_retry=3, new_status='error', errors=[]):
+def inc_fetch_retry(db, feed, max_retry=FEED_MAX_RETRY, new_status='error', errors=[]):
     feed['fetch_info_retry'] += 1
     feed['errors'] = errors
     if feed['fetch_info_retry'] == max_retry:
@@ -121,9 +122,9 @@ def fetch_all_feed_info(db):
                     continue
                 assert info_url in urls_data
                 if not urls_data[info_url][0]: #request was not successful
-                    max_retry = 3
-                    inc_fetch_retry(db, feed, max_retry=max_retry, errors=[urls_data[info_url][1]])
-                    logging.error("Fetch for feed at %s not successful: %s (try %i of %i)" % (info_url, urls_data[info_url][1], feed['fetch_info_retry'], max_retry))
+                    inc_fetch_retry(db, feed, max_retry=FEED_MAX_RETRY, errors=[urls_data[info_url][1]])
+                    logging.error("Fetch for feed at %s not successful: %s (try %i of %i)" % (
+                        info_url, urls_data[info_url][1], feed['fetch_info_retry'], FEED_MAX_RETRY))
                 else:
                     result = process_feed_info(db, feed, urls_data[info_url][1])
                     if not result[0]:

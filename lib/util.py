@@ -14,6 +14,7 @@ import subprocess
 
 import gevent
 import gevent.pool
+import gevent.ssl
 import numpy
 import pymongo
 from geventhttpclient import HTTPClient
@@ -31,6 +32,7 @@ import strict_rfc3339, rfc3987, aniso8601
 
 from lib import config
 
+JSONRPC_API_REQUEST_TIMEOUT = 10 #in seconds 
 D = decimal.Decimal
 
 def sanitize_eliteness(text):
@@ -98,7 +100,8 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
     
     try:
         u = URL(endpoint)
-        client = HTTPClient.from_url(u, connection_timeout=10, network_timeout=10)
+        client = HTTPClient.from_url(u, connection_timeout=JSONRPC_API_REQUEST_TIMEOUT,
+            network_timeout=JSONRPC_API_REQUEST_TIMEOUT)
         r = client.post(u.request_uri, body=json.dumps(payload), headers=headers)
     except Exception, e:
         raise Exception("Got call_jsonrpc_api request error: %s" % e)
@@ -329,7 +332,9 @@ def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spa
     def make_stream_request(url):
         try:
             u = URL(url)
-            client = HTTPClient.from_url(u, connection_timeout=fetch_timeout, network_timeout=fetch_timeout)
+            client_kwargs = {'connection_timeout': fetch_timeout, 'network_timeout': fetch_timeout}
+            if u.scheme == "https": client_kwargs['ssl_options'] = {'cert_reqs': gevent.ssl.CETT_NONE}
+            client = HTTPClient.from_url(u, **client_kwargs)
             r = client.get(u.request_uri, headers={'Connection':'close'})
         except Exception, e:
             data = (False, "Got exception: %s" % e)
@@ -339,7 +344,7 @@ def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spa
             else:
                 try:
                     #read up to max_fetch_size
-                    raw_data = r.raw.read(max_fetch_size)
+                    raw_data = r.read(max_fetch_size)
                     if is_json: #try to convert to JSON
                         try:
                             data = json.loads(raw_data)
@@ -397,9 +402,11 @@ def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimens
         #fetch the image data 
         try:
             u = URL(url)
-            client = HTTPClient.from_url(u, connection_timeout=fetch_timeout, network_timeout=fetch_timeout)
+            client_kwargs = {'connection_timeout': fetch_timeout, 'network_timeout': fetch_timeout}
+            if u.scheme == "https": client_kwargs['ssl_options'] = {'cert_reqs': gevent.ssl.CETT_NONE}
+            client = HTTPClient.from_url(u, **client_kwargs)
             r = client.get(u.request_uri, headers={'Connection':'close'})
-            raw_image_data = r.raw.read(max_size) #read up to max_size
+            raw_image_data = r.read(max_size) #read up to max_size
         except Exception, e:
             raise Exception("Got fetch_image request error: %s" % e)
         else:

@@ -7,6 +7,7 @@ from datetime import datetime
 
 from lib import config, util
 
+ASSET_MAX_RETRY = 3
 D = decimal.Decimal
 
 def parse_issuance(db, message, cur_block_index, cur_block):
@@ -18,7 +19,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                 {'$set': {
                     'info_url': description,
                     'info_status': 'needfetch',
-                    'fetch_info_retry': 0, # retry 3 times to fetch info from info_url
+                    'fetch_info_retry': 0, # retry ASSET_MAX_RETRY times to fetch info from info_url
                     'info_data': {},
                     'errors': []
                 }}, upsert=True)
@@ -110,7 +111,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                 util.normalize_quantity(message['quantity'], message['divisible']), message['asset']))
     return True
 
-def inc_fetch_retry(db, asset, max_retry=3, new_status='error', errors=[]):
+def inc_fetch_retry(db, asset, max_retry=ASSET_MAX_RETRY, new_status='error', errors=[]):
     asset['fetch_info_retry'] += 1
     asset['errors'] = errors
     if asset['fetch_info_retry'] == max_retry:
@@ -166,9 +167,9 @@ def fetch_all_asset_info(db):
                     if not asset['info_url'].startswith('http://') and not asset['info_url'].startswith('https://') else asset['info_url']
                 assert info_url in urls_data
                 if not urls_data[info_url][0]: #request was not successful
-                    max_retry = 3
-                    inc_fetch_retry(db, asset, max_retry=max_retry, errors=[urls_data[info_url][1]])
-                    logging.error("Fetch for asset at %s not successful: %s (try %i of %i)" % (info_url, urls_data[info_url][1], asset['fetch_info_retry'], max_retry))
+                    inc_fetch_retry(db, asset, max_retry=ASSET_MAX_RETRY, errors=[urls_data[info_url][1]])
+                    logging.error("Fetch for asset at %s not successful: %s (try %i of %i)" % (
+                        info_url, urls_data[info_url][1], asset['fetch_info_retry'], ASSET_MAX_RETRY))
                 else:
                     result = process_asset_info(db, asset, urls_data[info_url][1])
                     if not result[0]:
