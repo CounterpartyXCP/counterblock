@@ -433,6 +433,11 @@ if __name__ == '__main__':
     MAX_LOG_COUNT = 5
     logger = logging.getLogger() #get root logger
     logger.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+    
+    #Color logging on console for warnings and errors
+    logging.addLevelName( logging.WARNING, "\033[1;31m%s\033[1;0m" % logging.getLevelName(logging.WARNING))
+    logging.addLevelName( logging.ERROR, "\033[1;41m%s\033[1;0m" % logging.getLevelName(logging.ERROR))
+    
     #Console logging
     console = logging.StreamHandler()
     console.setLevel(logging.DEBUG if args.verbose else logging.INFO)
