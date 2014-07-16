@@ -288,14 +288,14 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                         event = util.decorate_message_for_feed(msg, msg_data=msg_data)
                         zmq_publisher_eventfeed.send_json(event)
                 
-                config.LAST_MESSAGE_INDEX = msg['message_index']
-                continue
+                    config.LAST_MESSAGE_INDEX = msg['message_index']
+                    continue
 
                 #track message types, for compiling of statistics
                 if msg['command'] == 'insert' \
                    and msg['category'] not in ["debits", "credits", "order_matches", "bet_matches",
                        "order_expirations", "bet_expirations", "order_match_expirations", "bet_match_expirations",
-                       "rps_matches", "rps_expirations", "rps_match_expirations", "rpsresolves", "bet_match_resolutions"]:
+                       "rps_matches", "rps_expirations", "rps_match_expirations", "bet_match_resolutions"]:
                     mongo_db.transaction_stats.insert({
                         'block_index': cur_block_index,
                         'block_time': cur_block['block_time_obj'],

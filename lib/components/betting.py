@@ -6,6 +6,7 @@ import json
 
 from lib import config, util
 
+FEED_MAX_RETRY = 3
 D = decimal.Decimal
 
 def parse_broadcast(db, message):
@@ -18,7 +19,7 @@ def parse_broadcast(db, message):
         feed['source'] = message['source']
         feed['info_url'] = message['text']
         feed['info_status'] = 'needfetch' #needfetch, valid (included in CW feed directory), invalid, error 
-        feed['fetch_info_retry'] = 0 # retry 3 times to fetch info from info_url
+        feed['fetch_info_retry'] = 0 # retry FEED_MAX_RETRY times to fetch info from info_url
         feed['info_data'] = {}
         feed['fee_fraction_int'] = message['fee_fraction_int']
         feed['locked'] = False
@@ -41,7 +42,7 @@ def parse_broadcast(db, message):
         return True
     return False
 
-def inc_fetch_retry(db, feed, max_retry=3, new_status='error', errors=[]):
+def inc_fetch_retry(db, feed, max_retry=FEED_MAX_RETRY, new_status='error', errors=[]):
     feed['fetch_info_retry'] += 1
     feed['errors'] = errors
     if feed['fetch_info_retry'] == max_retry:
@@ -88,16 +89,17 @@ def process_feed_info(db, feed, info_data):
     #fetch any associated images...
     #TODO: parallelize this 2nd level feed image fetching ... (e.g. just compose a list here, and process it in later on)
     if 'image' in info_data:
-        info_data['valid_image'] = util.fetch_image(info_data['image'], config.SUBDIR_FEED_IMAGES, feed['source'] + '_topic')
+        info_data['valid_image'] = util.fetch_image(info_data['image'],
+            config.SUBDIR_FEED_IMAGES, feed['source'] + '_topic', fetch_timeout=5)
     if 'operator' in info_data and 'image' in info_data['operator']:
         info_data['operator']['valid_image'] = util.fetch_image(info_data['operator']['image'],
-            config.SUBDIR_FEED_IMAGES, feed['source'] + '_owner')
+            config.SUBDIR_FEED_IMAGES, feed['source'] + '_owner', fetch_timeout=5)
     if 'targets' in info_data:
         for i in range(len(info_data['targets'])):
             if 'image' in info_data['targets'][i]:
                 image_name = feed['source'] + '_tv_' + str(info_data['targets'][i]['value'])
                 info_data['targets'][i]['valid_image'] = util.fetch_image(
-                    info_data['targets'][i]['image'], config.SUBDIR_FEED_IMAGES, image_name)
+                    info_data['targets'][i]['image'], config.SUBDIR_FEED_IMAGES, image_name, fetch_timeout=5)
 
     feed['info_data'] = sanitize_json_data(info_data)
     db.feeds.save(feed)
@@ -120,9 +122,9 @@ def fetch_all_feed_info(db):
                     continue
                 assert info_url in urls_data
                 if not urls_data[info_url][0]: #request was not successful
-                    max_retry = 3
-                    inc_fetch_retry(db, feed, max_retry=max_retry, errors=[urls_data[info_url][1]])
-                    logging.error("Fetch for feed at %s not successful: %s (try %i of %i)" % (info_url, urls_data[info_url][1], feed['fetch_info_retry'], max_retry))
+                    inc_fetch_retry(db, feed, max_retry=FEED_MAX_RETRY, errors=[urls_data[info_url][1]])
+                    logging.error("Fetch for feed at %s not successful: %s (try %i of %i)" % (
+                        info_url, urls_data[info_url][1], feed['fetch_info_retry'], FEED_MAX_RETRY))
                 else:
                     result = process_feed_info(db, feed, urls_data[info_url][1])
                     if not result[0]:

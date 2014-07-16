@@ -7,6 +7,7 @@ from datetime import datetime
 
 from lib import config, util
 
+ASSET_MAX_RETRY = 3
 D = decimal.Decimal
 
 def parse_issuance(db, message, cur_block_index, cur_block):
@@ -18,7 +19,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                 {'$set': {
                     'info_url': description,
                     'info_status': 'needfetch',
-                    'fetch_info_retry': 0, # retry 3 times to fetch info from info_url
+                    'fetch_info_retry': 0, # retry ASSET_MAX_RETRY times to fetch info from info_url
                     'info_data': {},
                     'errors': []
                 }}, upsert=True)
@@ -46,6 +47,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                 'locked': True,
              },
              "$push": {'_history': tracked_asset } }, upsert=False)
+        logging.info("Locking asset %s" % (message['asset'],))
     elif message['transfer']: #transfer asset
         assert tracked_asset is not None
         db.tracked_assets.update(
@@ -57,6 +59,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                 'owner': message['issuer'],
              },
              "$push": {'_history': tracked_asset } }, upsert=False)
+        logging.info("Transferring asset %s to address %s" % (message['asset'], message['issuer']))
     elif message['quantity'] == 0 and tracked_asset is not None: #change description
         db.tracked_assets.update(
             {'asset': message['asset']},
@@ -68,6 +71,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
              },
              "$push": {'_history': tracked_asset } }, upsert=False)
         modify_extended_asset_info(message['asset'], message['description'])
+        logging.info("Changing description for asset %s to '%s'" % (message['asset'], message['description']))
     else: #issue new asset or issue addition qty of an asset
         if not tracked_asset: #new issuance
             tracked_asset = {
@@ -87,6 +91,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                 '_history': [] #to allow for block rollbacks
             }
             db.tracked_assets.insert(tracked_asset)
+            logging.info("Tracking new asset: %s" % message['asset'])
             modify_extended_asset_info(message['asset'], message['description'])
         else: #issuing additional of existing asset
             assert tracked_asset is not None
@@ -102,9 +107,11 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                      'total_issued_normalized': util.normalize_quantity(message['quantity'], message['divisible'])
                  },
                  "$push": {'_history': tracked_asset} }, upsert=False)
+            logging.info("Adding additional %s quantity for asset %s" % (
+                util.normalize_quantity(message['quantity'], message['divisible']), message['asset']))
     return True
 
-def inc_fetch_retry(db, asset, max_retry=3, new_status='error', errors=[]):
+def inc_fetch_retry(db, asset, max_retry=ASSET_MAX_RETRY, new_status='error', errors=[]):
     asset['fetch_info_retry'] += 1
     asset['errors'] = errors
     if asset['fetch_info_retry'] == max_retry:
@@ -140,7 +147,8 @@ def process_asset_info(db, asset, info_data):
     #fetch any associated images...
     #TODO: parallelize this 2nd level asset image fetching ... (e.g. just compose a list here, and process it in later on)
     if 'image' in info_data:
-        info_data['valid_image'] = util.fetch_image(info_data['image'], config.SUBDIR_ASSET_IMAGES, asset['asset'])
+        info_data['valid_image'] = util.fetch_image(info_data['image'],
+            config.SUBDIR_ASSET_IMAGES, asset['asset'], fetch_timeout=5)
         
     asset['info_data'] = sanitize_json_data(info_data)
     db.asset_extended_info.save(asset)
@@ -159,9 +167,9 @@ def fetch_all_asset_info(db):
                     if not asset['info_url'].startswith('http://') and not asset['info_url'].startswith('https://') else asset['info_url']
                 assert info_url in urls_data
                 if not urls_data[info_url][0]: #request was not successful
-                    max_retry = 3
-                    inc_fetch_retry(db, asset, max_retry=max_retry, errors=[urls_data[info_url][1]])
-                    logging.error("Fetch for asset at %s not successful: %s (try %i of %i)" % (info_url, urls_data[info_url][1], asset['fetch_info_retry'], max_retry))
+                    inc_fetch_retry(db, asset, max_retry=ASSET_MAX_RETRY, errors=[urls_data[info_url][1]])
+                    logging.error("Fetch for asset at %s not successful: %s (try %i of %i)" % (
+                        info_url, urls_data[info_url][1], asset['fetch_info_retry'], ASSET_MAX_RETRY))
                 else:
                     result = process_asset_info(db, asset, urls_data[info_url][1])
                     if not result[0]:
