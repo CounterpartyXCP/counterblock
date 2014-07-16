@@ -59,7 +59,7 @@ def get_market_price_summary(asset1, asset2, with_last_trades=0, start_dt=None, 
         [last_trades[i]['unit_price'] for i in xrange(min(len(last_trades), config.MARKET_PRICE_DERIVE_NUM_POINTS))],
         [(last_trades[i]['base_quantity_normalized'] + last_trades[i]['quote_quantity_normalized']) for i in xrange(min(len(last_trades), config.MARKET_PRICE_DERIVE_NUM_POINTS))])
     result = {
-        'market_price': float(D(market_price).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN)),
+        'market_price': float(D(market_price)),
         'base_asset': base_asset,
         'quote_asset': quote_asset,
     }
@@ -78,12 +78,10 @@ def get_market_price_summary(asset1, asset2, with_last_trades=0, start_dt=None, 
 
 
 def calc_inverse(quantity):
-    return float( (D(1) / D(quantity) ).quantize(
-        D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))            
+    return float( (D(1) / D(quantity) ))            
 
 def calc_price_change(open, close):
-    return float((D(100) * (D(close) - D(open)) / D(open)).quantize(
-            D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))            
+    return float((D(100) * (D(close) - D(open)) / D(open)))            
 
 def get_price_primatives(start_dt=None, end_dt=None):
     mps_xcp_btc = get_market_price_summary(config.XCP, config.BTC, start_dt=start_dt, end_dt=end_dt)
@@ -137,8 +135,7 @@ def get_xcp_btc_price_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price, wit
         if price_summary_in_xcp: # no trade data
             price_in_xcp = price_summary_in_xcp['market_price']
             if xcp_btc_price:
-                aggregated_price_in_xcp = float(((D(price_summary_in_xcp['market_price']) + D(xcp_btc_price)) / D(2)).quantize(
-                    D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+                aggregated_price_in_xcp = float(((D(price_summary_in_xcp['market_price']) + D(xcp_btc_price)) / D(2)))
             else: aggregated_price_in_xcp = None
         else:
             price_in_xcp = None
@@ -147,8 +144,7 @@ def get_xcp_btc_price_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price, wit
         if price_summary_in_btc: # no trade data
             price_in_btc = price_summary_in_btc['market_price']
             if btc_xcp_price:
-                aggregated_price_in_btc = float(((D(price_summary_in_btc['market_price']) + D(btc_xcp_price)) / D(2)).quantize(
-                    D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+                aggregated_price_in_btc = float(((D(price_summary_in_btc['market_price']) + D(btc_xcp_price)) / D(2)))
             else: aggregated_price_in_btc = None
         else:
             aggregated_price_in_btc = None
@@ -181,10 +177,8 @@ def get_xcp_btc_price_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price, wit
     return (price_summary_in_xcp, price_summary_in_btc, price_in_xcp, price_in_btc, aggregated_price_in_xcp, aggregated_price_in_btc)
     
 def calc_market_cap(asset_info, price_in_xcp, price_in_btc):
-    market_cap_in_xcp = float( (D(asset_info['total_issued_normalized']) / D(price_in_xcp)).quantize(
-        D('.00000000'), rounding=decimal.ROUND_HALF_EVEN) ) if price_in_xcp else None
-    market_cap_in_btc = float( (D(asset_info['total_issued_normalized']) / D(price_in_btc)).quantize(
-        D('.00000000'), rounding=decimal.ROUND_HALF_EVEN) ) if price_in_btc else None
+    market_cap_in_xcp = float( (D(asset_info['total_issued_normalized']) / D(price_in_xcp))) if price_in_xcp else None
+    market_cap_in_btc = float( (D(asset_info['total_issued_normalized']) / D(price_in_btc))) if price_in_btc else None
     return market_cap_in_xcp, market_cap_in_btc
 
 def compile_summary_market_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price):        
@@ -412,7 +406,7 @@ def compile_asset_pair_market_info():
     asset_info = {}
     
     def get_price(base_quantity_normalized, quote_quantity_normalized):
-        return float(D(quote_quantity_normalized / base_quantity_normalized ).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+        return float(D(quote_quantity_normalized / base_quantity_normalized ))
     
     #COMPOSE order depth, lowest ask, and highest bid column data
     for o in open_orders:

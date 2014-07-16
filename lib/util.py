@@ -292,13 +292,15 @@ def decorate_message_for_feed(msg, msg_data=None):
 #############
 # Bitcoin-related
 
+decimal.getcontext().prec = 8
+
 def round_out(num):
     #round out to 8 decimal places
-    return float(D(num).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))        
+    return float(D(num))        
 
 def normalize_quantity(quantity, divisible=True):
     if divisible:
-        return float((D(quantity) / D(config.UNIT)).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN)) 
+        return float((D(quantity) / D(config.UNIT))) 
     else: return quantity
 
 def denormalize_quantity(quantity, divisible=True):

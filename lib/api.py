@@ -23,11 +23,13 @@ from bson import json_util
 from bson.son import SON
 
 from lib import config, siofeeds, util, blockchain
-from lib.components import betting, rps, assets_trading
+from lib.components import betting, rps, assets_trading, dex
 
 PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
 API_MAX_LOG_SIZE = 10 * 1024 * 1024 #max log size of 20 MB before rotation (make configurable later)
 API_MAX_LOG_COUNT = 10
+
+decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
 D = decimal.Decimal
 
 
@@ -675,12 +677,10 @@ def serve_api(mongo_db, redis_client):
         
         def get_o_pct(o):
             if o['give_asset'] == config.BTC: #NB: fee_provided could be zero here
-                pct_fee_provided = float(( D(o['fee_provided_remaining']) / D(o['give_quantity']) ).quantize(
-                            D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+                pct_fee_provided = float(( D(o['fee_provided_remaining']) / D(o['give_quantity']) ))
             else: pct_fee_provided = None
             if o['get_asset'] == config.BTC: #NB: fee_required could be zero here
-                pct_fee_required = float(( D(o['fee_required_remaining']) / D(o['get_quantity']) ).quantize(
-                            D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+                pct_fee_required = float(( D(o['fee_required_remaining']) / D(o['get_quantity']) ))
             else: pct_fee_required = None
             return pct_fee_provided, pct_fee_required
 
@@ -722,8 +722,7 @@ def serve_api(mongo_db, redis_client):
                     
                     give_quantity = util.normalize_quantity(o['give_quantity'], base_asset_info['divisible'])
                     get_quantity = util.normalize_quantity(o['get_quantity'], quote_asset_info['divisible'])
-                    unit_price = float(( D(get_quantity) / D(give_quantity) ).quantize(
-                        D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+                    unit_price = float(( D(get_quantity) / D(give_quantity) ))
                     remaining = util.normalize_quantity(o['give_remaining'], base_asset_info['divisible'])
                 else:
                     if quote_asset == config.BTC and o['give_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF:
@@ -731,8 +730,7 @@ def serve_api(mongo_db, redis_client):
 
                     give_quantity = util.normalize_quantity(o['give_quantity'], quote_asset_info['divisible'])
                     get_quantity = util.normalize_quantity(o['get_quantity'], base_asset_info['divisible'])
-                    unit_price = float(( D(give_quantity) / D(get_quantity) ).quantize(
-                        D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+                    unit_price = float(( D(give_quantity) / D(get_quantity) ))
                     remaining = util.normalize_quantity(o['get_remaining'], base_asset_info['divisible'])
                 id = "%s_%s_%s" % (base_asset, quote_asset, unit_price)
                 #^ key = {base}_{bid}_{unit_price}, values ref entries in book
@@ -751,10 +749,8 @@ def serve_api(mongo_db, redis_client):
         if base_bid_book and base_ask_book:
             #don't do abs(), as this is "the amount by which the ask price exceeds the bid", so I guess it could be negative
             # if there is overlap in the book (right?)
-            bid_ask_spread = float(( D(base_ask_book[0]['unit_price']) - D(base_bid_book[0]['unit_price']) ).quantize(
-                            D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
-            bid_ask_median = float(( D( max(base_ask_book[0]['unit_price'], base_bid_book[0]['unit_price']) ) - (D(abs(bid_ask_spread)) / 2) ).quantize(
-                            D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+            bid_ask_spread = float(( D(base_ask_book[0]['unit_price']) - D(base_bid_book[0]['unit_price']) ))
+            bid_ask_median = float(( D( max(base_ask_book[0]['unit_price'], base_bid_book[0]['unit_price']) ) - (D(abs(bid_ask_spread)) / 2) ))
         else:
             bid_ask_spread = 0
             bid_ask_median = 0
@@ -762,16 +758,16 @@ def serve_api(mongo_db, redis_client):
         #compose depth and round out quantities
         bid_depth = D(0)
         for o in base_bid_book:
-            o['quantity'] = float(D(o['quantity']).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+            o['quantity'] = float(D(o['quantity']))
             bid_depth += D(o['quantity'])
-            o['depth'] = float(bid_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
-        bid_depth = float(bid_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+            o['depth'] = float(D(bid_depth))
+        bid_depth = float(D(bid_depth))
         ask_depth = D(0)
         for o in base_ask_book:
-            o['quantity'] = float(D(o['quantity']).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+            o['quantity'] = float(D(o['quantity']))
             ask_depth += D(o['quantity'])
-            o['depth'] = float(ask_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
-        ask_depth = float(ask_depth.quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+            o['depth'] = float(D(ask_depth))
+        ask_depth = float(D(ask_depth))
         
         #compose raw orders
         orders = filtered_base_bid_orders + filtered_base_ask_orders
@@ -1393,6 +1389,26 @@ def serve_api(mongo_db, redis_client):
     @dispatcher.add_method
     def get_user_rps(addresses):
         return rps.get_user_rps(addresses)
+
+    @dispatcher.add_method
+    def get_users_pairs(addresses=[], max_pairs=12):
+        return dex.get_users_pairs(addresses, max_pairs)
+
+    @dispatcher.add_method
+    def get_market_orders(asset1, asset2, addresses=[], min_fee_provided=0.95, max_fee_required=0.95):
+        return dex.get_market_orders(asset1, asset2, addresses, None, min_fee_provided, max_fee_required)
+
+    @dispatcher.add_method
+    def get_market_trades(asset1, asset2, addresses=[], limit=100):
+        return dex.get_market_trades(asset1, asset2, addresses, limit)
+
+    @dispatcher.add_method
+    def get_markets_list():
+        return dex.get_markets_list()
+
+    @dispatcher.add_method
+    def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95):
+        return dex.get_market_details(asset1, asset2, min_fee_provided, max_fee_required)
     
     def _set_cors_headers(response):
         if config.RPC_ALLOW_CORS:
