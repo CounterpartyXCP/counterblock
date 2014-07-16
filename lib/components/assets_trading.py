@@ -429,7 +429,6 @@ def compile_asset_pair_market_info():
         #^ we also initialize completed_trades_count, vol_base, vol_quote because every pair inited here may
         # not have cooresponding data out of the trades_data_by_pair aggregation below
         pair_data[pair]['open_orders_count'] += 1
-        logging.info("get give asset, base quote info: %s %s %s %s" % (o['get_asset'], o['give_asset'], base_asset_info, quote_asset_info))
         base_quantity_normalized = util.normalize_quantity(o['give_quantity'] if base_asset == o['give_asset'] else o['get_quantity'], base_asset_info['divisible'])
         quote_quantity_normalized = util.normalize_quantity(o['give_quantity'] if quote_asset == o['give_asset'] else o['get_quantity'], quote_asset_info['divisible'])
         order_price = get_price(base_quantity_normalized, quote_quantity_normalized)

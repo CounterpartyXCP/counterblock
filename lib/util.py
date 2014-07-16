@@ -13,10 +13,11 @@ import StringIO
 import subprocess
 
 import gevent
+import gevent.pool
 import numpy
 import pymongo
-import requests
-import grequests
+from geventhttpclient import HTTPClient
+from geventhttpclient.url import URL
 import lxml.html
 from PIL import Image
 
@@ -32,12 +33,15 @@ from lib import config
 
 D = decimal.Decimal
 
-grequest_exception_handler = lambda r, r_exception: logging.warning("Got request error: %s" % r_exception)
-
 def sanitize_eliteness(text):
     #strip out html data to avoid XSS-vectors
     return cgi.escape(lxml.html.document_fromstring(text).text_content())
     #^ wrap in cgi.escape - see https://github.com/mitotic/graphterm/issues/5
+
+def http_basic_auth_str(username, password):
+    """Returns a Basic Auth string."""
+    authstr = 'Basic ' + str(base64.b64encode(('%s:%s' % (username, password)).encode('latin1')).strip())
+    return authstr
 
 def is_valid_url(url, suffix='', allow_localhost=False, allow_no_protocol=False):
     regex = re.compile(
@@ -88,19 +92,23 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
         'Content-Type': 'application/json',
         'Connection':'close', #no keepalive
     }
-    r = grequests.map(
-        (grequests.post(endpoint,
-            data=json.dumps(payload), headers=headers, auth=auth),),
-        exception_handler=grequest_exception_handler)
-    if not len(r):
-        raise Exception("Could not contact counterpartyd (%s)" % method)
-    r = r[0]
-    if not r:
-        raise Exception("Could not contact counterpartyd (%s)" % method)
-    elif r.status_code != 200:
-        raise Exception("Bad status code returned from counterpartyd: '%s'. result body: '%s'." % (r.status_code, r.text))
+    if auth:
+        #auth should be a (username, password) tuple, if specified
+        headers['Authorization'] = http_basic_auth_str(auth[0], auth[1])
+    
+    try:
+        u = URL(endpoint)
+        client = HTTPClient.from_url(u, connection_timeout=10, network_timeout=10)
+        r = client.post(u.request_uri, body=json.dumps(payload), headers=headers)
+    except Exception, e:
+        raise Exception("Got call_jsonrpc_api request error: %s" % e)
     else:
-        result = r.json()
+        if r.status_code != 200 and abort_on_error:
+            raise Exception("Bad status code returned from counterpartyd: '%s'. result body: '%s'." % (r.status_code, r.read()))
+        result = json.loads(r.read())
+    finally:
+        client.close()
+    
     if abort_on_error and 'error' in result:
         raise Exception("Got back error from server: %s" % result['error'])
     return result
@@ -111,21 +119,19 @@ def call_blockchain_api(request_string, abort_on_error=False):
         'Connection':'close', #no keepalive
     }
 
-    r = grequests.map((grequests.get(url, headers=headers),),
-        exception_handler=grequest_exception_handler)
-    if not len(r):
-        raise Exception("Could not contact counterpartyd (%s)" % method)
-    r = r[0]
-    if (not r or not hasattr(r, 'status_code')) and abort_on_error:
-        raise Exception("Could not contact blockchain service!")
-    elif r.status_code != 200 and abort_on_error:
-        raise Exception("Bad status code returned from blockchain service: '%s'. result body: '%s'." % (r.status_code, r.text))
+    try:
+        u = URL(url)
+        client = HTTPClient.from_url(u)
+        r = client.get(u.request_uri, headers=headers)
+    except Exception, e:
+        raise Exception("Got call_blockchain_api request error: %s" % e)
     else:
-        try:
-            result = r.json()
-        except:
-            if abort_on_error: raise 
-            result = None
+        if r.status_code != 200 and abort_on_error:
+            raise Exception("Bad status code returned from counterpartyd: '%s'. result body: '%s'." % (r.status_code, r.read()))
+        result = json.loads(r.read())
+    finally:
+        client.close()
+
     return result
 
 def get_address_cols_for_entity(entity):
@@ -320,46 +326,41 @@ def is_caught_up_well_enough_for_government_work():
 def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spacing=0, max_fetch_size=4*1024, fetch_timeout=1, is_json=True):
     completed_urls = {}
     
-    def request_exception_handler(r, e):
-        assert r
-        if r.raw:
-            r.raw.release_conn()
-        completed_urls[r.url] = (False, str(e))
-        
-        if len(completed_urls) == len(urls): #all done, trigger callback
-            return hook_on_complete(completed_urls)
-        
-    def stream_fetch_response_hook(r, **kwargs):
-        if not r:
-            data = (False, "Invalid response")
-        elif r.status_code != 200:
-            data = (False, "Got non-successful response code of: %s" % r.status_code)
+    def make_stream_request(url):
+        try:
+            u = URL(url)
+            client = HTTPClient.from_url(u, connection_timeout=fetch_timeout, network_timeout=fetch_timeout)
+            r = client.get(u.request_uri, headers={'Connection':'close'})
+        except Exception, e:
+            data = (False, "Got exception: %s" % e)
         else:
-            try:
-                #read up to max_fetch_size
-                raw_data = r.raw.read(max_fetch_size, decode_content=True)
-    
-                if is_json: #try to convert to JSON
-                    try:
-                        data = json.loads(raw_data)
-                    except Exception, e:
-                        data = (False, "Invalid JSON data: %s" % e)
-                    else:
-                        data = (True, data)
-                else: #keep raw
-                    data = (True, raw_data)
-            except Exception, e:
-                data = (False, "Request error: %s" % e)
-            finally:
-                if r and r.raw:
-                    r.raw.release_conn()
-        
-        completed_urls[r.url] = data
+            if r.status_code != 200:
+                data = (False, "Got non-successful response code of: %s" % r.status_code)
+            else:
+                try:
+                    #read up to max_fetch_size
+                    raw_data = r.raw.read(max_fetch_size)
+                    if is_json: #try to convert to JSON
+                        try:
+                            data = json.loads(raw_data)
+                        except Exception, e:
+                            data = (False, "Invalid JSON data: %s" % e)
+                        else:
+                            data = (True, data)
+                    else: #keep raw
+                        data = (True, raw_data)
+                except Exception, e:
+                    data = (False, "Request error: %s" % e)
+        finally:
+            client.close()
+            
+        completed_urls[url] = data
         if len(completed_urls) == len(urls): #all done, trigger callback
             return hook_on_complete(completed_urls)
-    
+        
     def process_group(group):
         group_results = []
+        pool = gevent.pool.Pool(urls_group_size)
         for url in group:
             if not is_valid_url(url, allow_no_protocol=True):
                 completed_urls[url] = (False, "Invalid URL")
@@ -368,10 +369,8 @@ def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spa
                 else:
                     continue
             assert url.startswith('http://') or url.startswith('https://')
-            r = grequests.get(url, headers={'Connection':'close'}, timeout=fetch_timeout, stream=True,
-                verify=False, hooks=dict(response=stream_fetch_response_hook))
-            group_results.append(r)
-        rgroup = grequests.map(group_results, stream=True, exception_handler=request_exception_handler)
+            pool.spawn(make_stream_request, url)
+        pool.join()
 
     if not isinstance(urls, (list, tuple)):
         urls = [urls,]
@@ -379,11 +378,13 @@ def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spa
     urls = list(set(urls)) #remove duplicates (so we only fetch any given URL, once)
     groups = grouper(urls_group_size, urls)
     for i in xrange(len(groups)):
+        logging.info("Stream fetching group %i of %i..." % (i, len(groups)))
         group = groups[i]
         if urls_group_time_spacing and i != 0:
             gevent.spawn_later(urls_group_time_spacing * i, process_group, group)
+            #^ can leave to overlapping if not careful
         else:
-            process_group(group)
+            process_group(group) #should 'block' until each group processing is complete
 
 def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimensions=(48, 48), fetch_timeout=1):
     def make_data_dir(subfolder):
@@ -392,27 +393,23 @@ def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimens
             os.makedirs(path)
         return path
     
-    def request_exception_handler(r, e):
-        logging.warning("Got request error: %s" % e)
-        assert r
-        if r.raw:
-            r.raw.release_conn()
-    
     try:
         #fetch the image data 
-        r = grequests.map((grequests.get(url, headers={'Connection':'close'}, timeout=fetch_timeout, stream=True, verify=False),),
-            stream=True, exception_handler=request_exception_handler)
         try:
-            if not len(r): raise Exception("Invalid response")
-            r = r[0]
-            if not r: raise Exception("Invalid response")
-            if r.status_code != 200: raise Exception("Got non-successful response code of: %s" % r.status_code)
-            #read up to 20KB and try to convert to JSON
-            raw_image_data = r.raw.read(max_size)
+            u = URL(url)
+            client = HTTPClient.from_url(u, connection_timeout=fetch_timeout, network_timeout=fetch_timeout)
+            r = client.get(u.request_uri, headers={'Connection':'close'})
+            raw_image_data = r.raw.read(max_size) #read up to max_size
+        except Exception, e:
+            raise Exception("Got fetch_image request error: %s" % e)
+        else:
+            if r.status_code != 200:
+                raise Exception("Bad status code returned from fetch_image: '%s'. result body: '%s'." % (r.status_code))
+            result = json.loads(r.read())
         finally:
-            if r and r.raw:
-                r.raw.release_conn()
-        
+            client.close()
+    
+        #decode image data
         try:
             image = Image.open(StringIO.StringIO(raw_image_data))
         except Exception, e:
@@ -454,7 +451,8 @@ def is_valid_json(data, schema):
     for error in validator.iter_errors(data):
         errors.append(error.message)
     return errors
-    
+
+
 def next_interval_date(interval):
     try:
         generator = parse_iso8601_interval(interval)

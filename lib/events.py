@@ -9,7 +9,6 @@ import json
 import urllib
 import StringIO
 
-import grequests
 import pymongo
 import gevent
 from PIL import Image

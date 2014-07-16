@@ -25,8 +25,6 @@ import redis.connection
 redis.connection.socket = gevent.socket #make redis play well with gevent
 
 from socketio import server as socketio_server
-from requests.auth import HTTPBasicAuth
-
 import pygeoip
 
 from lib import (config, api, events, blockfeed, siofeeds, util)
@@ -154,7 +152,7 @@ if __name__ == '__main__':
         config.COUNTERPARTYD_RPC_PASSWORD = 'rpcpassword'
 
     config.COUNTERPARTYD_RPC = 'http://' + config.COUNTERPARTYD_RPC_CONNECT + ':' + str(config.COUNTERPARTYD_RPC_PORT) + '/api/'
-    config.COUNTERPARTYD_AUTH = HTTPBasicAuth(config.COUNTERPARTYD_RPC_USER, config.COUNTERPARTYD_RPC_PASSWORD) if (config.COUNTERPARTYD_RPC_USER and config.COUNTERPARTYD_RPC_PASSWORD) else None
+    config.COUNTERPARTYD_AUTH = (config.COUNTERPARTYD_RPC_USER, config.COUNTERPARTYD_RPC_PASSWORD) if (config.COUNTERPARTYD_RPC_USER and config.COUNTERPARTYD_RPC_PASSWORD) else None
 
     # blockchain service name
     if args.blockchain_service_name:
@@ -453,13 +451,7 @@ if __name__ == '__main__':
     formatter = logging.Formatter('%(asctime)s %(message)s', '%Y-%m-%d-T%H:%M:%S%z')
     fileh.setFormatter(formatter)
     logger.addHandler(fileh)
-    #API requests logging (don't show on console in normal operation)
-    requests_log = logging.getLogger("requests")
-    requests_log.setLevel(logging.DEBUG if args.verbose else logging.WARNING)
-    requests_log.propagate = False
-    urllib3_log = logging.getLogger('urllib3')
-    urllib3_log.setLevel(logging.DEBUG if args.verbose else logging.WARNING)
-    urllib3_log.propagate = False
+    #socketio logging (don't show on console in normal operation)
     socketio_log = logging.getLogger('socketio')
     socketio_log.setLevel(logging.DEBUG if args.verbose else logging.WARNING)
     socketio_log.propagate = False
@@ -476,15 +468,16 @@ if __name__ == '__main__':
     tx_logger.addHandler(tx_fileh)
     tx_logger.propagate = False
     
+    #xnova(7/16/2014): Disable for now, as this uses requests under the surface, which may not be safe for a gevent-based app
     #rollbar integration
-    if config.ROLLBAR_TOKEN:
-        logging.info("Rollbar support enabled. Logging for environment: %s" % config.ROLLBAR_ENV)
-        rollbar.init(config.ROLLBAR_TOKEN, config.ROLLBAR_ENV, allow_logging_basic_config=False)
-        
-        def report_errors(ex_cls, ex, tb):
-            rollbar.report_exc_info((ex_cls, ex, tb))
-            raise ex #re-raise
-        sys.excepthook = report_errors
+    #if config.ROLLBAR_TOKEN:
+    #    logging.info("Rollbar support enabled. Logging for environment: %s" % config.ROLLBAR_ENV)
+    #    rollbar.init(config.ROLLBAR_TOKEN, config.ROLLBAR_ENV, allow_logging_basic_config=False)
+    #    
+    #    def report_errors(ex_cls, ex, tb):
+    #        rollbar.report_exc_info((ex_cls, ex, tb))
+    #        raise ex #re-raise
+    #    sys.excepthook = report_errors
 
     # GeoIP
     config.GEOIP = util.init_geoip()

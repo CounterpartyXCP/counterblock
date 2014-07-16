@@ -13,7 +13,8 @@ import functools
 
 from logging import handlers as logging_handlers
 from gevent import pywsgi
-import grequests
+from geventhttpclient import HTTPClient
+from geventhttpclient.url import URL
 import flask
 import jsonrpc
 from jsonrpc import dispatcher
@@ -1441,21 +1442,22 @@ def serve_api(mongo_db, redis_client):
           "params": [],
         }
         try:
-            r = grequests.map(
-                (grequests.post("http://127.0.0.1:%s/api/" % config.RPC_PORT,
-                    data=json.dumps(payload), headers={'content-type': 'application/json'}),))
+            url = URL("http://127.0.0.1:%s/api/" % config.RPC_PORT)
+            client = HTTPClient.from_url(url)
+            r = client.post(url.request_uri, body=json.dumps(payload), headers={'content-type': 'application/json'})
         except Exception, e:
             cbd_result_valid = False
             cbd_result_error_code = "GOT EXCEPTION: %s" % e
         else:
-            if not r or r[0].status_code != 200:
+            if r.status_code != 200:
                 cbd_result_valid = False
-                cbd_result_error_code = "GOT STATUS %s" % r[0].status_code if r else 'COULD NOT CONTACT'
-            elif 'error' in r[0]:
+                cbd_result_error_code = "GOT STATUS %s" % r.status_code if r else 'COULD NOT CONTACT'
+            cbd_result = json.loads(r.read())
+            if 'error' in r:
                 cbd_result_valid = False
-                cbd_result_error_code = "GOT ERROR: %s" % r[0]['error']
-            else:
-                cbd_result = r[0].json()
+                cbd_result_error_code = "GOT ERROR: %s" % r['error']
+        finally:
+            client.close()
         cbd_e = time.time()
         
         response_code = 200
