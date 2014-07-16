@@ -70,8 +70,8 @@ def serve_api(mongo_db, redis_client):
         }
     
     @dispatcher.add_method
-    def get_messagefeed_messages_by_index(message_indexes): #yeah, dumb name :)
-        messages = util.call_jsonrpc_api("get_messages_by_index", [message_indexes,], abort_on_error=True)['result']
+    def get_messagefeed_messages_by_index(message_indexes):
+        messages = util.call_jsonrpc_api("get_messages_by_index", {'message_indexes': message_indexes}, abort_on_error=True)['result']
         events = []
         for m in messages:
             events.append(util.decorate_message_for_feed(m))

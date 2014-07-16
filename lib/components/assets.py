@@ -46,6 +46,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                 'locked': True,
              },
              "$push": {'_history': tracked_asset } }, upsert=False)
+        logging.info("Locking asset %s" % (message['asset'],))
     elif message['transfer']: #transfer asset
         assert tracked_asset is not None
         db.tracked_assets.update(
@@ -57,6 +58,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                 'owner': message['issuer'],
              },
              "$push": {'_history': tracked_asset } }, upsert=False)
+        logging.info("Transferring asset %s to address %s" % (message['asset'], message['issuer']))
     elif message['quantity'] == 0 and tracked_asset is not None: #change description
         db.tracked_assets.update(
             {'asset': message['asset']},
@@ -68,6 +70,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
              },
              "$push": {'_history': tracked_asset } }, upsert=False)
         modify_extended_asset_info(message['asset'], message['description'])
+        logging.info("Changing description for asset %s to '%s'" % (message['asset'], message['description']))
     else: #issue new asset or issue addition qty of an asset
         if not tracked_asset: #new issuance
             tracked_asset = {
@@ -87,6 +90,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                 '_history': [] #to allow for block rollbacks
             }
             db.tracked_assets.insert(tracked_asset)
+            logging.info("Tracking new asset: %s" % message['asset'])
             modify_extended_asset_info(message['asset'], message['description'])
         else: #issuing additional of existing asset
             assert tracked_asset is not None
@@ -102,6 +106,8 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                      'total_issued_normalized': util.normalize_quantity(message['quantity'], message['divisible'])
                  },
                  "$push": {'_history': tracked_asset} }, upsert=False)
+            logging.info("Adding additional %s quantity for asset %s" % (
+                util.normalize_quantity(message['quantity'], message['divisible']), message['asset']))
     return True
 
 def inc_fetch_retry(db, asset, max_retry=3, new_status='error', errors=[]):
