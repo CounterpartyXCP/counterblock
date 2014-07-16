@@ -35,6 +35,7 @@ from lib import config
 JSONRPC_API_REQUEST_TIMEOUT = 10 #in seconds 
 D = decimal.Decimal
 
+
 def sanitize_eliteness(text):
     #strip out html data to avoid XSS-vectors
     return cgi.escape(lxml.html.document_fromstring(text).text_content())
@@ -326,14 +327,15 @@ def is_caught_up_well_enough_for_government_work():
     getting caught up, but we DO if counterblockd is either clearly out of date with the blockchain, or reinitializing its database"""
     return config.CAUGHT_UP or (config.BLOCKCHAIN_SERVICE_LAST_BLOCK and config.CURRENT_BLOCK_INDEX >= config.BLOCKCHAIN_SERVICE_LAST_BLOCK - 1)
 
-def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spacing=0, max_fetch_size=4*1024, fetch_timeout=1, is_json=True):
+def stream_fetch(urls, completed_callback, urls_group_size=50, urls_group_time_spacing=0, max_fetch_size=4*1024,
+fetch_timeout=1, is_json=True, per_request_complete_callback=None):
     completed_urls = {}
     
     def make_stream_request(url):
         try:
             u = URL(url)
-            client_kwargs = {'connection_timeout': fetch_timeout, 'network_timeout': fetch_timeout}
-            if u.scheme == "https": client_kwargs['ssl_options'] = {'cert_reqs': gevent.ssl.CETT_NONE}
+            client_kwargs = {'connection_timeout': fetch_timeout, 'network_timeout': fetch_timeout, 'insecure': True}
+            if u.scheme == "https": client_kwargs['ssl_options'] = {'cert_reqs': gevent.ssl.CERT_NONE}
             client = HTTPClient.from_url(u, **client_kwargs)
             r = client.get(u.request_uri, headers={'Connection':'close'})
         except Exception, e:
@@ -359,9 +361,12 @@ def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spa
         finally:
             client.close()
             
+        if per_request_complete_callback:
+            per_request_complete_callback(url, data)
+            
         completed_urls[url] = data
         if len(completed_urls) == len(urls): #all done, trigger callback
-            return hook_on_complete(completed_urls)
+            return completed_callback(completed_urls)
         
     def process_group(group):
         group_results = []
@@ -370,7 +375,7 @@ def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spa
             if not is_valid_url(url, allow_no_protocol=True):
                 completed_urls[url] = (False, "Invalid URL")
                 if len(completed_urls) == len(urls): #all done, trigger callback
-                    return hook_on_complete(completed_urls)
+                    return completed_callback(completed_urls)
                 else:
                     continue
             assert url.startswith('http://') or url.startswith('https://')
@@ -383,7 +388,7 @@ def stream_fetch(urls, hook_on_complete, urls_group_size=50, urls_group_time_spa
     urls = list(set(urls)) #remove duplicates (so we only fetch any given URL, once)
     groups = grouper(urls_group_size, urls)
     for i in xrange(len(groups)):
-        logging.info("Stream fetching group %i of %i..." % (i, len(groups)))
+        #logging.debug("Stream fetching group %i of %i..." % (i, len(groups)))
         group = groups[i]
         if urls_group_time_spacing and i != 0:
             gevent.spawn_later(urls_group_time_spacing * i, process_group, group)
@@ -402,8 +407,8 @@ def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimens
         #fetch the image data 
         try:
             u = URL(url)
-            client_kwargs = {'connection_timeout': fetch_timeout, 'network_timeout': fetch_timeout}
-            if u.scheme == "https": client_kwargs['ssl_options'] = {'cert_reqs': gevent.ssl.CETT_NONE}
+            client_kwargs = {'connection_timeout': fetch_timeout, 'network_timeout': fetch_timeout, 'insecure': True}
+            if u.scheme == "https": client_kwargs['ssl_options'] = {'cert_reqs': gevent.ssl.CERT_NONE}
             client = HTTPClient.from_url(u, **client_kwargs)
             r = client.get(u.request_uri, headers={'Connection':'close'})
             raw_image_data = r.read(max_size) #read up to max_size
@@ -411,8 +416,7 @@ def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimens
             raise Exception("Got fetch_image request error: %s" % e)
         else:
             if r.status_code != 200:
-                raise Exception("Bad status code returned from fetch_image: '%s'. result body: '%s'." % (r.status_code))
-            result = json.loads(r.read())
+                raise Exception("Bad status code returned from fetch_image: '%s'" % (r.status_code))
         finally:
             client.close()
     
@@ -420,7 +424,6 @@ def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimens
         try:
             image = Image.open(StringIO.StringIO(raw_image_data))
         except Exception, e:
-            logging.error(e)
             raise Exception("Unable to parse image data at: %s" % url)
         if image.format.lower() not in formats: raise Exception("Image is not a PNG: %s (got %s)" % (url, image.format))
         if image.size != dimensions: raise Exception("Image size is not 48x48: %s (got %s)" % (url, image.size))
@@ -431,7 +434,7 @@ def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimens
         os.system("exiftool -q -overwrite_original -all= %s" % imagePath) #strip all metadata, just in case
         return True
     except Exception, e:
-        logging.error(e)
+        logging.warn(e)
         return False
 
 def date_param(strDate):
@@ -464,7 +467,6 @@ def next_interval_date(interval):
     try:
         generator = parse_iso8601_interval(interval)
     except Exception, e:
-        logging.error(e)
         return None
 
     def ts(dt):

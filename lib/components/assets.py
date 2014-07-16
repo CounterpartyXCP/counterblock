@@ -168,7 +168,7 @@ def fetch_all_asset_info(db):
                 assert info_url in urls_data
                 if not urls_data[info_url][0]: #request was not successful
                     inc_fetch_retry(db, asset, max_retry=ASSET_MAX_RETRY, errors=[urls_data[info_url][1]])
-                    logging.error("Fetch for asset at %s not successful: %s (try %i of %i)" % (
+                    logging.warn("Fetch for asset at %s not successful: %s (try %i of %i)" % (
                         info_url, urls_data[info_url][1], asset['fetch_info_retry'], ASSET_MAX_RETRY))
                 else:
                     result = process_asset_info(db, asset, urls_data[info_url][1])
@@ -194,4 +194,5 @@ def fetch_all_asset_info(db):
     if len(asset_info_urls):
         logging.info('Fetching enhanced asset info for %i assets: %s' % (len(asset_info_urls), asset_info_urls_str))
         util.stream_fetch(asset_info_urls, asset_fetch_complete_hook,
-            fetch_timeout=5, max_fetch_size=4*1024, urls_group_size=50, urls_group_time_spacing=10)
+            fetch_timeout=10, max_fetch_size=4*1024, urls_group_size=20, urls_group_time_spacing=20,
+            per_request_complete_callback=lambda url, data: logging.debug("Asset info URL %s retrieved, result: %s" % (url, data)))
