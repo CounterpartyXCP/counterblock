@@ -117,25 +117,23 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
         raise Exception("Got back error from server: %s" % result['error'])
     return result
 
-def call_blockchain_api(request_string, abort_on_error=False):
-    url = config.BLOCKCHAIN_SERVICE_BASE_URL + request_string
-    headers = {
-        'Connection':'close', #no keepalive
-    }
+def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5):
+    headers = { 'Connection':'close', } #no keepalive
 
     try:
         u = URL(url)
-        client = HTTPClient.from_url(u)
+        client_kwargs = {'connection_timeout': fetch_timeout, 'network_timeout': fetch_timeout, 'insecure': True}
+        if u.scheme == "https": client_kwargs['ssl_options'] = {'cert_reqs': gevent.ssl.CERT_NONE}
+        client = HTTPClient.from_url(u, **client_kwargs)
         r = client.get(u.request_uri, headers=headers)
     except Exception, e:
-        raise Exception("Got call_blockchain_api request error: %s" % e)
+        raise Exception("Got get_url request error: %s" % e)
     else:
         if r.status_code != 200 and abort_on_error:
-            raise Exception("Bad status code returned from counterpartyd: '%s'. result body: '%s'." % (r.status_code, r.read()))
-        result = json.loads(r.read())
+            raise Exception("Bad status code returned: '%s'. result body: '%s'." % (r.status_code, r.read()))
+        result = json.loads(r.read()) if is_json else r.read()
     finally:
         client.close()
-
     return result
 
 def get_address_cols_for_entity(entity):

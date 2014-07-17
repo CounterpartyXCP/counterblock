@@ -9,6 +9,7 @@ import operator
 import logging
 import copy
 import uuid
+import urllib
 import functools
 
 from logging import handlers as logging_handlers
@@ -1393,6 +1394,24 @@ def serve_api(mongo_db, redis_client):
     @dispatcher.add_method
     def get_user_rps(addresses):
         return rps.get_user_rps(addresses)
+    
+    @dispatcher.add_method
+    def create_armory_utx(unsigned_tx_hex, public_key_hex):
+        try:
+            url = URL("http://127.0.0.1:%s/" % (
+                config.ARMORY_UTXSVR_PORT_MAINNET if not config.TESTNET else config.ARMORY_UTXSVR_PORT_TESTNET))
+            client = HTTPClient.from_url(url)
+            qs = urllib.urlencode({'unsigned_tx_hex': unsigned_tx_hex, 'public_key_hex': public_key_hex})
+            r = client.get(url.request_uri + '?' + qs, body=json.dumps(payload), headers={'content-type': 'application/json'})
+            utx_ascii = r.read()
+        except Exception, e:
+            raise Exception("Got exception when quertying for armory utx: %s" % e)
+        else:
+            if r.status_code != 200:
+                raise Exception("Got status code %s" % r.status_code)
+        finally:
+            client.close()
+        return utx_ascii
     
     def _set_cors_headers(response):
         if config.RPC_ALLOW_CORS:

@@ -162,31 +162,14 @@ if __name__ == '__main__':
     else:
         config.BLOCKCHAIN_SERVICE_NAME = 'insight'
 
-    # blockchain service API host
+    # custom blockchain service API endpoint
+    # leave blank to use the default. if specified, include the scheme prefix and port, without a trailing slash (e.g. http://localhost:3001)
     if args.blockchain_service_connect:
         config.BLOCKCHAIN_SERVICE_CONNECT = args.blockchain_service_connect
     elif has_config and configfile.has_option('Default', 'blockchain-service-connect') and configfile.get('Default', 'blockchain-service-connect'):
         config.BLOCKCHAIN_SERVICE_CONNECT = configfile.get('Default', 'blockchain-service-connect')
     else:
-        config.BLOCKCHAIN_SERVICE_CONNECT = 'localhost'
-
-    # blockchain service API port
-    if args.blockchain_service_port:
-        config.BLOCKCHAIN_SERVICE_PORT = args.blockchain_service_port
-    elif has_config and configfile.has_option('Default', 'blockchain-service-port') and configfile.get('Default', 'blockchain-service-port'):
-        config.BLOCKCHAIN_SERVICE_PORT = configfile.get('Default', 'blockchain-service-port')
-    else:
-        if config.TESTNET:
-            config.BLOCKCHAIN_SERVICE_PORT = 3001
-        else:
-            config.BLOCKCHAIN_SERVICE_PORT = 3000
-    try:
-        config.BLOCKCHAIN_SERVICE_PORT = int(config.BLOCKCHAIN_SERVICE_PORT)
-        assert int(config.BLOCKCHAIN_SERVICE_PORT) > 1 and int(config.BLOCKCHAIN_SERVICE_PORT) < 65535
-    except:
-        raise Exception("Please specific a valid port number blockchain-service-port configuration parameter")
-
-    config.BLOCKCHAIN_SERVICE_BASE_URL = 'http://' + config.BLOCKCHAIN_SERVICE_CONNECT + ':' + str(config.BLOCKCHAIN_SERVICE_PORT)
+        config.BLOCKCHAIN_SERVICE_CONNECT = None #use default specified by the library
 
     # mongodb host
     if args.mongodb_connect:

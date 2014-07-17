@@ -1,7 +1,15 @@
 '''
 chain.sp
 '''
-from lib import (config, util)
+import logging
+
+from lib import config, util
+
+def get_host():
+    if config.BLOCKCHAIN_SERVICE_CONNECT:
+        return config.BLOCKCHAIN_SERVICE_CONNECT
+    else:
+        return 'https://chain.so'
 
 def sochain_network():
 	network = config.BTC
@@ -13,7 +21,7 @@ def check():
     pass
 
 def getinfo():
-    result = util.call_blockchain_api('/api/v2/get_info/{}'.format(sochain_network()), abort_on_error=True)
+    result = util.get_url(get_host() + '/api/v2/get_info/{}'.format(sochain_network()), abort_on_error=True)
     if 'status' in result and result['status'] == 'success':
         return {
             "info": {
@@ -24,7 +32,7 @@ def getinfo():
     	return None
 
 def listunspent(address):
-    result = util.call_blockchain_api('/api/v2/get_tx_unspent/{}/{}'.format(sochain_network(), address), abort_on_error=True)
+    result = util.get_url(get_host() + '/api/v2/get_tx_unspent/{}/{}'.format(sochain_network(), address), abort_on_error=True)
     if 'status' in result and result['status'] == 'success':
         utxo = []
         for txo in result['data']['txs']:
@@ -44,7 +52,7 @@ def listunspent(address):
         return None
 
 def getaddressinfo(address):
-    infos = util.call_blockchain_api('/api/v2/address/{}/{}'.format(sochain_network(), address), abort_on_error=True)
+    infos = util.get_url(get_host() + '/api/v2/address/{}/{}'.format(sochain_network(), address), abort_on_error=True)
     if 'status' in infos and infos['status'] == 'success':
         transactions = []
         for tx in infos['data']['txs']:
@@ -65,7 +73,7 @@ def getaddressinfo(address):
     return None
 
 def gettransaction(tx_hash):
-    tx = util.call_blockchain_api('/api/v2/get_tx/{}/{}'.format(sochain_network(), address), abort_on_error=True)
+    tx = util.get_url(get_host() + '/api/v2/get_tx/{}/{}'.format(sochain_network(), address), abort_on_error=True)
     if 'status' in infos and infos['status'] == 'success':
         valueOut = 0
         for vout in tx['data']['tx']['vout']:

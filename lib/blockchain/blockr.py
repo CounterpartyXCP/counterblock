@@ -1,13 +1,21 @@
 '''
 blockr.io
 '''
-from lib import (config, util)
+import logging
+
+from lib import config, util
+
+def get_host():
+    if config.BLOCKCHAIN_SERVICE_CONNECT:
+        return config.BLOCKCHAIN_SERVICE_CONNECT
+    else:
+        return 'http://tbtc.blockr.io' if config.TESTNET else 'http://btc.blockr.io'
 
 def check():
     pass
 
 def getinfo():
-    result = util.call_blockchain_api('/api/v1/coin/info', abort_on_error=True)
+    result = util.get_url(get_host() + '/api/v1/coin/info', abort_on_error=True)
     if 'status' in result and result['status'] == 'success':
         return {
             "info": {
@@ -18,7 +26,7 @@ def getinfo():
     return None
 
 def listunspent(address):
-    result = util.call_blockchain_api('/api/v1/address/unspent/{}/'.format(address), abort_on_error=True)
+    result = util.get_url(get_host() + '/api/v1/address/unspent/{}/'.format(address), abort_on_error=True)
     if 'status' in result and result['status'] == 'success':
         utxo = []
         for txo in result['data']['unspent']:
@@ -38,9 +46,9 @@ def listunspent(address):
     return None
 
 def getaddressinfo(address):
-    infos = util.call_blockchain_api('/api/v1/address/info/{}'.format(address), abort_on_error=True)
+    infos = util.get_url(get_host() + '/api/v1/address/info/{}'.format(address), abort_on_error=True)
     if 'status' in infos and infos['status'] == 'success':
-        txs = util.call_blockchain_api('/api/v1/address/txs/{}'.format(address), abort_on_error=True)
+        txs = util.get_url(get_host() + '/api/v1/address/txs/{}'.format(address), abort_on_error=True)
         if 'status' in txs and txs['status'] == 'success':
             transactions = []
             for tx in txs['data']['txs']:
@@ -61,7 +69,7 @@ def getaddressinfo(address):
     return None
 
 def gettransaction(tx_hash):
-    tx = util.call_blockchain_api('/api/v1/tx/raw/{}'.format(tx_hash), abort_on_error=True)
+    tx = util.get_url(get_host() + '/api/v1/tx/raw/{}'.format(tx_hash), abort_on_error=True)
     if 'status' in infos and infos['status'] == 'success':
         valueOut = 0
         for vout in tx['data']['tx']['vout']:
