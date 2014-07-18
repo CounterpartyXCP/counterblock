@@ -31,7 +31,7 @@ def get_pairs_with_orders(addresses=[], max_pairs=12):
     sql = '''SELECT (MIN(give_asset, get_asset) || '/' || MAX(give_asset, get_asset)) AS pair,
                     COUNT(*) AS order_count
              FROM orders
-             WHERE status = ? {} 
+             WHERE give_asset != get_asset AND status = ? {} 
              GROUP BY pair 
              ORDER BY order_count DESC
              LIMIT ?'''.format(sources)
@@ -100,10 +100,11 @@ def get_xcp_or_btc_pairs(asset='XCP', exclude_pairs=[], max_pairs=12, from_time=
         bindings += exclude_pairs
 
     if from_time:
-        sql += '''AND block_time > ?'''
+        sql += '''AND block_time > ? '''
         bindings += [from_time]
 
-    sql += '''GROUP BY pair
+    sql += '''AND forward_asset != backward_asset
+              GROUP BY pair
               ORDER BY quote_quantity DESC
               LIMIT ?'''
     bindings += [max_pairs]
@@ -160,11 +161,10 @@ def get_users_pairs(addresses=[], max_pairs=12):
         })
         all_assets += ['XCP', 'BTC']
 
-    logging.error(all_assets)
     all_assets = list(set(all_assets))
     supplies = get_assets_supply(all_assets)
 
-    for p in range(len(top_pairs)):
+    for p in range(min(12, len(top_pairs))):
         price, trend, price24h, progression = get_price_movement(top_pairs[p]['base_asset'], top_pairs[p]['quote_asset'], supplies=supplies)
         top_pairs[p]['price'] = format(price, ".8f")
         top_pairs[p]['trend'] = trend
