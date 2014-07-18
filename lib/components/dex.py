@@ -16,7 +16,7 @@ def calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divi
     if not quote_divisibility:
         quote_quantity *= config.UNIT
 
-    return D(quote_quantity) / D(base_quantity)
+    return float(quote_quantity) / float(base_quantity)
 
 def format_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility):
     price = calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility)
@@ -200,23 +200,6 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
 
     for order in orders:
         user_order = {}
-        completed = format(((D(order['give_quantity']) - D(order['give_remaining'])) / D(order['give_quantity'])) * D(100), '.2f') 
-        user_order['tx_index'] = order['tx_index']
-        user_order['tx_hash'] = order['tx_hash']
-        user_order['source'] = order['source']
-        user_order['completion'] = "{}%".format(completed)
-        user_order['block_index'] = order['block_index']
-        user_order['block_time'] = order['block_time']
-        if order['give_asset'] == base_asset:
-            user_order['type'] = 'SELL'
-            user_order['price'] = format_price(order['give_quantity'], order['get_quantity'], supplies[order['give_asset']][1], supplies[order['get_asset']][1])
-            user_order['amount'] = order['give_quantity']
-            user_order['total'] = order['get_quantity']
-        else:
-            user_order['type'] = 'BUY'
-            user_order['price'] = format_price(order['get_quantity'], order['give_quantity'], supplies[order['get_asset']][1], supplies[order['give_asset']][1])
-            user_order['amount'] = order['get_quantity']
-            user_order['total'] = order['give_quantity']
 
         exclude = False
         if order['give_asset'] == 'BTC':
@@ -227,7 +210,37 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
         elif order['get_asset'] == 'BTC':
             fee_required = order['fee_required'] / (order['get_quantity'] / 100)
             exclude = fee_required > max_fee_required
-            user_order['fee_required'] = format(D(order['fee_required']) / (D(order['get_quantity']) / D(100)), '.2f') 
+            user_order['fee_required'] = format(D(order['fee_required']) / (D(order['get_quantity']) / D(100)), '.2f')
+        
+        if not exclude:
+            if order['give_asset'] == base_asset:
+                price = calculate_price(order['give_quantity'], order['get_quantity'], supplies[order['give_asset']][1], supplies[order['get_asset']][1])
+                user_order['type'] = 'SELL'
+                user_order['amount'] = order['give_remaining']
+                user_order['total'] = int(order['give_remaining'] * price)
+            else:
+                price = calculate_price(order['get_quantity'], order['give_quantity'], supplies[order['get_asset']][1], supplies[order['give_asset']][1])
+                user_order['type'] = 'BUY'
+                user_order['total'] = order['give_remaining']
+                user_order['amount'] = int(order['give_remaining'] / price)
+
+            user_order['price'] = format(price, '.8f')
+                
+            if len(addresses) == 0 and len(market_orders) > 0:
+                previous_order = market_orders[-1]
+                if previous_order['type'] == user_order['type'] and previous_order['price'] == user_order['price']:
+                    market_orders[-1]['amount'] += user_order['amount']
+                    market_orders[-1]['total'] += user_order['total']
+                    exclude = True
+
+            if len(addresses) > 0:
+                completed = format(((D(order['give_quantity']) - D(order['give_remaining'])) / D(order['give_quantity'])) * D(100), '.2f') 
+                user_order['completion'] = "{}%".format(completed)
+                user_order['tx_index'] = order['tx_index']
+                user_order['tx_hash'] = order['tx_hash']
+                user_order['source'] = order['source']
+                user_order['block_index'] = order['block_index']
+                user_order['block_time'] = order['block_time']
 
         if not exclude:
             market_orders.append(user_order)
@@ -370,7 +383,7 @@ def get_pair_price(base_asset, quote_asset, max_block_time=None, supplies=None):
         elif last_price > before_last_price:
             trend = 1
 
-    return last_price, trend
+    return D(last_price), trend
 
 def get_price_movement(base_asset, quote_asset, supplies=None):
 
@@ -387,7 +400,7 @@ def get_price_movement(base_asset, quote_asset, supplies=None):
 
     return price, trend, price24h, progression
 
-def get_markets_list():
+def get_markets_list(mongo_db=None):
 
     yesterday = int(time.time() - (24*60*60))
     markets = []
@@ -405,6 +418,12 @@ def get_markets_list():
     all_assets = list(set(base_assets + quote_assets))
     supplies = get_assets_supply(all_assets)
 
+    asset_with_image = {}
+    if mongo_db:
+        infos = mongo_db.asset_extended_info.find({'asset': {'$in': all_assets}}, {'_id': 0}) or False
+        for info in infos:
+            if 'info_data' in info and 'valid_image' in info['info_data'] and info['info_data']['valid_image']:
+                asset_with_image[info['asset']] = True
     
     for pair in pairs:
         price, trend, price24h, progression = get_price_movement(pair['base_asset'], pair['quote_asset'], supplies=supplies)
@@ -419,6 +438,7 @@ def get_markets_list():
         market['supply'] = supplies[pair['base_asset']][0]
         market['divisible'] = supplies[pair['base_asset']][1]
         market['market_cap'] = format(D(market['supply']) * D(market['price']), ".4f")
+        market['with_image'] = True if pair['base_asset'] in asset_with_image else False
         if market['base_asset'] == 'XCP' and market['quote_asset'] == 'BTC':
             markets.insert(0, market)
         else:
@@ -430,7 +450,7 @@ def get_markets_list():
     return markets
 
 
-def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95):
+def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95, mongo_db=None):
 
     yesterday = int(time.time() - (24*60*60))
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
@@ -450,6 +470,14 @@ def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0
 
     last_trades =  get_market_trades(base_asset, quote_asset, supplies=supplies)
 
+    ext_info = False
+    if mongo_db:
+        ext_info = mongo_db.asset_extended_info.find_one({'asset': base_asset}, {'_id': 0})
+        if ext_info and 'info_data' in ext_info:
+            ext_info = ext_info['info_data']
+        else:
+            ext_info = False
+
     return {
         'base_asset': base_asset,
         'quote_asset': quote_asset,
@@ -462,7 +490,8 @@ def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0
         'quote_asset_divisible': supplies[quote_asset][1],
         'buy_orders': sorted(buy_orders, key=lambda x: x['price'], reverse=True),
         'sell_orders': sorted(sell_orders, key=lambda x: x['price']),
-        'last_trades': last_trades
+        'last_trades': last_trades,
+        'base_asset_infos': ext_info
     }
 
 

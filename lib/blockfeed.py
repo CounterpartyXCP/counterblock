@@ -429,6 +429,8 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 
                 #broadcast
                 if msg['category'] == 'broadcasts':
+                    logging.error('parse_broadcast')
+                    logging.error(msg_data)
                     betting.parse_broadcast(mongo_db, msg_data)
 
                 #if we're catching up beyond MAX_REORG_NUM_BLOCKS blocks out, make sure not to send out any socket.io

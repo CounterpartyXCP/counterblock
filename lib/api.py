@@ -1404,11 +1404,14 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def get_markets_list():
-        return dex.get_markets_list()
+        return dex.get_markets_list(mongo_db)
 
     @dispatcher.add_method
     def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95):
-        return dex.get_market_details(asset1, asset2, min_fee_provided, max_fee_required)
+        try:
+          return dex.get_market_details(asset1, asset2, min_fee_provided, max_fee_required, mongo_db)
+        except Exception, e:
+          logging.error(e)
     
     def _set_cors_headers(response):
         if config.RPC_ALLOW_CORS:
