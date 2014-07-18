@@ -30,7 +30,7 @@ from jsonschema import FormatChecker, Draft4Validator, FormatError
 # not needed here but to ensure that installed
 import strict_rfc3339, rfc3987, aniso8601
 
-from lib import config
+from lib import config, util_bitcoin
 
 JSONRPC_API_REQUEST_TIMEOUT = 10 #in seconds 
 D = decimal.Decimal
@@ -268,7 +268,7 @@ def decorate_message(message, for_txn_history=False):
         message['_divisible'] = asset_info['divisible'] if asset_info else None
     
     if message['_category'] in ['issuances',]:
-        message['_quantity_normalized'] = normalize_quantity(message['quantity'], message['divisible'])
+        message['_quantity_normalized'] = util_bitcoin.normalize_quantity(message['quantity'], message['divisible'])
     return message
 
 def decorate_message_for_feed(msg, msg_data=None):
@@ -285,43 +285,6 @@ def decorate_message_for_feed(msg, msg_data=None):
     message['_status'] = msg_data.get('status', 'valid')
     message = decorate_message(message)
     return message
-
-
-#############
-# Bitcoin-related
-
-decimal.getcontext().prec = 8
-
-def round_out(num):
-    #round out to 8 decimal places
-    return float(D(num))        
-
-def normalize_quantity(quantity, divisible=True):
-    if divisible:
-        return float((D(quantity) / D(config.UNIT))) 
-    else: return quantity
-
-def denormalize_quantity(quantity, divisible=True):
-    if divisible:
-        return int(quantity * config.UNIT)
-    else: return quantity
-
-def get_btc_supply(normalize=False, at_block_index=None):
-    """returns the total supply of BTC (based on what bitcoind says the current block height is)"""
-    block_count = config.CURRENT_BLOCK_INDEX if at_block_index is None else at_block_index
-    blocks_remaining = block_count
-    total_supply = 0 
-    reward = 50.0
-    while blocks_remaining > 0:
-        if blocks_remaining >= 210000:
-            blocks_remaining -= 210000
-            total_supply += 210000 * reward
-            reward /= 2
-        else:
-            total_supply += (blocks_remaining * reward)
-            blocks_remaining = 0
-            
-    return total_supply if normalize else int(total_supply * config.UNIT)
 
 def is_caught_up_well_enough_for_government_work():
     """We don't want to give users 525 errors or login errors if counterblockd/counterpartyd is in the process of
@@ -463,7 +426,6 @@ def is_valid_json(data, schema):
         errors.append(error.message)
     return errors
 
-
 def next_interval_date(interval):
     try:
         generator = parse_iso8601_interval(interval)
@@ -516,6 +478,4 @@ def download_geoip_data():
 def init_geoip():
     download_geoip_data();
     return pygeoip.GeoIP(os.path.join(config.DATA_DIR, 'GeoIP.dat'))
-
-
 

@@ -3,7 +3,7 @@ chain.sp
 '''
 import logging
 
-from lib import config, util
+from lib import config, util, util_bitcoin
 
 def get_host():
     if config.BLOCKCHAIN_SERVICE_CONNECT:
@@ -74,7 +74,7 @@ def getaddressinfo(address):
 
 def gettransaction(tx_hash):
     tx = util.get_url(get_host() + '/api/v2/get_tx/{}/{}'.format(sochain_network(), address), abort_on_error=True)
-    if 'status' in infos and infos['status'] == 'success':
+    if 'status' in tx and tx['status'] == 'success':
         valueOut = 0
         for vout in tx['data']['tx']['vout']:
             valueOut += float(vout['value'])
@@ -92,3 +92,22 @@ def gettransaction(tx_hash):
         }
 
     return None
+
+def get_pubkey_for_address(address):
+    #first, get a list of transactions for the address
+    address_info = getaddressinfo(address)
+
+    #if no transactions, we can't get the pubkey
+    if not address_info['transactions']:
+        return None
+    
+    #for each transaction we got back, extract the vin, pubkey, go through, convert it to binary, and see if it reduces down to the given address
+    for tx_id in address_info['transactions']:
+        #parse the pubkey out of the first sent transaction
+        tx = gettransaction(tx_id)
+        pubkey_hex = tx['vin'][0]['script'].split(' ')[1]
+        pubkey_hex = tx['vin'][0]['scriptSig']['asm'].split(' ')[1]
+        if util_bitcoin.pubkey_to_address(pubkey_hex) == address:
+            return pubkey_hex
+    return None
+

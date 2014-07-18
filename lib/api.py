@@ -23,7 +23,7 @@ import pymongo
 from bson import json_util
 from bson.son import SON
 
-from lib import config, siofeeds, util, blockchain
+from lib import config, siofeeds, util, blockchain, util_bitcoin
 from lib.components import betting, rps, assets_trading, dex
 
 PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
@@ -159,7 +159,7 @@ def serve_api(mongo_db, redis_client):
             if not d['quantity'] and ((d['address'] + d['asset']) not in isowner):
                 continue #don't include balances with a zero asset value
             asset_info = mongo_db.tracked_assets.find_one({'asset': d['asset']})
-            d['normalized_quantity'] = util.normalize_quantity(d['quantity'], asset_info['divisible'])
+            d['normalized_quantity'] = util_bitcoin.normalize_quantity(d['quantity'], asset_info['divisible'])
             d['owner'] = (d['address'] + d['asset']) in isowner
             mappings[d['address'] + d['asset']] = d
             data.append(d)
@@ -721,18 +721,18 @@ def serve_api(mongo_db, redis_client):
                     if base_asset == config.BTC and o['give_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF:
                         continue #filter dust orders, if necessary
                     
-                    give_quantity = util.normalize_quantity(o['give_quantity'], base_asset_info['divisible'])
-                    get_quantity = util.normalize_quantity(o['get_quantity'], quote_asset_info['divisible'])
+                    give_quantity = util_bitcoin.normalize_quantity(o['give_quantity'], base_asset_info['divisible'])
+                    get_quantity = util_bitcoin.normalize_quantity(o['get_quantity'], quote_asset_info['divisible'])
                     unit_price = float(( D(get_quantity) / D(give_quantity) ))
-                    remaining = util.normalize_quantity(o['give_remaining'], base_asset_info['divisible'])
+                    remaining = util_bitcoin.normalize_quantity(o['give_remaining'], base_asset_info['divisible'])
                 else:
                     if quote_asset == config.BTC and o['give_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF:
                         continue #filter dust orders, if necessary
 
-                    give_quantity = util.normalize_quantity(o['give_quantity'], quote_asset_info['divisible'])
-                    get_quantity = util.normalize_quantity(o['get_quantity'], base_asset_info['divisible'])
+                    give_quantity = util_bitcoin.normalize_quantity(o['give_quantity'], quote_asset_info['divisible'])
+                    get_quantity = util_bitcoin.normalize_quantity(o['get_quantity'], base_asset_info['divisible'])
                     unit_price = float(( D(give_quantity) / D(get_quantity) ))
-                    remaining = util.normalize_quantity(o['get_remaining'], base_asset_info['divisible'])
+                    remaining = util_bitcoin.normalize_quantity(o['get_remaining'], base_asset_info['divisible'])
                 id = "%s_%s_%s" % (base_asset, quote_asset, unit_price)
                 #^ key = {base}_{bid}_{unit_price}, values ref entries in book
                 book.setdefault(id, {'unit_price': unit_price, 'quantity': 0, 'count': 0})
@@ -1415,19 +1415,24 @@ def serve_api(mongo_db, redis_client):
           logging.error(e)
     
     @dispatcher.add_method
+    def get_pubkey_for_address(address):
+        #returns None if the address has made 0 transactions (as we wouldn't be able to get the public key)
+        return blockchain.get_pubkey_for_address(address) or False 
+
+    @dispatcher.add_method
     def create_armory_utx(unsigned_tx_hex, public_key_hex):
         if not config.ARMORY_UTXSVR_ENABLE:
             raise Exception("Support for this feature is not enabled on this system")
         
         try:
-            url = URL("http://127.0.0.1:%s/" % (
+            url = URL("http://127.0.0.1:%s/serialize_unsigned_tx/" % (
                 config.ARMORY_UTXSVR_PORT_MAINNET if not config.TESTNET else config.ARMORY_UTXSVR_PORT_TESTNET))
             client = HTTPClient.from_url(url)
             qs = urllib.urlencode({'unsigned_tx_hex': unsigned_tx_hex, 'public_key_hex': public_key_hex})
-            r = client.get(url.request_uri + '?' + qs, body=json.dumps(payload))
+            r = client.get(url.request_uri + '?' + qs)
             utx_ascii = r.read()
         except Exception, e:
-            raise Exception("Got exception when quertying for armory utx: %s" % e)
+            raise Exception("Got exception when querying for armory utx: %s" % e)
         else:
             if r.status_code != 200:
                 raise Exception("Got status code %s" % r.status_code)
@@ -1435,6 +1440,27 @@ def serve_api(mongo_db, redis_client):
             client.close()
         return utx_ascii
     
+    @dispatcher.add_method
+    def broadcast_armory_tx(signed_tx_ascii):
+        if not config.ARMORY_UTXSVR_ENABLE:
+            raise Exception("Support for this feature is not enabled on this system")
+        
+        try:
+            url = URL("http://127.0.0.1:%s/convert_signed_tx_to_raw_hex/" % (
+                config.ARMORY_UTXSVR_PORT_MAINNET if not config.TESTNET else config.ARMORY_UTXSVR_PORT_TESTNET))
+            client = HTTPClient.from_url(url)
+            qs = urllib.urlencode({'signed_tx_ascii': signed_tx_ascii})
+            r = client.get(url.request_uri + '?' + qs)
+            raw_tx_hex = r.read()
+        except Exception, e:
+            raise Exception("Got exception when trying to broadcast armory signed tx: %s" % e)
+        else:
+            if r.status_code != 200:
+                raise Exception("Got status code %s" % r.status_code)
+        finally:
+            client.close()
+        return raw_tx_hex
+
     def _set_cors_headers(response):
         if config.RPC_ALLOW_CORS:
             response.headers['Access-Control-Allow-Origin'] = '*'

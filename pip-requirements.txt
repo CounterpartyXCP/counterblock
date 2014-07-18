@@ -18,9 +18,10 @@ json-rpc==1.6.0
 
 pytest==2.5.1
 
-
 #############
 #counterblockd specific deps
+
+pycoin==0.42
 
 pymongo==2.7.1
 
