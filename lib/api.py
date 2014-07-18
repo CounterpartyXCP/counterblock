@@ -1421,7 +1421,7 @@ def serve_api(mongo_db, redis_client):
                 config.ARMORY_UTXSVR_PORT_MAINNET if not config.TESTNET else config.ARMORY_UTXSVR_PORT_TESTNET))
             client = HTTPClient.from_url(url)
             qs = urllib.urlencode({'unsigned_tx_hex': unsigned_tx_hex, 'public_key_hex': public_key_hex})
-            r = client.get(url.request_uri + '?' + qs, body=json.dumps(payload), headers={'content-type': 'application/json'})
+            r = client.get(url.request_uri + '?' + qs, body=json.dumps(payload))
             utx_ascii = r.read()
         except Exception, e:
             raise Exception("Got exception when quertying for armory utx: %s" % e)
