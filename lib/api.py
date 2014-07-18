@@ -13,7 +13,7 @@ import urllib
 import functools
 
 from logging import handlers as logging_handlers
-from gevent import pywsgi
+from gevent import wsgi
 from geventhttpclient import HTTPClient
 from geventhttpclient.url import URL
 import flask
@@ -1413,6 +1413,9 @@ def serve_api(mongo_db, redis_client):
     
     @dispatcher.add_method
     def create_armory_utx(unsigned_tx_hex, public_key_hex):
+        if not config.ARMORY_UTXSVR_ENABLE:
+            raise Exception("Support for this feature is not enabled on this system")
+        
         try:
             url = URL("http://127.0.0.1:%s/" % (
                 config.ARMORY_UTXSVR_PORT_MAINNET if not config.TESTNET else config.ARMORY_UTXSVR_PORT_TESTNET))
@@ -1571,5 +1574,5 @@ def serve_api(mongo_db, redis_client):
     api_logger.write = functools.partial(trimlog, api_logger)    
     
     #start up the API listener/handler
-    server = pywsgi.WSGIServer((config.RPC_HOST, int(config.RPC_PORT)), app, log=api_logger)
+    server = wsgi.WSGIServer((config.RPC_HOST, int(config.RPC_PORT)), app, log=api_logger)
     server.serve_forever()
