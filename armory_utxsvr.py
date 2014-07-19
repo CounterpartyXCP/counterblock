@@ -8,6 +8,9 @@ import argparse
 
 import flask
 from flask import request
+import jsonrpc
+from jsonrpc import dispatcher
+
 sys.path.append("/usr/lib/armory/")
 from armoryengine.ALL import *
 
@@ -15,49 +18,53 @@ ARMORY_UTXSVR_PORT_MAINNET = 6590
 ARMORY_UTXSVR_PORT_TESTNET = 6591
 app = flask.Flask(__name__)
 
-@app.route('/serialize_unsigned_tx/', methods=['GET',])
-def serialize_unsigned_tx():
-    unsigned_tx = request.args.get('unsigned_tx_hex', None)
-    pubkey = request.args.get('public_key_hex', None)
-    print("REQUEST(serialize_unsigned_tx) -- unsigned_tx: '%s', pubkey: '%s'" % (unsigned_tx, pubkey))
-    if not unsigned_tx or not pubkey:
-        return flask.Response("Missing required parameters", 400)
+@dispatcher.add_method
+def serialize_unsigned_tx(unsigned_tx_hex, public_key_hex):
+    print("REQUEST(serialize_unsigned_tx) -- unsigned_tx_hex: '%s', public_key_hex: '%s'" % (
+        unsigned_tx_hex, public_key_hex))
 
     try:
-        unsigned_tx_bin = hex_to_binary(unsigned_tx)
+        unsigned_tx_bin = hex_to_binary(unsigned_tx_hex)
         pytx = PyTx().unserialize(unsigned_tx_bin)
-        utx = UnsignedTransaction(pytx=pytx, pubKeyMap=hex_to_binary(pubkey))
+        utx = UnsignedTransaction(pytx=pytx, pubKeyMap=hex_to_binary(public_key_hex))
         unsigned_tx_ascii = utx.serializeAscii()
     except Exception, e:
-        return flask.Response("Could not serialize transaction: %s" % e, 400)
+        raise Exception("Could not serialize transaction: %s" % e)
     
     return unsigned_tx_ascii
 
-@app.route('/convert_signed_tx_to_raw_hex/', methods=['GET',])
-def convert_signed_tx_to_raw_hex():
+@dispatcher.add_method
+def convert_signed_tx_to_raw_hex(signed_tx_ascii):
     """Converts a signed tx from armory's offline format to a raw hex tx that bitcoind can broadcast/use"""
-    signed_tx_ascii = request.args.get('signed_tx_ascii', None)
-    print("REQUEST(convert_signed_tx_to_raw_hex) -- signed_tx_ascii: '%s'" % (signed_tx_ascii,))
-    if not signed_tx_ascii:
-        return flask.Response("Missing required parameters", 400)
+    print("REQUEST(convert_signed_tx_to_raw_hex) -- signed_tx_ascii:\n'%s'\n" % (signed_tx_ascii,))
 
     try:
-        utx = UnsignedTransaction.unserializeAscii(signed_tx_ascii)
+        utx = UnsignedTransaction()
+        utx.unserializeAscii(signed_tx_ascii)
     except Exception, e:
-        return flask.Response("Could not decode transaction: %s" % e, 400)
+        raise Exception("Could not decode transaction: %s" % e)
     
     #see if the tx is signed
     if not utx.evaluateSigningStatus().canBroadcast:
-        return flask.Response("Passed transaction is not signed", 400)
+        raise Exception("Passed transaction is not signed")
     
     try:
-        raw_tx_bin = UnsignedTransaction.serialize()
+        raw_tx_bin = utx.serialize()
         raw_tx_hex = binary_to_hex(raw_tx_bin)
     except Exception, e:
-        return flask.Response("Could not serialize transaction: %s" % e, 400)
+        raise Exception("Could not serialize transaction: %s" % e)
     
     return raw_tx_hex
 
+@app.route('/', methods=["POST",])
+@app.route('/api/', methods=["POST",])
+def handle_post():
+    request_json = flask.request.get_data().decode('utf-8')
+    rpc_response = jsonrpc.JSONRPCResponseManager.handle(request_json, dispatcher)
+    rpc_response_json = json.dumps(rpc_response.data).encode()
+    response = flask.Response(rpc_response_json, 200, mimetype='application/json')
+    return response
+    
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Armory offline transaction generator daemon')
     parser.add_argument('--testnet', action='store_true', help='Run for testnet')

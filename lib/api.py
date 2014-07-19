@@ -1424,41 +1424,21 @@ def serve_api(mongo_db, redis_client):
         if not config.ARMORY_UTXSVR_ENABLE:
             raise Exception("Support for this feature is not enabled on this system")
         
-        try:
-            url = URL("http://127.0.0.1:%s/serialize_unsigned_tx/" % (
-                config.ARMORY_UTXSVR_PORT_MAINNET if not config.TESTNET else config.ARMORY_UTXSVR_PORT_TESTNET))
-            client = HTTPClient.from_url(url)
-            qs = urllib.urlencode({'unsigned_tx_hex': unsigned_tx_hex, 'public_key_hex': public_key_hex})
-            r = client.get(url.request_uri + '?' + qs)
-            utx_ascii = r.read()
-        except Exception, e:
-            raise Exception("Got exception when querying for armory utx: %s" % e)
-        else:
-            if r.status_code != 200:
-                raise Exception("Got status code %s" % r.status_code)
-        finally:
-            client.close()
+        endpoint = "http://127.0.0.1:%s/" % (
+            config.ARMORY_UTXSVR_PORT_MAINNET if not config.TESTNET else config.ARMORY_UTXSVR_PORT_TESTNET)
+        params = {'unsigned_tx_hex': unsigned_tx_hex, 'public_key_hex': public_key_hex}
+        utx_ascii = util.call_jsonrpc_api("serialize_unsigned_tx", params=params, endpoint=endpoint, abort_on_error=True)['result']
         return utx_ascii
     
     @dispatcher.add_method
-    def broadcast_armory_tx(signed_tx_ascii):
+    def convert_armory_signedtx_to_raw_hex(signed_tx_ascii):
         if not config.ARMORY_UTXSVR_ENABLE:
             raise Exception("Support for this feature is not enabled on this system")
         
-        try:
-            url = URL("http://127.0.0.1:%s/convert_signed_tx_to_raw_hex/" % (
-                config.ARMORY_UTXSVR_PORT_MAINNET if not config.TESTNET else config.ARMORY_UTXSVR_PORT_TESTNET))
-            client = HTTPClient.from_url(url)
-            qs = urllib.urlencode({'signed_tx_ascii': signed_tx_ascii})
-            r = client.get(url.request_uri + '?' + qs)
-            raw_tx_hex = r.read()
-        except Exception, e:
-            raise Exception("Got exception when trying to broadcast armory signed tx: %s" % e)
-        else:
-            if r.status_code != 200:
-                raise Exception("Got status code %s" % r.status_code)
-        finally:
-            client.close()
+        endpoint = "http://127.0.0.1:%s/" % (
+            config.ARMORY_UTXSVR_PORT_MAINNET if not config.TESTNET else config.ARMORY_UTXSVR_PORT_TESTNET)
+        params = {'signed_tx_ascii': signed_tx_ascii}
+        raw_tx_hex = util.call_jsonrpc_api("convert_signed_tx_to_raw_hex", params=params, endpoint=endpoint, abort_on_error=True)['result']
         return raw_tx_hex
 
     def _set_cors_headers(response):
