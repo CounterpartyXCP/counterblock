@@ -49,7 +49,8 @@ def convert_signed_tx_to_raw_hex(signed_tx_ascii):
         raise Exception("Passed transaction is not signed")
     
     try:
-        raw_tx_bin = utx.serialize()
+        pytx = utx.getSignedPyTx()
+        raw_tx_bin = pytx.serialize()
         raw_tx_hex = binary_to_hex(raw_tx_bin)
     except Exception, e:
         raise Exception("Could not serialize transaction: %s" % e)
