@@ -12,7 +12,7 @@ import uuid
 import functools
 
 from logging import handlers as logging_handlers
-from gevent import pywsgi
+from gevent import wsgi
 from geventhttpclient import HTTPClient
 from geventhttpclient.url import URL
 import flask
@@ -1536,5 +1536,5 @@ def serve_api(mongo_db, redis_client):
     api_logger.write = functools.partial(trimlog, api_logger)    
     
     #start up the API listener/handler
-    server = pywsgi.WSGIServer((config.RPC_HOST, int(config.RPC_PORT)), app, log=api_logger)
+    server = wsgi.WSGIServer((config.RPC_HOST, int(config.RPC_PORT)), app, log=api_logger)
     server.serve_forever()
