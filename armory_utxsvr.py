@@ -70,14 +70,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Armory offline transaction generator daemon')
     parser.add_argument('--testnet', action='store_true', help='Run for testnet')
     args = parser.parse_args()
-    btcdir = "/home/xcp/.bitcoin%s/" % ('-testnet' if args.testnet else '')
+    btcdir = "/home/xcp/.bitcoin%s/" % ('-testnet/testnet3' if args.testnet else '')
 
     print("**** Initializing armory...")
     #require armory to be installed, adding the configured armory path to PYTHONPATH
-    if not TheBDM.isInitialized():
-        TheBDM.btcdir = btcdir
-        TheBDM.setBlocking(True)
-        TheBDM.setOnlineMode(True)
+    TheBDM.btcdir = btcdir
+    TheBDM.setBlocking(True)
+    TheBDM.setOnlineMode(True)
 
     print("**** Initializing Flask (HTTP) server...")
     app.run(host="127.0.0.1", port=ARMORY_UTXSVR_PORT_MAINNET if not args.testnet else ARMORY_UTXSVR_PORT_TESTNET)
