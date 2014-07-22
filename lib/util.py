@@ -69,13 +69,16 @@ def assets_to_asset_pair(asset1, asset2):
     """
     base = None
     quote = None
-
+    #TODO: refactor with a "currencies" list in conf
     if asset1 == config.BTC or asset2 == config.BTC:
         base = asset2 if asset1 == config.BTC else asset1
         quote = asset1 if asset1 == config.BTC else asset2
     elif asset1 == config.XCP  or asset2 == config.XCP :
         base = asset2 if asset1 == config.XCP else asset1
         quote = asset1 if asset1 == config.XCP else asset2
+    elif asset1 == 'XBTC'  or asset2 == 'XBTC' :
+        base = asset2 if asset1 == 'XBTC' else asset1
+        quote = asset1 if asset1 == 'XBTC' else asset2
     else:
         base = asset1 if asset1 < asset2 else asset2
         quote = asset2 if asset1 < asset2 else asset1
