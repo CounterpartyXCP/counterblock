@@ -25,8 +25,9 @@ pycoin==0.42
 
 pymongo==2.7.1
 
-gevent==0.13.8
-#^ note, DO NOT use gevent 1.x, due to CLOSE_WAIT issues with pywsgi after some time running. TODO: Figure out why...
+https://github.com/surfly/gevent/archive/5f17846ec78d2c3439fb30fb304e0a99268e507e.zip#egg=gevent
+#^ note, DO NOT use gevent 1.0.1, due to CLOSE_WAIT issues with pywsgi after some time running. This was fixed in newer releases
+#(it's better using dev, because the old gevent, 0.13.x, does not support OPTIONS requests...meaning it breaks for multiserver since we need that for CORS)
 
 gevent-socketio==0.3.6
 
