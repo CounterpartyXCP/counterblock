@@ -1418,47 +1418,70 @@ def serve_api(mongo_db, redis_client):
     @dispatcher.add_method
     def get_vennd_machine():
         machines = [{
-            'type': 'vending machine',
-            'name': 'XCP -> BTC',
+            'type': 'gateway',
+            'name': 'Vennd.io',
+            'url': 'http://vennd.io',
             'title': 'Buy XCP with BTC',
             'description': 'Send BTC and receive XCP after 3 confirmations.',
-            'image': 'assets/btc-xcp.png',
-            'min-amount': 0.1,
-            'max-amount': 10.0,
-            'base-reserve': 10000,
+            'image': 'assets/vennd-logo.png',
             'base-asset': 'XCP',
             'quote-asset': 'BTC',
-            'price': 0.004,
-            'fees': 0.01,
-            'url': 'http://vennd.io'
+            'buy': {
+              'price': 0.004,
+              'min-amount': 0.1,
+              'max-amount': 10.0,
+              'reserve': 100,
+              'fees': 0.01,
+              'address': 'mzRuPj1UL1GYkqHU3Ud371sWtPF2x1pgpm',
+              'confirmations-required': 3
+            }
         }, {
             'type': 'gateway',
-            'name': 'BTC <-> XBTC',
+            'name': 'Vennd.io',
+            'url': 'http://vennd.io',
             'title': 'Exchange BTC with XBTC',
             'description': 'Send BTC (or XBTC) and receive XBTC (or BTC) after 3 confirmations.',
-            'image': 'assets/btc-xbtc.png',
-            'min-amount': 0.1,
-            'max-amount': 10.0,
-            'base-reserve': 100,
-            'quote-reserve': 100,
+            'image': 'assets/vennd-logo.png',
             'base-asset': 'XBTC',
             'quote-asset': 'BTC',
-            'price': 1.0,
-            'fees': 0.01,
-            'url': 'http://vennd.io'
+            'buy': {
+              'price': 1.0,
+              'min-amount': 0.1,
+              'max-amount': 10.0,
+              'reserve': 100,
+              'fees': 0.01,
+              'address': 'mzRuPj1UL1GYkqHU3Ud371sWtPF2x1pgpm',
+              'confirmations-required': 3
+            },
+            'sell': {
+              'price': 1.0,
+              'min-amount': 0.1,
+              'max-amount': 10.0,
+              'reserve': 100,
+              'fees': 0.01,
+              'address': 'mzRuPj1UL1GYkqHU3Ud371sWtPF2x1pgpm',
+              'confirmations-required': 3
+            }
+            
         }, {
             'type': 'crowdsale',
             'name': 'Storj.io',
+            'url': 'http://storj.io',
             'title': 'Decentralized Cloud Storage',
             'description': 'Storj is based on the Bitcoin blockchain technology and peer-to-peer protocols to provide the most secure, private and efficient cloud storage.',
             'image': 'assets/storj-logo.png',
-            'min-amount': 0.1,
-            'max-amount': 10.0,
-            'base-reserve': 500000000,
             'base-asset': 'SJCX',
-            'base-asset-name': 'STORJCOIN X',
             'quote-asset': 'BTC',
-            'url': 'http://storj.io'
+            'buy': {
+              'start': 1406218575,
+              'end': 1408320000,
+              'min-amount': 0.1,
+              'max-amount': 10.0,
+              'reserve': 1000,
+              'fees': 0.01,
+              'address': 'mzRuPj1UL1GYkqHU3Ud371sWtPF2x1pgpm',
+              'confirmations-required': 3
+            }
         }]
         return machines
     
