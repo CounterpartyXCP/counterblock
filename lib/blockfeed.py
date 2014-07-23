@@ -15,7 +15,7 @@ import time
 import pymongo
 import gevent
 
-from lib import config, util, events, blockchain
+from lib import config, util, events, blockchain, util_bitcoin
 from lib.components import assets, betting
 
 D = decimal.Decimal
@@ -335,7 +335,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                         logging.warn("Credit/debit of %s where asset ('%s') does not exist. Ignoring..." % (msg_data['quantity'], msg_data['asset']))
                         continue
                     quantity = msg_data['quantity'] if msg['category'] == 'credits' else -msg_data['quantity']
-                    quantity_normalized = util.normalize_quantity(quantity, asset_info['divisible'])
+                    quantity_normalized = util_bitcoin.normalize_quantity(quantity, asset_info['divisible'])
 
                     #look up the previous balance to go off of
                     last_bal_change = mongo_db.balance_changes.find_one({
@@ -397,8 +397,8 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                         continue
 
                     #take divisible trade quantities to floating point
-                    forward_quantity = util.normalize_quantity(order_match['forward_quantity'], forward_asset_info['divisible'])
-                    backward_quantity = util.normalize_quantity(order_match['backward_quantity'], backward_asset_info['divisible'])
+                    forward_quantity = util_bitcoin.normalize_quantity(order_match['forward_quantity'], forward_asset_info['divisible'])
+                    backward_quantity = util_bitcoin.normalize_quantity(order_match['backward_quantity'], backward_asset_info['divisible'])
                     
                     #compose trade
                     trade = {

@@ -51,8 +51,7 @@ if __name__ == '__main__':
     parser.add_argument('--counterpartyd-rpc-password', help='the password used to communicate with counterpartyd over JSON-RPC')
 
     parser.add_argument('--blockchain-service-name', help='the blockchain service name to connect to')
-    parser.add_argument('--blockchain-service-connect', help='the blockchain service server hostname or IP to connect to')
-    parser.add_argument('--blockchain-service-port', type=int, help='the blockchain service server port to connect to')
+    parser.add_argument('--blockchain-service-connect', help='the blockchain service server URL base to connect to, if not default')
 
     parser.add_argument('--mongodb-connect', help='the hostname of the mongodb server to connect to')
     parser.add_argument('--mongodb-port', type=int, help='the port used to communicate with mongodb')
@@ -65,10 +64,7 @@ if __name__ == '__main__':
     parser.add_argument('--redis-port', type=int, help='the port used to connect to the redis server for caching (if enabled)')
     parser.add_argument('--redis-database', type=int, help='the redis database ID (int) used to connect to the redis server for caching (if enabled)')
 
-    parser.add_argument('--cube-connect', help='the hostname of the Square Cube collector + evaluator')
-    parser.add_argument('--cube-collector-port', type=int, help='the port used to communicate with the Square Cube collector')
-    parser.add_argument('--cube-evaluator-port', type=int, help='the port used to communicate with the Square Cube evaluator')
-    parser.add_argument('--cube-database', help='the name of the mongo database cube stores its data within')
+    parser.add_argument('--armory-utxsvr-enable', help='enable use of armory_utxsvr service (for signing offline armory txns')
 
     #THINGS WE HOST
     parser.add_argument('--rpc-host', help='the IP of the interface to bind to for providing JSON-RPC API access (0.0.0.0 for all interfaces)')
@@ -162,31 +158,14 @@ if __name__ == '__main__':
     else:
         config.BLOCKCHAIN_SERVICE_NAME = 'insight'
 
-    # blockchain service API host
+    # custom blockchain service API endpoint
+    # leave blank to use the default. if specified, include the scheme prefix and port, without a trailing slash (e.g. http://localhost:3001)
     if args.blockchain_service_connect:
         config.BLOCKCHAIN_SERVICE_CONNECT = args.blockchain_service_connect
     elif has_config and configfile.has_option('Default', 'blockchain-service-connect') and configfile.get('Default', 'blockchain-service-connect'):
         config.BLOCKCHAIN_SERVICE_CONNECT = configfile.get('Default', 'blockchain-service-connect')
     else:
-        config.BLOCKCHAIN_SERVICE_CONNECT = 'localhost'
-
-    # blockchain service API port
-    if args.blockchain_service_port:
-        config.BLOCKCHAIN_SERVICE_PORT = args.blockchain_service_port
-    elif has_config and configfile.has_option('Default', 'blockchain-service-port') and configfile.get('Default', 'blockchain-service-port'):
-        config.BLOCKCHAIN_SERVICE_PORT = configfile.get('Default', 'blockchain-service-port')
-    else:
-        if config.TESTNET:
-            config.BLOCKCHAIN_SERVICE_PORT = 3001
-        else:
-            config.BLOCKCHAIN_SERVICE_PORT = 3000
-    try:
-        config.BLOCKCHAIN_SERVICE_PORT = int(config.BLOCKCHAIN_SERVICE_PORT)
-        assert int(config.BLOCKCHAIN_SERVICE_PORT) > 1 and int(config.BLOCKCHAIN_SERVICE_PORT) < 65535
-    except:
-        raise Exception("Please specific a valid port number blockchain-service-port configuration parameter")
-
-    config.BLOCKCHAIN_SERVICE_BASE_URL = 'http://' + config.BLOCKCHAIN_SERVICE_CONNECT + ':' + str(config.BLOCKCHAIN_SERVICE_PORT)
+        config.BLOCKCHAIN_SERVICE_CONNECT = None #use default specified by the library
 
     # mongodb host
     if args.mongodb_connect:
@@ -280,6 +259,15 @@ if __name__ == '__main__':
         assert int(config.REDIS_DATABASE) >= 0 and int(config.REDIS_DATABASE) <= 16
     except:
         raise Exception("Please specific a valid redis-database configuration parameter (between 0 and 16 inclusive)")
+
+    # redis connect
+    if args.armory_utxsvr_enable:
+        config.ARMORY_UTXSVR_ENABLE = args.armory_utxsvr_enable
+    elif has_config and configfile.has_option('Default', 'armory-utxsvr-enable') and configfile.getboolean('Default', 'armory-utxsvr-enable'):
+        config.ARMORY_UTXSVR_ENABLE = configfile.get('Default', 'armory-utxsvr-enable')
+    else:
+        config.ARMORY_UTXSVR_ENABLE = False
+
 
     ##############
     # THINGS WE SERVE

@@ -12,7 +12,7 @@ import cgi
 import numpy
 import pymongo
 
-from lib import config, util
+from lib import config, util, util_bitcoin
 
 D = decimal.Decimal
 
@@ -59,7 +59,7 @@ def get_market_price_summary(asset1, asset2, with_last_trades=0, start_dt=None, 
         [last_trades[i]['unit_price'] for i in xrange(min(len(last_trades), config.MARKET_PRICE_DERIVE_NUM_POINTS))],
         [(last_trades[i]['base_quantity_normalized'] + last_trades[i]['quote_quantity_normalized']) for i in xrange(min(len(last_trades), config.MARKET_PRICE_DERIVE_NUM_POINTS))])
     result = {
-        'market_price': float(D(market_price).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN)),
+        'market_price': float(D(market_price)),
         'base_asset': base_asset,
         'quote_asset': quote_asset,
     }
@@ -78,12 +78,10 @@ def get_market_price_summary(asset1, asset2, with_last_trades=0, start_dt=None, 
 
 
 def calc_inverse(quantity):
-    return float( (D(1) / D(quantity) ).quantize(
-        D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))            
+    return float( (D(1) / D(quantity) ))            
 
 def calc_price_change(open, close):
-    return float((D(100) * (D(close) - D(open)) / D(open)).quantize(
-            D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))            
+    return float((D(100) * (D(close) - D(open)) / D(open)))            
 
 def get_price_primatives(start_dt=None, end_dt=None):
     mps_xcp_btc = get_market_price_summary(config.XCP, config.BTC, start_dt=start_dt, end_dt=end_dt)
@@ -110,17 +108,17 @@ def get_asset_info(asset, at_dt=None):
     if asset == config.BTC:
         if at_dt:
             start_block_index, end_block_index = util.get_block_indexes_for_dates(end_dt=at_dt)
-            asset_info['total_issued'] = util.get_btc_supply(normalize=False, at_block_index=end_block_index)
-            asset_info['total_issued_normalized'] = util.normalize_quantity(asset_info['total_issued'])
+            asset_info['total_issued'] = util_bitcoin.get_btc_supply(normalize=False, at_block_index=end_block_index)
+            asset_info['total_issued_normalized'] = util_bitcoin.normalize_quantity(asset_info['total_issued'])
         else:
-            asset_info['total_issued'] = util.get_btc_supply(normalize=False)
-            asset_info['total_issued_normalized'] = util.normalize_quantity(asset_info['total_issued'])
+            asset_info['total_issued'] = util_bitcoin.get_btc_supply(normalize=False)
+            asset_info['total_issued_normalized'] = util_bitcoin.normalize_quantity(asset_info['total_issued'])
     elif asset == config.XCP:
         #BUG: this does not take end_dt (if specified) into account. however, the deviation won't be too big
         # as XCP doesn't deflate quickly at all, and shouldn't matter that much since there weren't any/much trades
         # before the end of the burn period (which is what is involved with how we use at_dt with currently)
         asset_info['total_issued'] = util.call_jsonrpc_api("get_xcp_supply", abort_on_error=True)['result']
-        asset_info['total_issued_normalized'] = util.normalize_quantity(asset_info['total_issued'])
+        asset_info['total_issued_normalized'] = util_bitcoin.normalize_quantity(asset_info['total_issued'])
     if not asset_info:
         raise Exception("Invalid asset: %s" % asset)
     return asset_info
@@ -137,8 +135,7 @@ def get_xcp_btc_price_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price, wit
         if price_summary_in_xcp: # no trade data
             price_in_xcp = price_summary_in_xcp['market_price']
             if xcp_btc_price:
-                aggregated_price_in_xcp = float(((D(price_summary_in_xcp['market_price']) + D(xcp_btc_price)) / D(2)).quantize(
-                    D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+                aggregated_price_in_xcp = float(((D(price_summary_in_xcp['market_price']) + D(xcp_btc_price)) / D(2)))
             else: aggregated_price_in_xcp = None
         else:
             price_in_xcp = None
@@ -147,8 +144,7 @@ def get_xcp_btc_price_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price, wit
         if price_summary_in_btc: # no trade data
             price_in_btc = price_summary_in_btc['market_price']
             if btc_xcp_price:
-                aggregated_price_in_btc = float(((D(price_summary_in_btc['market_price']) + D(btc_xcp_price)) / D(2)).quantize(
-                    D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+                aggregated_price_in_btc = float(((D(price_summary_in_btc['market_price']) + D(btc_xcp_price)) / D(2)))
             else: aggregated_price_in_btc = None
         else:
             aggregated_price_in_btc = None
@@ -181,10 +177,8 @@ def get_xcp_btc_price_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price, wit
     return (price_summary_in_xcp, price_summary_in_btc, price_in_xcp, price_in_btc, aggregated_price_in_xcp, aggregated_price_in_btc)
     
 def calc_market_cap(asset_info, price_in_xcp, price_in_btc):
-    market_cap_in_xcp = float( (D(asset_info['total_issued_normalized']) / D(price_in_xcp)).quantize(
-        D('.00000000'), rounding=decimal.ROUND_HALF_EVEN) ) if price_in_xcp else None
-    market_cap_in_btc = float( (D(asset_info['total_issued_normalized']) / D(price_in_btc)).quantize(
-        D('.00000000'), rounding=decimal.ROUND_HALF_EVEN) ) if price_in_btc else None
+    market_cap_in_xcp = float( (D(asset_info['total_issued_normalized']) / D(price_in_xcp))) if price_in_xcp else None
+    market_cap_in_btc = float( (D(asset_info['total_issued_normalized']) / D(price_in_btc))) if price_in_btc else None
     return market_cap_in_xcp, market_cap_in_btc
 
 def compile_summary_market_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price):        
@@ -412,7 +406,7 @@ def compile_asset_pair_market_info():
     asset_info = {}
     
     def get_price(base_quantity_normalized, quote_quantity_normalized):
-        return float(D(quote_quantity_normalized / base_quantity_normalized ).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+        return float(D(quote_quantity_normalized / base_quantity_normalized ))
     
     #COMPOSE order depth, lowest ask, and highest bid column data
     for o in open_orders:
@@ -429,8 +423,8 @@ def compile_asset_pair_market_info():
         #^ we also initialize completed_trades_count, vol_base, vol_quote because every pair inited here may
         # not have cooresponding data out of the trades_data_by_pair aggregation below
         pair_data[pair]['open_orders_count'] += 1
-        base_quantity_normalized = util.normalize_quantity(o['give_quantity'] if base_asset == o['give_asset'] else o['get_quantity'], base_asset_info['divisible'])
-        quote_quantity_normalized = util.normalize_quantity(o['give_quantity'] if quote_asset == o['give_asset'] else o['get_quantity'], quote_asset_info['divisible'])
+        base_quantity_normalized = util_bitcoin.normalize_quantity(o['give_quantity'] if base_asset == o['give_asset'] else o['get_quantity'], base_asset_info['divisible'])
+        quote_quantity_normalized = util_bitcoin.normalize_quantity(o['give_quantity'] if quote_asset == o['give_asset'] else o['get_quantity'], quote_asset_info['divisible'])
         order_price = get_price(base_quantity_normalized, quote_quantity_normalized)
         if base_asset == o['give_asset']: #selling base
             if pair_data[pair]['lowest_ask'] is None or order_price < pair_data[pair]['lowest_ask']: 
@@ -476,26 +470,26 @@ def compile_asset_pair_market_info():
         #derive asset price data, expressed in BTC and XCP, for the given volumes
         if base_asset == config.XCP:
             _24h_vol_in_xcp = e['vol_base']
-            _24h_vol_in_btc = util.round_out(e['vol_base'] * xcp_btc_price) if xcp_btc_price else 0
+            _24h_vol_in_btc = util_bitcoin.round_out(e['vol_base'] * xcp_btc_price) if xcp_btc_price else 0
         elif base_asset == config.BTC:
-            _24h_vol_in_xcp = util.round_out(e['vol_base'] * btc_xcp_price) if btc_xcp_price else 0
+            _24h_vol_in_xcp = util_bitcoin.round_out(e['vol_base'] * btc_xcp_price) if btc_xcp_price else 0
             _24h_vol_in_btc = e['vol_base']
         else: #base is not XCP or BTC
             price_summary_in_xcp, price_summary_in_btc, price_in_xcp, price_in_btc, aggregated_price_in_xcp, aggregated_price_in_btc = \
                 get_xcp_btc_price_info(base_asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price, with_last_trades=0, start_dt=start_dt, end_dt=end_dt)
             if price_in_xcp:
-                _24h_vol_in_xcp = util.round_out(e['vol_base'] * price_in_xcp)
+                _24h_vol_in_xcp = util_bitcoin.round_out(e['vol_base'] * price_in_xcp)
             if price_in_btc:
-                _24h_vol_in_btc = util.round_out(e['vol_base'] * price_in_btc)
+                _24h_vol_in_btc = util_bitcoin.round_out(e['vol_base'] * price_in_btc)
             
             if _24h_vol_in_xcp is None or _24h_vol_in_btc is None:
                 #the base asset didn't have price data against BTC or XCP, or both...try against the quote asset instead
                 price_summary_in_xcp, price_summary_in_btc, price_in_xcp, price_in_btc, aggregated_price_in_xcp, aggregated_price_in_btc = \
                     get_xcp_btc_price_info(quote_asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price, with_last_trades=0, start_dt=start_dt, end_dt=end_dt)
                 if _24h_vol_in_xcp is None and price_in_xcp:
-                    _24h_vol_in_xcp = util.round_out(e['vol_quote'] * price_in_xcp)
+                    _24h_vol_in_xcp = util_bitcoin.round_out(e['vol_quote'] * price_in_xcp)
                 if _24h_vol_in_btc is None and price_in_btc:
-                    _24h_vol_in_btc = util.round_out(e['vol_quote'] * price_in_btc)
+                    _24h_vol_in_btc = util_bitcoin.round_out(e['vol_quote'] * price_in_btc)
             pair_data[pair]['24h_vol_in_{}'.format(config.XCP.lower())] = _24h_vol_in_xcp #might still be None
             pair_data[pair]['24h_vol_in_{}'.format(config.BTC.lower())] = _24h_vol_in_btc #might still be None
         

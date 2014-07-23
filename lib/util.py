@@ -30,7 +30,7 @@ from jsonschema import FormatChecker, Draft4Validator, FormatError
 # not needed here but to ensure that installed
 import strict_rfc3339, rfc3987, aniso8601
 
-from lib import config
+from lib import config, util_bitcoin
 
 JSONRPC_API_REQUEST_TIMEOUT = 10 #in seconds 
 D = decimal.Decimal
@@ -69,12 +69,16 @@ def assets_to_asset_pair(asset1, asset2):
     """
     base = None
     quote = None
-    if asset1 == config.XCP  or asset2 == config.XCP :
-        base = asset1 if asset1 == config.XCP  else asset2
-        quote = asset2 if asset1 == config.XCP else asset1
-    elif asset1 == config.BTC or asset2 == config.BTC:
-        base = asset1 if asset1 == config.BTC else asset2
-        quote = asset2 if asset1 == config.BTC else asset1
+    #TODO: refactor with a "currencies" list in conf
+    if asset1 == config.BTC or asset2 == config.BTC:
+        base = asset2 if asset1 == config.BTC else asset1
+        quote = asset1 if asset1 == config.BTC else asset2
+    elif asset1 == config.XCP  or asset2 == config.XCP :
+        base = asset2 if asset1 == config.XCP else asset1
+        quote = asset1 if asset1 == config.XCP else asset2
+    elif asset1 == 'XBTC'  or asset2 == 'XBTC' :
+        base = asset2 if asset1 == 'XBTC' else asset1
+        quote = asset1 if asset1 == 'XBTC' else asset2
     else:
         base = asset1 if asset1 < asset2 else asset2
         quote = asset2 if asset1 < asset2 else asset1
@@ -117,25 +121,23 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
         raise Exception("Got back error from server: %s" % result['error'])
     return result
 
-def call_blockchain_api(request_string, abort_on_error=False):
-    url = config.BLOCKCHAIN_SERVICE_BASE_URL + request_string
-    headers = {
-        'Connection':'close', #no keepalive
-    }
+def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5):
+    headers = { 'Connection':'close', } #no keepalive
 
     try:
         u = URL(url)
-        client = HTTPClient.from_url(u)
+        client_kwargs = {'connection_timeout': fetch_timeout, 'network_timeout': fetch_timeout, 'insecure': True}
+        if u.scheme == "https": client_kwargs['ssl_options'] = {'cert_reqs': gevent.ssl.CERT_NONE}
+        client = HTTPClient.from_url(u, **client_kwargs)
         r = client.get(u.request_uri, headers=headers)
     except Exception, e:
-        raise Exception("Got call_blockchain_api request error: %s" % e)
+        raise Exception("Got get_url request error: %s" % e)
     else:
         if r.status_code != 200 and abort_on_error:
-            raise Exception("Bad status code returned from counterpartyd: '%s'. result body: '%s'." % (r.status_code, r.read()))
-        result = json.loads(r.read())
+            raise Exception("Bad status code returned: '%s'. result body: '%s'." % (r.status_code, r.read()))
+        result = json.loads(r.read()) if is_json else r.read()
     finally:
         client.close()
-
     return result
 
 def get_address_cols_for_entity(entity):
@@ -269,7 +271,7 @@ def decorate_message(message, for_txn_history=False):
         message['_divisible'] = asset_info['divisible'] if asset_info else None
     
     if message['_category'] in ['issuances',]:
-        message['_quantity_normalized'] = normalize_quantity(message['quantity'], message['divisible'])
+        message['_quantity_normalized'] = util_bitcoin.normalize_quantity(message['quantity'], message['divisible'])
     return message
 
 def decorate_message_for_feed(msg, msg_data=None):
@@ -286,41 +288,6 @@ def decorate_message_for_feed(msg, msg_data=None):
     message['_status'] = msg_data.get('status', 'valid')
     message = decorate_message(message)
     return message
-
-
-#############
-# Bitcoin-related
-
-def round_out(num):
-    #round out to 8 decimal places
-    return float(D(num).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))        
-
-def normalize_quantity(quantity, divisible=True):
-    if divisible:
-        return float((D(quantity) / D(config.UNIT)).quantize(D('.00000000'), rounding=decimal.ROUND_HALF_EVEN)) 
-    else: return quantity
-
-def denormalize_quantity(quantity, divisible=True):
-    if divisible:
-        return int(quantity * config.UNIT)
-    else: return quantity
-
-def get_btc_supply(normalize=False, at_block_index=None):
-    """returns the total supply of BTC (based on what bitcoind says the current block height is)"""
-    block_count = config.CURRENT_BLOCK_INDEX if at_block_index is None else at_block_index
-    blocks_remaining = block_count
-    total_supply = 0 
-    reward = 50.0
-    while blocks_remaining > 0:
-        if blocks_remaining >= 210000:
-            blocks_remaining -= 210000
-            total_supply += 210000 * reward
-            reward /= 2
-        else:
-            total_supply += (blocks_remaining * reward)
-            blocks_remaining = 0
-            
-    return total_supply if normalize else int(total_supply * config.UNIT)
 
 def is_caught_up_well_enough_for_government_work():
     """We don't want to give users 525 errors or login errors if counterblockd/counterpartyd is in the process of
@@ -462,7 +429,6 @@ def is_valid_json(data, schema):
         errors.append(error.message)
     return errors
 
-
 def next_interval_date(interval):
     try:
         generator = parse_iso8601_interval(interval)
@@ -515,6 +481,4 @@ def download_geoip_data():
 def init_geoip():
     download_geoip_data();
     return pygeoip.GeoIP(os.path.join(config.DATA_DIR, 'GeoIP.dat'))
-
-
 

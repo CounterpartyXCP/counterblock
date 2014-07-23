@@ -1,13 +1,21 @@
 '''
 blockr.io
 '''
-from lib import (config, util)
+import logging
+
+from lib import config, util, util_bitcoin
+
+def get_host():
+    if config.BLOCKCHAIN_SERVICE_CONNECT:
+        return config.BLOCKCHAIN_SERVICE_CONNECT
+    else:
+        return 'http://tbtc.blockr.io' if config.TESTNET else 'http://btc.blockr.io'
 
 def check():
     pass
 
 def getinfo():
-    result = util.call_blockchain_api('/api/v1/coin/info', abort_on_error=True)
+    result = util.get_url(get_host() + '/api/v1/coin/info', abort_on_error=True)
     if 'status' in result and result['status'] == 'success':
         return {
             "info": {
@@ -18,7 +26,7 @@ def getinfo():
     return None
 
 def listunspent(address):
-    result = util.call_blockchain_api('/api/v1/address/unspent/{}/'.format(address), abort_on_error=True)
+    result = util.get_url(get_host() + '/api/v1/address/unspent/{}/'.format(address), abort_on_error=True)
     if 'status' in result and result['status'] == 'success':
         utxo = []
         for txo in result['data']['unspent']:
@@ -38,9 +46,9 @@ def listunspent(address):
     return None
 
 def getaddressinfo(address):
-    infos = util.call_blockchain_api('/api/v1/address/info/{}'.format(address), abort_on_error=True)
+    infos = util.get_url(get_host() + '/api/v1/address/info/{}'.format(address), abort_on_error=True)
     if 'status' in infos and infos['status'] == 'success':
-        txs = util.call_blockchain_api('/api/v1/address/txs/{}'.format(address), abort_on_error=True)
+        txs = util.get_url(get_host() + '/api/v1/address/txs/{}'.format(address), abort_on_error=True)
         if 'status' in txs and txs['status'] == 'success':
             transactions = []
             for tx in txs['data']['txs']:
@@ -61,8 +69,8 @@ def getaddressinfo(address):
     return None
 
 def gettransaction(tx_hash):
-    tx = util.call_blockchain_api('/api/v1/tx/raw/{}'.format(tx_hash), abort_on_error=True)
-    if 'status' in infos and infos['status'] == 'success':
+    tx = util.get_url(get_host() + '/api/v1/tx/raw/{}'.format(tx_hash), abort_on_error=True)
+    if 'status' in tx and tx['status'] == 'success':
         valueOut = 0
         for vout in tx['data']['tx']['vout']:
             valueOut += vout['value']
@@ -70,10 +78,10 @@ def gettransaction(tx_hash):
             'txid': tx_hash,
             'version': tx['data']['tx']['version'],
             'locktime': tx['data']['tx']['locktime'],
-            'blockhash': tx['data']['tx']['blockhash'],
-            'confirmations': tx['data']['tx']['confirmations'],
-            'time': tx['data']['tx']['time'],
-            'blocktime': tx['data']['tx']['blocktime'],
+            'blockhash': tx['data']['tx'].get('blockhash', None), #will be None if not confirmed yet...
+            'confirmations': tx['data']['tx'].get('confirmations', None),
+            'time': tx['data']['tx'].get('time', None),
+            'blocktime': tx['data']['tx'].get('blocktime', None),
             'valueOut': valueOut,
             'vin': tx['data']['tx']['vin'],
             'vout': tx['data']['tx']['vout']
@@ -81,5 +89,19 @@ def gettransaction(tx_hash):
 
     return None
 
+def get_pubkey_for_address(address):
+    #first, get a list of transactions for the address
+    address_info = getaddressinfo(address)
 
-
+    #if no transactions, we can't get the pubkey
+    if not address_info['transactions']:
+        return None
+    
+    #for each transaction we got back, extract the vin, pubkey, go through, convert it to binary, and see if it reduces down to the given address
+    for tx_id in address_info['transactions']:
+        #parse the pubkey out of the first sent transaction
+        tx = gettransaction(tx_id)
+        pubkey_hex = tx['vin'][0]['scriptSig']['asm'].split(' ')[1]
+        if util_bitcoin.pubkey_to_address(pubkey_hex) == address:
+            return pubkey_hex
+    return None
