@@ -355,7 +355,7 @@ def serve_api(mongo_db, redis_client):
         """Gets raw transactions for a particular address
         
         @param address: A single address string
-        @param start_ts: The starting date & time. Should be a unix epoch object. If passed as None, defaults to 30 days before the end_date
+        @param start_ts: The starting date & time. Should be a unix epoch object. If passed as None, defaults to 60 days before the end_date
         @param end_ts: The ending date & time. Should be a unix epoch object. If passed as None, defaults to the current date & time
         @param limit: the maximum number of transactions to return; defaults to ten thousand
         @return: Returns the data, ordered from newest txn to oldest. If any limit is applied, it will cut back from the oldest results
@@ -372,8 +372,8 @@ def serve_api(mongo_db, redis_client):
         now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not end_ts: #default to current datetime
             end_ts = now_ts
-        if not start_ts: #default to 30 days before the end date
-            start_ts = end_ts - (30 * 24 * 60 * 60)
+        if not start_ts: #default to 60 days before the end date
+            start_ts = end_ts - (60 * 24 * 60 * 60)
         start_block_index, end_block_index = util.get_block_indexes_for_dates(
             start_dt=datetime.datetime.utcfromtimestamp(start_ts),
             end_dt=datetime.datetime.utcfromtimestamp(end_ts) if now_ts != end_ts else None)
