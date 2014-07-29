@@ -16,7 +16,10 @@ def calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divi
     if not quote_divisibility:
         quote_quantity *= config.UNIT
 
-    return float(quote_quantity) / float(base_quantity)
+    try:
+        return float(quote_quantity) / float(base_quantity)
+    except Exception, e:
+        return 0
 
 def format_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility):
     price = calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility)
@@ -204,14 +207,23 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
 
         exclude = False
         if order['give_asset'] == 'BTC':
-            fee_provided = order['fee_provided'] / (order['give_quantity'] / 100)
+            try:
+                fee_provided = order['fee_provided'] / (order['give_quantity'] / 100)
+                user_order['fee_provided'] = format(D(order['fee_provided']) / (D(order['give_quantity']) / D(100)), '.2f') 
+            except Exception, e:
+                fee_provided = min_fee_provided - 1 # exclude
+
             exclude = fee_provided < min_fee_provided
-            user_order['fee_provided'] = format(D(order['fee_provided']) / (D(order['give_quantity']) / D(100)), '.2f') 
 
         elif order['get_asset'] == 'BTC':
-            fee_required = order['fee_required'] / (order['get_quantity'] / 100)
+            try:
+                fee_required = order['fee_required'] / (order['get_quantity'] / 100)
+                user_order['fee_required'] = format(D(order['fee_required']) / (D(order['get_quantity']) / D(100)), '.2f')
+            except Exception, e:
+                fee_required = max_fee_required + 1 # exclude
+            
             exclude = fee_required > max_fee_required
-            user_order['fee_required'] = format(D(order['fee_required']) / (D(order['get_quantity']) / D(100)), '.2f')
+            
         
         if not exclude:
             if order['give_asset'] == base_asset:
