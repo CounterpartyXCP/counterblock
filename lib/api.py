@@ -1178,7 +1178,7 @@ def serve_api(mongo_db, redis_client):
         result['last_touched'] = time.mktime(time.gmtime())
         mongo_db.chat_handles.save(result)
         data = {
-            'handle': re.sub('[^A-Za-z0-9_-]', "", result['handle']),
+            'handle': re.sub('[^\sA-Za-z0-9_-]', "", result['handle']),
             'is_op': result.get('is_op', False),
             'last_updated': result.get('last_updated', None)
             } if result else {}
@@ -1194,7 +1194,7 @@ def serve_api(mongo_db, redis_client):
         """Set or update a chat handle"""
         if not isinstance(handle, basestring):
             raise Exception("Invalid chat handle: bad data type")
-        if not re.match(r'^[A-Za-z0-9_-]{4,12}$', handle):
+        if not re.match(r'^[\sA-Za-z0-9_-]{4,12}$', handle):
             raise Exception("Invalid chat handle: bad syntax/length")
         
         #see if this handle already exists (case insensitive)
