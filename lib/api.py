@@ -355,7 +355,7 @@ def serve_api(mongo_db, redis_client):
         """Gets raw transactions for a particular address
         
         @param address: A single address string
-        @param start_ts: The starting date & time. Should be a unix epoch object. If passed as None, defaults to 30 days before the end_date
+        @param start_ts: The starting date & time. Should be a unix epoch object. If passed as None, defaults to 60 days before the end_date
         @param end_ts: The ending date & time. Should be a unix epoch object. If passed as None, defaults to the current date & time
         @param limit: the maximum number of transactions to return; defaults to ten thousand
         @return: Returns the data, ordered from newest txn to oldest. If any limit is applied, it will cut back from the oldest results
@@ -372,8 +372,8 @@ def serve_api(mongo_db, redis_client):
         now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not end_ts: #default to current datetime
             end_ts = now_ts
-        if not start_ts: #default to 30 days before the end date
-            start_ts = end_ts - (30 * 24 * 60 * 60)
+        if not start_ts: #default to 60 days before the end date
+            start_ts = end_ts - (60 * 24 * 60 * 60)
         start_block_index, end_block_index = util.get_block_indexes_for_dates(
             start_dt=datetime.datetime.utcfromtimestamp(start_ts),
             end_dt=datetime.datetime.utcfromtimestamp(end_ts) if now_ts != end_ts else None)
@@ -1178,7 +1178,7 @@ def serve_api(mongo_db, redis_client):
         result['last_touched'] = time.mktime(time.gmtime())
         mongo_db.chat_handles.save(result)
         data = {
-            'handle': re.sub('[^A-Za-z0-9_-]', "", result['handle']),
+            'handle': re.sub('[^\sA-Za-z0-9_-]', "", result['handle']),
             'is_op': result.get('is_op', False),
             'last_updated': result.get('last_updated', None)
             } if result else {}
@@ -1194,7 +1194,7 @@ def serve_api(mongo_db, redis_client):
         """Set or update a chat handle"""
         if not isinstance(handle, basestring):
             raise Exception("Invalid chat handle: bad data type")
-        if not re.match(r'^[A-Za-z0-9_-]{4,12}$', handle):
+        if not re.match(r'^[\sA-Za-z0-9_-]{4,12}$', handle):
             raise Exception("Invalid chat handle: bad syntax/length")
         
         #see if this handle already exists (case insensitive)
@@ -1440,6 +1440,58 @@ def serve_api(mongo_db, redis_client):
         params = {'signed_tx_ascii': signed_tx_ascii}
         raw_tx_hex = util.call_jsonrpc_api("convert_signed_tx_to_raw_hex", params=params, endpoint=endpoint, abort_on_error=True)['result']
         return raw_tx_hex
+
+    @dispatcher.add_method
+    def create_support_case(name, from_email, problem, screenshot=None, addtl_info=''):
+        """create an email with the information received
+        @param screenshot: The base64 text of the screenshot itself, prefixed with data=image/png ...,
+        @param addtl_info: A JSON-encoded string of a dict with additional information to include in the support request
+        """
+        import smtplib
+        import email.utils
+        from email.header import Header
+        from email.MIMEMultipart import MIMEMultipart
+        from email.MIMEBase import MIMEBase
+        from email.MIMEText import MIMEText
+        from email.mime.image import MIMEImage
+        
+        if not config.SUPPORT_EMAIL:
+            raise Exception("Sending of support emails are disabled on the server: no SUPPORT_EMAIL address set")
+        
+        if not email.utils.parseaddr(from_email)[1]: #should have been validated in the form
+            raise Exception("Invalid support email address")
+        
+        try:
+            if screenshot:
+                screenshot_data = screenshot.split(',', 1)[1]
+                screenshot_data_decoded = base64.b64decode(screenshot_data)
+        except:
+            raise Exception("screenshot data format unexpected")
+        
+        try:
+            addtl_info = json.loads(addtl_info)
+            addtl_info = json.dumps(addtl_info, indent=1, sort_keys=False)
+        except:
+            raise Exception("addtl_info data format unexpected")
+        
+        from_email_formatted = email.utils.formataddr((name, from_email))
+        msg = MIMEMultipart()
+        msg['Subject'] = Header((problem[:75] + '...') if len(problem) > 75 else problem, 'utf-8') 
+        msg['From'] = from_email_formatted
+        msg['Reply-to'] = from_email_formatted
+        msg['To'] = config.SUPPORT_EMAIL
+        msg['Date'] = email.utils.formatdate(localtime=True)
+        
+        msg_text = MIMEText("""Problem: %s\n\nAdditional Info:\n%s""" % (problem, addtl_info))
+        msg.attach(msg_text)
+        
+        if screenshot:
+            image = MIMEImage(screenshot_data_decoded, name="screenshot.png")
+            msg.attach(image)
+        
+        server = smtplib.SMTP(config.EMAIL_SERVER)
+        server.sendmail(from_email, config.SUPPORT_EMAIL, msg.as_string())
+        return True
 
     def _set_cors_headers(response):
         if config.RPC_ALLOW_CORS:

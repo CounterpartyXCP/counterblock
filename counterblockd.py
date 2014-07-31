@@ -15,6 +15,7 @@ import logging
 import datetime
 import ConfigParser
 import time
+import email.utils
 
 import appdirs
 import pymongo
@@ -77,6 +78,9 @@ if __name__ == '__main__':
 
     parser.add_argument('--rollbar-token', help='the API token to use with rollbar (leave blank to disable rollbar integration)')
     parser.add_argument('--rollbar-env', help='the environment name for the rollbar integration (if enabled). Defaults to \'production\'')
+
+    parser.add_argument('--support-email', help='the email address where support requests should go')
+    parser.add_argument('--email-server', help='the email server to send support requests out from. Defaults to \'localhost\'')
 
     args = parser.parse_args()
 
@@ -400,6 +404,25 @@ if __name__ == '__main__':
         config.ROLLBAR_ENV = configfile.get('Default', 'rollbar-env')
     else:
         config.ROLLBAR_ENV = 'counterblockd-production'
+        
+    #support email
+    if args.support_email:
+        config.SUPPORT_EMAIL = args.support_email
+    elif has_config and configfile.has_option('Default', 'support-email') and configfile.get('Default', 'support-email'):
+        config.SUPPORT_EMAIL = configfile.get('Default', 'support-email')
+    else:
+        config.SUPPORT_EMAIL = None #disable support tickets
+    if config.SUPPORT_EMAIL:
+        if not email.utils.parseaddr(config.SUPPORT_EMAIL)[1]:
+            raise Exception("Invalid support email address")
+
+    #email server
+    if args.email_server:
+        config.EMAIL_SERVER = args.email_server
+    elif has_config and configfile.has_option('Default', 'email-server') and configfile.get('Default', 'email-server'):
+        config.EMAIL_SERVER = configfile.get('Default', 'email-server')
+    else:
+        config.EMAIL_SERVER = "localhost"
 
     # current dir
     config.COUNTERBLOCKD_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -617,6 +640,10 @@ if __name__ == '__main__':
 
     logging.info("Starting up RPC API handler...")
     api.serve_api(mongo_db, redis_client)
+    
+    #print some user friendly startup warnings as need be
+    if not config.SUPPORT_EMAIL:
+        logging.warn("Support email setting not set: To enable, please specify an email for the 'support-email' setting in your counterblockd.conf")
 
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
