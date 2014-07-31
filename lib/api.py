@@ -1441,6 +1441,58 @@ def serve_api(mongo_db, redis_client):
         raw_tx_hex = util.call_jsonrpc_api("convert_signed_tx_to_raw_hex", params=params, endpoint=endpoint, abort_on_error=True)['result']
         return raw_tx_hex
 
+    @dispatcher.add_method
+    def create_support_case(name, from_email, problem, screenshot=None, addtl_info=''):
+        """create an email with the information received
+        @param screenshot: The base64 text of the screenshot itself, prefixed with data=image/png ...,
+        @param addtl_info: A JSON-encoded string of a dict with additional information to include in the support request
+        """
+        import smtplib
+        import email.utils
+        from email.header import Header
+        from email.MIMEMultipart import MIMEMultipart
+        from email.MIMEBase import MIMEBase
+        from email.MIMEText import MIMEText
+        from email.mime.image import MIMEImage
+        
+        if not config.SUPPORT_EMAIL:
+            raise Exception("Sending of support emails are disabled on the server: no SUPPORT_EMAIL address set")
+        
+        if not email.utils.parseaddr(from_email)[1]: #should have been validated in the form
+            raise Exception("Invalid support email address")
+        
+        try:
+            if screenshot:
+                screenshot_data = screenshot.split(',', 1)[1]
+                screenshot_data_decoded = base64.b64decode(screenshot_data)
+        except:
+            raise Exception("screenshot data format unexpected")
+        
+        try:
+            addtl_info = json.loads(addtl_info)
+            addtl_info = json.dumps(addtl_info, indent=1, sort_keys=False)
+        except:
+            raise Exception("addtl_info data format unexpected")
+        
+        from_email_formatted = email.utils.formataddr((name, from_email))
+        msg = MIMEMultipart()
+        msg['Subject'] = Header((problem[:75] + '...') if len(problem) > 75 else problem, 'utf-8') 
+        msg['From'] = from_email_formatted
+        msg['Reply-to'] = from_email_formatted
+        msg['To'] = config.SUPPORT_EMAIL
+        msg['Date'] = email.utils.formatdate(localtime=True)
+        
+        msg_text = MIMEText("""Problem: %s\n\nAdditional Info:\n%s""" % (problem, addtl_info))
+        msg.attach(msg_text)
+        
+        if screenshot:
+            image = MIMEImage(screenshot_data_decoded, name="screenshot.png")
+            msg.attach(image)
+        
+        server = smtplib.SMTP(config.EMAIL_SERVER)
+        server.sendmail(from_email, config.SUPPORT_EMAIL, msg.as_string())
+        return True
+
     def _set_cors_headers(response):
         if config.RPC_ALLOW_CORS:
             response.headers['Access-Control-Allow-Origin'] = '*'
