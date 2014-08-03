@@ -479,6 +479,21 @@ if __name__ == '__main__':
     tx_logger.addHandler(tx_fileh)
     tx_logger.propagate = False
     
+    #Load in counterwallet config settings
+    #TODO: Hardcode in cw path for now. Will be taken out to a plugin shortly...
+    counterwallet_config_path = os.path.join('/home/xcp/counterwallet/counterwallet.conf.json')
+    if os.path.exists(counterwallet_config_path):
+        logging.info("Loading counterwallet config at '%s'" % counterwallet_config_path)
+        with open(counterwallet_config_path) as f:
+            config.COUNTERWALLET_CONFIG_JSON = f.read()
+    else:
+        logging.warn("Counterwallet config does not exist at '%s'" % counterwallet_config_path)
+        config.COUNTERWALLET_CONFIG_JSON = '{}'
+    try:
+        config.COUNTERWALLET_CONFIG = json.loads(config.COUNTERWALLET_CONFIG_JSON)
+    except Exception, e:
+        logging.error("Exception loading counterwallet config: %s" % e)
+    
     #xnova(7/16/2014): Disable for now, as this uses requests under the surface, which may not be safe for a gevent-based app
     #rollbar integration
     #if config.ROLLBAR_TOKEN:
@@ -598,7 +613,7 @@ if __name__ == '__main__':
 
     #mempool
     mongo_db.mempool.ensure_index('tx_hash')
-
+    
     #Connect to redis
     if config.REDIS_ENABLE_APICACHE:
         logging.info("Enabling redis read API caching... (%s:%s)" % (config.REDIS_CONNECT, config.REDIS_PORT))
@@ -610,7 +625,7 @@ if __name__ == '__main__':
     zmq_context = zmq.Context()
     zmq_publisher_eventfeed = zmq_context.socket(zmq.PUB)
     zmq_publisher_eventfeed.bind('inproc://queue_eventfeed')
-
+    
     logging.info("Starting up socket.io server (block event feed)...")
     sio_server = socketio_server.SocketIOServer(
         (config.SOCKETIO_HOST, config.SOCKETIO_PORT),
