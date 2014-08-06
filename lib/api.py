@@ -58,7 +58,8 @@ def serve_api(mongo_db, redis_client):
             'block_height': blockchainInfo['info']['blocks'], 
             'testnet': config.TESTNET,
             'ip': ip,
-            'country': country
+            'country': country,
+            'quote_assets': config.QUOTE_ASSETS
         }
     
     @dispatcher.add_method

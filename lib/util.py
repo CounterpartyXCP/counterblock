@@ -62,26 +62,15 @@ def is_valid_url(url, suffix='', allow_localhost=False, allow_no_protocol=False)
     return url is not None and regex.search(url)
 
 def assets_to_asset_pair(asset1, asset2):
-    """Pair labeling rules are:
-    If XCP is either asset, it takes presidence as the base asset.
-    If XCP is not either asset, but BTC is, BTC will take presidence as the base asset.
-    If neither XCP nor BTC are either asset, the first asset (alphabetically) will take presidence as the base asset
-    """
-    base = None
-    quote = None
-    #TODO: refactor with a "currencies" list in conf
-    if asset1 == config.BTC or asset2 == config.BTC:
-        base = asset2 if asset1 == config.BTC else asset1
-        quote = asset1 if asset1 == config.BTC else asset2
-    elif asset1 == 'XBTC'  or asset2 == 'XBTC' :
-        base = asset2 if asset1 == 'XBTC' else asset1
-        quote = asset1 if asset1 == 'XBTC' else asset2   
-    elif asset1 == config.XCP  or asset2 == config.XCP :
-        base = asset2 if asset1 == config.XCP else asset1
-        quote = asset1 if asset1 == config.XCP else asset2 
+    base, quote = None, None
+    
+    for quote_asset in config.QUOTE_ASSETS:
+        if asset1 == quote_asset or asset2 == quote_asset:
+            base, quote = (asset2, asset1) if asset1 == quote_asset else (asset1, asset2) 
+            break
     else:
-        base = asset1 if asset1 < asset2 else asset2
-        quote = asset2 if asset1 < asset2 else asset1
+        base, quote = (asset1, asset2) if asset1 < asset2 else (asset2, asset1)
+        
     return (base, quote)
 
 def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False):
