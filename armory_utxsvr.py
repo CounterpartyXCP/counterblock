@@ -5,6 +5,7 @@ server for creating unsigned armory offline transactions
 import sys
 import logging
 import argparse
+import json
 
 import flask
 from flask import request
