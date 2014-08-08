@@ -177,13 +177,30 @@ def get_users_pairs(addresses=[], max_pairs=12):
 
     return top_pairs
 
+def merge_same_price_orders(orders):   
+    if len(orders) > 1:
+        merged_orders = []
+        orders = sorted(orders, key=lambda x: float(x['price']))
+        merged_orders.append(orders[0])
+        for o in range(1, len(orders)):
+            if orders[o]['price'] == merged_orders[-1]['price']:
+                merged_orders[-1]['amount'] += orders[o]['amount']
+                merged_orders[-1]['total'] += orders[o]['total']
+            else:
+                merged_orders.append(orders[o])
+        return merged_orders
+    else:
+        return orders
 
 def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provided=0.95, max_fee_required=0.95):
 
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
     if not supplies:
         supplies = get_assets_supply([asset1, asset2])
+
     market_orders = []
+    buy_orders = []
+    sell_orders = []
 
     sql = '''SELECT orders.*, blocks.block_time FROM orders INNER JOIN blocks ON orders.block_index=blocks.block_index 
              WHERE  status = ? '''
@@ -203,60 +220,59 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
     orders = util.call_jsonrpc_api('sql', {'query': sql, 'bindings': bindings})['result']
 
     for order in orders:
-        user_order = {}
+        market_order = {}
 
         exclude = False
         if order['give_asset'] == 'BTC':
             try:
                 fee_provided = order['fee_provided'] / (order['give_quantity'] / 100)
-                user_order['fee_provided'] = format(D(order['fee_provided']) / (D(order['give_quantity']) / D(100)), '.2f') 
+                market_order['fee_provided'] = format(D(order['fee_provided']) / (D(order['give_quantity']) / D(100)), '.2f') 
             except Exception, e:
                 fee_provided = min_fee_provided - 1 # exclude
-
+            
             exclude = fee_provided < min_fee_provided
 
         elif order['get_asset'] == 'BTC':
             try:
                 fee_required = order['fee_required'] / (order['get_quantity'] / 100)
-                user_order['fee_required'] = format(D(order['fee_required']) / (D(order['get_quantity']) / D(100)), '.2f')
+                market_order['fee_required'] = format(D(order['fee_required']) / (D(order['get_quantity']) / D(100)), '.2f')
             except Exception, e:
-                fee_required = max_fee_required + 1 # exclude
-            
+                fee_required = max_fee_required + 1 # exclude    
+
             exclude = fee_required > max_fee_required
-            
+ 
         
         if not exclude:
             if order['give_asset'] == base_asset:
                 price = calculate_price(order['give_quantity'], order['get_quantity'], supplies[order['give_asset']][1], supplies[order['get_asset']][1])
-                user_order['type'] = 'SELL'
-                user_order['amount'] = order['give_remaining']
-                user_order['total'] = int(order['give_remaining'] * price)
+                market_order['type'] = 'SELL'
+                market_order['amount'] = order['give_remaining']
+                market_order['total'] = int(order['give_remaining'] * price)
             else:
                 price = calculate_price(order['get_quantity'], order['give_quantity'], supplies[order['get_asset']][1], supplies[order['give_asset']][1])
-                user_order['type'] = 'BUY'
-                user_order['total'] = order['give_remaining']
-                user_order['amount'] = int(order['give_remaining'] / price)
+                market_order['type'] = 'BUY'
+                market_order['total'] = order['give_remaining']
+                market_order['amount'] = int(order['give_remaining'] / price)
 
-            user_order['price'] = format(price, '.8f')
-                
-            if len(addresses) == 0 and len(market_orders) > 0:
-                previous_order = market_orders[-1]
-                if previous_order['type'] == user_order['type'] and previous_order['price'] == user_order['price']:
-                    market_orders[-1]['amount'] += user_order['amount']
-                    market_orders[-1]['total'] += user_order['total']
-                    exclude = True
+            market_order['price'] = format(price, '.8f')
 
             if len(addresses) > 0:
                 completed = format(((D(order['give_quantity']) - D(order['give_remaining'])) / D(order['give_quantity'])) * D(100), '.2f') 
-                user_order['completion'] = "{}%".format(completed)
-                user_order['tx_index'] = order['tx_index']
-                user_order['tx_hash'] = order['tx_hash']
-                user_order['source'] = order['source']
-                user_order['block_index'] = order['block_index']
-                user_order['block_time'] = order['block_time']
+                market_order['completion'] = "{}%".format(completed)
+                market_order['tx_index'] = order['tx_index']
+                market_order['tx_hash'] = order['tx_hash']
+                market_order['source'] = order['source']
+                market_order['block_index'] = order['block_index']
+                market_order['block_time'] = order['block_time']
+                market_orders.append(market_order)
+            else:
+                if market_order['type'] == 'SELL':
+                    sell_orders.append(market_order)
+                else:
+                    buy_orders.append(market_order)
 
-        if not exclude:
-            market_orders.append(user_order)
+    if len(addresses) == 0:
+        market_orders = merge_same_price_orders(sell_orders) + merge_same_price_orders(buy_orders)
 
     return market_orders
 
