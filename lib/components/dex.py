@@ -107,10 +107,11 @@ def get_xcp_or_btc_pairs(asset='XCP', exclude_pairs=[], max_pairs=12, from_time=
         bindings += [from_time]
 
     sql += '''AND forward_asset != backward_asset
+              AND status = ?
               GROUP BY pair
               ORDER BY quote_quantity DESC
               LIMIT ?'''
-    bindings += [max_pairs]
+    bindings += ['completed', max_pairs]
 
     return util.call_jsonrpc_api('sql', {'query': sql, 'bindings': bindings})['result']
 
