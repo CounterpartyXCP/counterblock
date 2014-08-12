@@ -10,20 +10,30 @@ from lib import config, util
 decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
 D = decimal.Decimal
 
-def calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility):
+def calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility, order_type = None):
     if not base_divisibility:
         base_quantity *= config.UNIT
     if not quote_divisibility:
         quote_quantity *= config.UNIT
 
-    try:
-        return float(quote_quantity) / float(base_quantity)
-    except Exception, e:
-        return 0
+    try: 
+        if order_type == 'BUY':
+            decimal.setcontext(decimal.Context(prec=7, rounding=decimal.ROUND_DOWN))
+        elif order_type == 'SELL':
+            decimal.setcontext(decimal.Context(prec=7, rounding=decimal.ROUND_UP))
+        
+        price = str(D(quote_quantity) / D(base_quantity))
 
-def format_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility):
-    price = calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility)
-    return format(price, '.8f')
+        decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
+        return price
+
+    except Exception, e:
+        decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
+        return '0'
+
+def format_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility, order_type = None):
+    return calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility, order_type)
+    #return format(price, '.8f')
 
 def get_pairs_with_orders(addresses=[], max_pairs=12):
 
@@ -245,17 +255,17 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
         
         if not exclude:
             if order['give_asset'] == base_asset:
-                price = calculate_price(order['give_quantity'], order['get_quantity'], supplies[order['give_asset']][1], supplies[order['get_asset']][1])
+                price = calculate_price(order['give_quantity'], order['get_quantity'], supplies[order['give_asset']][1], supplies[order['get_asset']][1], 'SELL')
                 market_order['type'] = 'SELL'
                 market_order['amount'] = order['give_remaining']
-                market_order['total'] = int(order['give_remaining'] * price)
+                market_order['total'] = int(D(order['give_remaining']) * D(price))
             else:
-                price = calculate_price(order['get_quantity'], order['give_quantity'], supplies[order['get_asset']][1], supplies[order['give_asset']][1])
+                price = calculate_price(order['get_quantity'], order['give_quantity'], supplies[order['get_asset']][1], supplies[order['give_asset']][1], 'BUY')
                 market_order['type'] = 'BUY'
                 market_order['total'] = order['give_remaining']
-                market_order['amount'] = int(order['give_remaining'] / price)
+                market_order['amount'] = int(D(order['give_remaining']) / D(price))
 
-            market_order['price'] = format(price, '.8f')
+            market_order['price'] = price
 
             if len(addresses) > 0:
                 completed = format(((D(order['give_quantity']) - D(order['give_remaining'])) / D(order['give_quantity'])) * D(100), '.2f') 
@@ -314,12 +324,12 @@ def get_market_trades(asset1, asset2, addresses=[], limit=100, supplies=None):
             trade['status'] = order_match['status']
             if order_match['forward_asset'] == base_asset:
                 trade['type'] = 'SELL'
-                trade['price'] = format_price(order_match['forward_quantity'], order_match['backward_quantity'], supplies[order_match['forward_asset']][1], supplies[order_match['backward_asset']][1])
+                trade['price'] = format_price(order_match['forward_quantity'], order_match['backward_quantity'], supplies[order_match['forward_asset']][1], supplies[order_match['backward_asset']][1], 'SELL')
                 trade['amount'] = order_match['forward_quantity']
                 trade['total'] = order_match['backward_quantity']
             else:
                 trade['type'] = 'BUY'
-                trade['price'] = format_price(order_match['backward_quantity'], order_match['forward_quantity'], supplies[order_match['backward_asset']][1], supplies[order_match['forward_asset']][1])
+                trade['price'] = format_price(order_match['backward_quantity'], order_match['forward_quantity'], supplies[order_match['backward_asset']][1], supplies[order_match['forward_asset']][1], 'BUY')
                 trade['amount'] = order_match['backward_quantity']
                 trade['total'] = order_match['forward_quantity']
             market_trades.append(trade)
@@ -334,12 +344,12 @@ def get_market_trades(asset1, asset2, addresses=[], limit=100, supplies=None):
             trade['status'] = order_match['status']
             if order_match['backward_asset'] == base_asset:
                 trade['type'] = 'SELL'
-                trade['price'] = format_price(order_match['backward_quantity'], order_match['forward_quantity'], supplies[order_match['backward_asset']][1], supplies[order_match['forward_asset']][1])
+                trade['price'] = format_price(order_match['backward_quantity'], order_match['forward_quantity'], supplies[order_match['backward_asset']][1], supplies[order_match['forward_asset']][1], 'SELL')
                 trade['amount'] = order_match['backward_quantity']
                 trade['total'] = order_match['forward_quantity']
             else:
                 trade['type'] = 'BUY'
-                trade['price'] = format_price(order_match['forward_quantity'], order_match['backward_quantity'], supplies[order_match['forward_asset']][1], supplies[order_match['backward_asset']][1])
+                trade['price'] = format_price(order_match['forward_quantity'], order_match['backward_quantity'], supplies[order_match['forward_asset']][1], supplies[order_match['backward_asset']][1], 'BUY')
                 trade['amount'] = order_match['forward_quantity']
                 trade['total'] = order_match['backward_quantity']
             market_trades.append(trade)
