@@ -31,10 +31,6 @@ def calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divi
         decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
         return '0'
 
-def format_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility, order_type = None):
-    return calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility, order_type)
-    #return format(price, '.8f')
-
 def get_pairs_with_orders(addresses=[], max_pairs=12):
 
     pairs_with_orders = []
@@ -324,12 +320,12 @@ def get_market_trades(asset1, asset2, addresses=[], limit=100, supplies=None):
             trade['status'] = order_match['status']
             if order_match['forward_asset'] == base_asset:
                 trade['type'] = 'SELL'
-                trade['price'] = format_price(order_match['forward_quantity'], order_match['backward_quantity'], supplies[order_match['forward_asset']][1], supplies[order_match['backward_asset']][1], 'SELL')
+                trade['price'] = calculate_price(order_match['forward_quantity'], order_match['backward_quantity'], supplies[order_match['forward_asset']][1], supplies[order_match['backward_asset']][1], 'SELL')
                 trade['amount'] = order_match['forward_quantity']
                 trade['total'] = order_match['backward_quantity']
             else:
                 trade['type'] = 'BUY'
-                trade['price'] = format_price(order_match['backward_quantity'], order_match['forward_quantity'], supplies[order_match['backward_asset']][1], supplies[order_match['forward_asset']][1], 'BUY')
+                trade['price'] = calculate_price(order_match['backward_quantity'], order_match['forward_quantity'], supplies[order_match['backward_asset']][1], supplies[order_match['forward_asset']][1], 'BUY')
                 trade['amount'] = order_match['backward_quantity']
                 trade['total'] = order_match['forward_quantity']
             market_trades.append(trade)
@@ -344,12 +340,12 @@ def get_market_trades(asset1, asset2, addresses=[], limit=100, supplies=None):
             trade['status'] = order_match['status']
             if order_match['backward_asset'] == base_asset:
                 trade['type'] = 'SELL'
-                trade['price'] = format_price(order_match['backward_quantity'], order_match['forward_quantity'], supplies[order_match['backward_asset']][1], supplies[order_match['forward_asset']][1], 'SELL')
+                trade['price'] = calculate_price(order_match['backward_quantity'], order_match['forward_quantity'], supplies[order_match['backward_asset']][1], supplies[order_match['forward_asset']][1], 'SELL')
                 trade['amount'] = order_match['backward_quantity']
                 trade['total'] = order_match['forward_quantity']
             else:
                 trade['type'] = 'BUY'
-                trade['price'] = format_price(order_match['forward_quantity'], order_match['backward_quantity'], supplies[order_match['forward_asset']][1], supplies[order_match['backward_asset']][1], 'BUY')
+                trade['price'] = calculate_price(order_match['forward_quantity'], order_match['backward_quantity'], supplies[order_match['forward_asset']][1], supplies[order_match['backward_asset']][1], 'BUY')
                 trade['amount'] = order_match['forward_quantity']
                 trade['total'] = order_match['backward_quantity']
             market_trades.append(trade)
