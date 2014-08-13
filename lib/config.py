@@ -28,4 +28,5 @@ MAX_REORG_NUM_BLOCKS = 10 #max reorg we'd likely ever see
 ARMORY_UTXSVR_PORT_MAINNET = 6590
 ARMORY_UTXSVR_PORT_TESTNET = 6591
 
-QUOTE_ASSETS = ['BTC', 'XBTC', 'XCP']
+QUOTE_ASSETS = ['BTC', 'XBTC', 'XCP'] # define the priority for quote asset
+MARKET_LIST_QUOTE_ASSETS = ['XCP', 'XBTC', 'BTC'] # define the order in the market list

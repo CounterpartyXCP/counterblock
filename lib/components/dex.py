@@ -64,7 +64,7 @@ def get_pairs_with_orders(addresses=[], max_pairs=12):
     return pairs_with_orders
 
 
-def get_xcp_or_btc_pairs(asset='XCP', exclude_pairs=[], max_pairs=12, from_time=None):
+def get_pairs(quote_asset='XCP', exclude_pairs=[], max_pairs=12, from_time=None):
             
     bindings = []
     
@@ -92,17 +92,26 @@ def get_xcp_or_btc_pairs(asset='XCP', exclude_pairs=[], max_pairs=12, from_time=
         sql += ''', block_time '''
 
     sql += '''FROM order_matches '''
-    bindings += [asset, asset, asset, asset, asset]
+    bindings += [quote_asset, quote_asset, quote_asset, quote_asset, quote_asset]
 
     if from_time:
         sql += '''INNER JOIN blocks ON order_matches.block_index = blocks.block_index '''
 
-    if asset == 'XCP':
-        sql += '''WHERE ((forward_asset = ? AND backward_asset != ?) OR (forward_asset != ? AND backward_asset = ?)) '''
-        bindings += [asset, 'BTC', 'BTC', asset]
+    priority_quote_assets = []
+    for priority_quote_asset in config.QUOTE_ASSETS:
+        if priority_quote_asset != quote_asset:
+            priority_quote_assets.append(priority_quote_asset)
+        else:
+            break
+
+    if len(priority_quote_assets) > 0:
+        asset_bindings = ','.join(['?' for e in range(0,len(priority_quote_assets))])
+        sql += '''WHERE ((forward_asset = ? AND backward_asset NOT IN ({})) 
+                         OR (forward_asset NOT IN ({}) AND backward_asset = ?)) '''.format(asset_bindings, asset_bindings)
+        bindings += [quote_asset] + priority_quote_assets + priority_quote_assets + [quote_asset]
     else:
         sql += '''WHERE ((forward_asset = ?) OR (backward_asset = ?)) '''
-        bindings += [asset, asset]
+        bindings += [quote_asset, quote_asset]
 
     if len(exclude_pairs) > 0:
         sql += '''AND pair NOT IN ({}) '''.format(','.join(['?' for e in range(0,len(exclude_pairs))]))
@@ -120,18 +129,18 @@ def get_xcp_or_btc_pairs(asset='XCP', exclude_pairs=[], max_pairs=12, from_time=
     sql = '''SELECT base_asset, quote_asset, pair, SUM(bq) AS base_quantity, SUM(qq) AS quote_quantity 
              FROM ({}) 
              GROUP BY pair 
-             ORDER BY quote_quantity
+             ORDER BY quote_quantity DESC
              LIMIT ?'''.format(sql)
 
     return util.call_jsonrpc_api('sql', {'query': sql, 'bindings': bindings})['result']
 
 
-def get_xcp_and_btc_pairs(exclude_pairs=[], max_pairs=12, from_time=None):
+def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None):
 
     all_pairs = []
 
-    for currency in ['XCP', 'BTC']:
-        currency_pairs = get_xcp_or_btc_pairs(asset=currency, exclude_pairs=exclude_pairs, max_pairs=max_pairs, from_time=from_time)
+    for currency in config.MARKET_LIST_QUOTE_ASSETS:
+        currency_pairs = get_pairs(quote_asset=currency, exclude_pairs=exclude_pairs, max_pairs=max_pairs, from_time=from_time)
         for currency_pair in currency_pairs:
             if currency_pair['pair'] == 'XCP/BTC':
                 all_pairs.insert(0, currency_pair)
@@ -153,10 +162,10 @@ def get_users_pairs(addresses=[], max_pairs=12):
         exclude_pairs += [p['base_asset'] + '/' + p['quote_asset']]
         all_assets += [p['base_asset'], p['quote_asset']]
 
-    for currency in ['XCP', 'BTC']:
+    for currency in config.MARKET_LIST_QUOTE_ASSETS:
         if len(top_pairs) < max_pairs:
             limit = max_pairs - len(top_pairs)
-            currency_pairs = get_xcp_or_btc_pairs(currency, exclude_pairs, limit)
+            currency_pairs = get_pairs(currency, exclude_pairs, limit)
             for currency_pair in currency_pairs:
                 top_pair = {
                     'base_asset': currency_pair['base_asset'],
@@ -447,11 +456,11 @@ def get_markets_list(mongo_db=None):
     pairs = []
 
     # pairs with volume last 24h
-    pairs += get_xcp_and_btc_pairs(exclude_pairs=[], max_pairs=50, from_time=yesterday)
+    pairs += get_quotation_pairs(exclude_pairs=[], max_pairs=50, from_time=yesterday)
     pair_with_volume = [p['pair'] for p in pairs]
 
     # pairs without volume last 24h
-    pairs += get_xcp_and_btc_pairs(exclude_pairs=pair_with_volume, max_pairs=50)
+    pairs += get_quotation_pairs(exclude_pairs=pair_with_volume, max_pairs=50)
 
     base_assets  = [p['base_asset'] for p in pairs]
     quote_assets  = [p['quote_asset'] for p in pairs]
