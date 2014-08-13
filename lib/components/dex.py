@@ -81,13 +81,13 @@ def get_xcp_or_btc_pairs(asset='XCP', exclude_pairs=[], max_pairs=12, from_time=
                         ELSE (backward_asset || '/' || forward_asset)
                     END) AS pair,
                     (CASE
-                        WHEN forward_asset = ? THEN SUM(backward_quantity)
-                        ELSE SUM(forward_quantity)
-                    END) AS base_quantity,
+                        WHEN forward_asset = ? THEN backward_quantity
+                        ELSE forward_quantity
+                    END) AS bq,
                     (CASE
-                        WHEN backward_asset = ? THEN SUM(backward_quantity)
-                        ELSE SUM(forward_quantity)
-                    END) AS quote_quantity '''
+                        WHEN backward_asset = ? THEN backward_quantity
+                        ELSE forward_quantity
+                    END) AS qq '''
     if from_time:
         sql += ''', block_time '''
 
@@ -114,10 +114,17 @@ def get_xcp_or_btc_pairs(asset='XCP', exclude_pairs=[], max_pairs=12, from_time=
 
     sql += '''AND forward_asset != backward_asset
               AND status = ?
-              GROUP BY pair
-              ORDER BY quote_quantity DESC
               LIMIT ?'''
+
     bindings += ['completed', max_pairs]
+
+    sql = '''SELECT base_asset, quote_asset, pair, SUM(bq) AS base_quantity, SUM(qq) AS quote_quantity 
+             FROM ({}) 
+             GROUP BY pair 
+             ORDER BY quote_quantity'''.format(sql)
+
+    logging.error(sql)
+    logging.error(bindings)
 
     return util.call_jsonrpc_api('sql', {'query': sql, 'bindings': bindings})['result']
 
@@ -444,6 +451,9 @@ def get_markets_list(mongo_db=None):
 
     # pairs with volume last 24h
     pairs += get_xcp_and_btc_pairs(exclude_pairs=[], max_pairs=50, from_time=yesterday)
+
+    logging.error(pairs)
+
     pair_with_volume = [p['pair'] for p in pairs]
 
     # pairs without volume last 24h
@@ -472,7 +482,8 @@ def get_markets_list(mongo_db=None):
         market['progression'] = format(progression, ".2f")
         market['price_24h'] = format(price24h, ".8f")
         market['supply'] = supplies[pair['base_asset']][0]
-        market['divisible'] = supplies[pair['base_asset']][1]
+        market['base_divisibility'] = supplies[pair['base_asset']][1]
+        market['quote_divisibility'] = supplies[pair['quote_asset']][1]
         market['market_cap'] = format(D(market['supply']) * D(market['price']), ".4f")
         market['with_image'] = True if pair['base_asset'] in asset_with_image else False
         if market['base_asset'] == 'XCP' and market['quote_asset'] == 'BTC':
