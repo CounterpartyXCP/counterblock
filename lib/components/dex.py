@@ -113,18 +113,15 @@ def get_xcp_or_btc_pairs(asset='XCP', exclude_pairs=[], max_pairs=12, from_time=
         bindings += [from_time]
 
     sql += '''AND forward_asset != backward_asset
-              AND status = ?
-              LIMIT ?'''
+              AND status = ?'''
 
     bindings += ['completed', max_pairs]
 
     sql = '''SELECT base_asset, quote_asset, pair, SUM(bq) AS base_quantity, SUM(qq) AS quote_quantity 
              FROM ({}) 
              GROUP BY pair 
-             ORDER BY quote_quantity'''.format(sql)
-
-    logging.error(sql)
-    logging.error(bindings)
+             ORDER BY quote_quantity
+             LIMIT ?'''.format(sql)
 
     return util.call_jsonrpc_api('sql', {'query': sql, 'bindings': bindings})['result']
 
@@ -451,9 +448,6 @@ def get_markets_list(mongo_db=None):
 
     # pairs with volume last 24h
     pairs += get_xcp_and_btc_pairs(exclude_pairs=[], max_pairs=50, from_time=yesterday)
-
-    logging.error(pairs)
-
     pair_with_volume = [p['pair'] for p in pairs]
 
     # pairs without volume last 24h
