@@ -10,20 +10,26 @@ from lib import config, util
 decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
 D = decimal.Decimal
 
-def calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility):
+def calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility, order_type = None):
     if not base_divisibility:
         base_quantity *= config.UNIT
     if not quote_divisibility:
         quote_quantity *= config.UNIT
 
-    try:
-        return float(quote_quantity) / float(base_quantity)
-    except Exception, e:
-        return 0
+    try: 
+        if order_type == 'BUY':
+            decimal.setcontext(decimal.Context(prec=7, rounding=decimal.ROUND_DOWN))
+        elif order_type == 'SELL':
+            decimal.setcontext(decimal.Context(prec=7, rounding=decimal.ROUND_UP))
+        
+        price = str(D(quote_quantity) / D(base_quantity))
 
-def format_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility):
-    price = calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility)
-    return format(price, '.8f')
+        decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
+        return price
+
+    except Exception, e:
+        decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
+        return '0'
 
 def get_pairs_with_orders(addresses=[], max_pairs=12):
 
@@ -58,7 +64,7 @@ def get_pairs_with_orders(addresses=[], max_pairs=12):
     return pairs_with_orders
 
 
-def get_xcp_or_btc_pairs(asset='XCP', exclude_pairs=[], max_pairs=12, from_time=None):
+def get_pairs(quote_asset='XCP', exclude_pairs=[], max_pairs=12, from_time=None):
             
     bindings = []
     
@@ -75,28 +81,37 @@ def get_xcp_or_btc_pairs(asset='XCP', exclude_pairs=[], max_pairs=12, from_time=
                         ELSE (backward_asset || '/' || forward_asset)
                     END) AS pair,
                     (CASE
-                        WHEN forward_asset = ? THEN SUM(backward_quantity)
-                        ELSE SUM(forward_quantity)
-                    END) AS base_quantity,
+                        WHEN forward_asset = ? THEN backward_quantity
+                        ELSE forward_quantity
+                    END) AS bq,
                     (CASE
-                        WHEN backward_asset = ? THEN SUM(backward_quantity)
-                        ELSE SUM(forward_quantity)
-                    END) AS quote_quantity '''
+                        WHEN backward_asset = ? THEN backward_quantity
+                        ELSE forward_quantity
+                    END) AS qq '''
     if from_time:
         sql += ''', block_time '''
 
     sql += '''FROM order_matches '''
-    bindings += [asset, asset, asset, asset, asset]
+    bindings += [quote_asset, quote_asset, quote_asset, quote_asset, quote_asset]
 
     if from_time:
         sql += '''INNER JOIN blocks ON order_matches.block_index = blocks.block_index '''
 
-    if asset == 'XCP':
-        sql += '''WHERE ((forward_asset = ? AND backward_asset != ?) OR (forward_asset != ? AND backward_asset = ?)) '''
-        bindings += [asset, 'BTC', 'BTC', asset]
+    priority_quote_assets = []
+    for priority_quote_asset in config.QUOTE_ASSETS:
+        if priority_quote_asset != quote_asset:
+            priority_quote_assets.append(priority_quote_asset)
+        else:
+            break
+
+    if len(priority_quote_assets) > 0:
+        asset_bindings = ','.join(['?' for e in range(0,len(priority_quote_assets))])
+        sql += '''WHERE ((forward_asset = ? AND backward_asset NOT IN ({})) 
+                         OR (forward_asset NOT IN ({}) AND backward_asset = ?)) '''.format(asset_bindings, asset_bindings)
+        bindings += [quote_asset] + priority_quote_assets + priority_quote_assets + [quote_asset]
     else:
         sql += '''WHERE ((forward_asset = ?) OR (backward_asset = ?)) '''
-        bindings += [asset, asset]
+        bindings += [quote_asset, quote_asset]
 
     if len(exclude_pairs) > 0:
         sql += '''AND pair NOT IN ({}) '''.format(','.join(['?' for e in range(0,len(exclude_pairs))]))
@@ -107,20 +122,25 @@ def get_xcp_or_btc_pairs(asset='XCP', exclude_pairs=[], max_pairs=12, from_time=
         bindings += [from_time]
 
     sql += '''AND forward_asset != backward_asset
-              GROUP BY pair
-              ORDER BY quote_quantity DESC
-              LIMIT ?'''
-    bindings += [max_pairs]
+              AND status = ?'''
+
+    bindings += ['completed', max_pairs]
+
+    sql = '''SELECT base_asset, quote_asset, pair, SUM(bq) AS base_quantity, SUM(qq) AS quote_quantity 
+             FROM ({}) 
+             GROUP BY pair 
+             ORDER BY quote_quantity DESC
+             LIMIT ?'''.format(sql)
 
     return util.call_jsonrpc_api('sql', {'query': sql, 'bindings': bindings})['result']
 
 
-def get_xcp_and_btc_pairs(exclude_pairs=[], max_pairs=12, from_time=None):
+def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None):
 
     all_pairs = []
 
-    for currency in ['XCP', 'BTC']:
-        currency_pairs = get_xcp_or_btc_pairs(asset=currency, exclude_pairs=exclude_pairs, max_pairs=max_pairs, from_time=from_time)
+    for currency in config.MARKET_LIST_QUOTE_ASSETS:
+        currency_pairs = get_pairs(quote_asset=currency, exclude_pairs=exclude_pairs, max_pairs=max_pairs, from_time=from_time)
         for currency_pair in currency_pairs:
             if currency_pair['pair'] == 'XCP/BTC':
                 all_pairs.insert(0, currency_pair)
@@ -142,10 +162,10 @@ def get_users_pairs(addresses=[], max_pairs=12):
         exclude_pairs += [p['base_asset'] + '/' + p['quote_asset']]
         all_assets += [p['base_asset'], p['quote_asset']]
 
-    for currency in ['XCP', 'BTC']:
+    for currency in config.MARKET_LIST_QUOTE_ASSETS:
         if len(top_pairs) < max_pairs:
             limit = max_pairs - len(top_pairs)
-            currency_pairs = get_xcp_or_btc_pairs(currency, exclude_pairs, limit)
+            currency_pairs = get_pairs(currency, exclude_pairs, limit)
             for currency_pair in currency_pairs:
                 top_pair = {
                     'base_asset': currency_pair['base_asset'],
@@ -244,17 +264,17 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
         
         if not exclude:
             if order['give_asset'] == base_asset:
-                price = calculate_price(order['give_quantity'], order['get_quantity'], supplies[order['give_asset']][1], supplies[order['get_asset']][1])
+                price = calculate_price(order['give_quantity'], order['get_quantity'], supplies[order['give_asset']][1], supplies[order['get_asset']][1], 'SELL')
                 market_order['type'] = 'SELL'
                 market_order['amount'] = order['give_remaining']
-                market_order['total'] = int(order['give_remaining'] * price)
+                market_order['total'] = int(D(order['give_remaining']) * D(price))
             else:
-                price = calculate_price(order['get_quantity'], order['give_quantity'], supplies[order['get_asset']][1], supplies[order['give_asset']][1])
+                price = calculate_price(order['get_quantity'], order['give_quantity'], supplies[order['get_asset']][1], supplies[order['give_asset']][1], 'BUY')
                 market_order['type'] = 'BUY'
                 market_order['total'] = order['give_remaining']
-                market_order['amount'] = int(order['give_remaining'] / price)
+                market_order['amount'] = int(D(order['give_remaining']) / D(price))
 
-            market_order['price'] = format(price, '.8f')
+            market_order['price'] = price
 
             if len(addresses) > 0:
                 completed = format(((D(order['give_quantity']) - D(order['give_remaining'])) / D(order['give_quantity'])) * D(100), '.2f') 
@@ -313,12 +333,12 @@ def get_market_trades(asset1, asset2, addresses=[], limit=100, supplies=None):
             trade['status'] = order_match['status']
             if order_match['forward_asset'] == base_asset:
                 trade['type'] = 'SELL'
-                trade['price'] = format_price(order_match['forward_quantity'], order_match['backward_quantity'], supplies[order_match['forward_asset']][1], supplies[order_match['backward_asset']][1])
+                trade['price'] = calculate_price(order_match['forward_quantity'], order_match['backward_quantity'], supplies[order_match['forward_asset']][1], supplies[order_match['backward_asset']][1], 'SELL')
                 trade['amount'] = order_match['forward_quantity']
                 trade['total'] = order_match['backward_quantity']
             else:
                 trade['type'] = 'BUY'
-                trade['price'] = format_price(order_match['backward_quantity'], order_match['forward_quantity'], supplies[order_match['backward_asset']][1], supplies[order_match['forward_asset']][1])
+                trade['price'] = calculate_price(order_match['backward_quantity'], order_match['forward_quantity'], supplies[order_match['backward_asset']][1], supplies[order_match['forward_asset']][1], 'BUY')
                 trade['amount'] = order_match['backward_quantity']
                 trade['total'] = order_match['forward_quantity']
             market_trades.append(trade)
@@ -333,12 +353,12 @@ def get_market_trades(asset1, asset2, addresses=[], limit=100, supplies=None):
             trade['status'] = order_match['status']
             if order_match['backward_asset'] == base_asset:
                 trade['type'] = 'SELL'
-                trade['price'] = format_price(order_match['backward_quantity'], order_match['forward_quantity'], supplies[order_match['backward_asset']][1], supplies[order_match['forward_asset']][1])
+                trade['price'] = calculate_price(order_match['backward_quantity'], order_match['forward_quantity'], supplies[order_match['backward_asset']][1], supplies[order_match['forward_asset']][1], 'SELL')
                 trade['amount'] = order_match['backward_quantity']
                 trade['total'] = order_match['forward_quantity']
             else:
                 trade['type'] = 'BUY'
-                trade['price'] = format_price(order_match['forward_quantity'], order_match['backward_quantity'], supplies[order_match['forward_asset']][1], supplies[order_match['backward_asset']][1])
+                trade['price'] = calculate_price(order_match['forward_quantity'], order_match['backward_quantity'], supplies[order_match['forward_asset']][1], supplies[order_match['backward_asset']][1], 'BUY')
                 trade['amount'] = order_match['forward_quantity']
                 trade['total'] = order_match['backward_quantity']
             market_trades.append(trade)
@@ -436,11 +456,11 @@ def get_markets_list(mongo_db=None):
     pairs = []
 
     # pairs with volume last 24h
-    pairs += get_xcp_and_btc_pairs(exclude_pairs=[], max_pairs=50, from_time=yesterday)
+    pairs += get_quotation_pairs(exclude_pairs=[], max_pairs=50, from_time=yesterday)
     pair_with_volume = [p['pair'] for p in pairs]
 
     # pairs without volume last 24h
-    pairs += get_xcp_and_btc_pairs(exclude_pairs=pair_with_volume, max_pairs=50)
+    pairs += get_quotation_pairs(exclude_pairs=pair_with_volume, max_pairs=50)
 
     base_assets  = [p['base_asset'] for p in pairs]
     quote_assets  = [p['quote_asset'] for p in pairs]
@@ -465,7 +485,8 @@ def get_markets_list(mongo_db=None):
         market['progression'] = format(progression, ".2f")
         market['price_24h'] = format(price24h, ".8f")
         market['supply'] = supplies[pair['base_asset']][0]
-        market['divisible'] = supplies[pair['base_asset']][1]
+        market['base_divisibility'] = supplies[pair['base_asset']][1]
+        market['quote_divisibility'] = supplies[pair['quote_asset']][1]
         market['market_cap'] = format(D(market['supply']) * D(market['price']), ".4f")
         market['with_image'] = True if pair['base_asset'] in asset_with_image else False
         if market['base_asset'] == 'XCP' and market['quote_asset'] == 'BTC':
