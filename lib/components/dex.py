@@ -203,7 +203,7 @@ def merge_same_price_orders(orders):
         orders = sorted(orders, key=lambda x: float(x['price']))
         merged_orders.append(orders[0])
         for o in range(1, len(orders)):
-            if orders[o]['price'] == merged_orders[-1]['price']:
+            if float(orders[o]['price']) == float(merged_orders[-1]['price']):
                 merged_orders[-1]['amount'] += orders[o]['amount']
                 merged_orders[-1]['total'] += orders[o]['total']
             else:
