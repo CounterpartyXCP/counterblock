@@ -82,7 +82,6 @@ class ArmoryBlockchainUpdaterThread(threading.Thread):
            newTop  = TheBDM.getTopBlockHeight()
            if newTop > prevTop:
               print 'New blocks: %d  (top: %d)' % (newTop-prevTop, newTop)
-           print("polling")
            time.sleep(1.0)  # check every 1 second    
 
 if __name__ == '__main__':
