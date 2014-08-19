@@ -203,7 +203,7 @@ def merge_same_price_orders(orders):
         orders = sorted(orders, key=lambda x: float(x['price']))
         merged_orders.append(orders[0])
         for o in range(1, len(orders)):
-            if orders[o]['price'] == merged_orders[-1]['price']:
+            if float(orders[o]['price']) == float(merged_orders[-1]['price']):
                 merged_orders[-1]['amount'] += orders[o]['amount']
                 merged_orders[-1]['total'] += orders[o]['total']
             else:
@@ -268,11 +268,19 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
                 market_order['type'] = 'SELL'
                 market_order['amount'] = order['give_remaining']
                 market_order['total'] = int(D(order['give_remaining']) * D(price))
+                if not supplies[order['give_asset']][1] and supplies[order['get_asset']][1]:
+                    market_order['total'] = market_order['total'] * config.UNIT
+                elif supplies[order['give_asset']][1] and not supplies[order['get_asset']][1]:
+                    market_order['total'] = market_order['total'] / config.UNIT
             else:
                 price = calculate_price(order['get_quantity'], order['give_quantity'], supplies[order['get_asset']][1], supplies[order['give_asset']][1], 'BUY')
                 market_order['type'] = 'BUY'
                 market_order['total'] = order['give_remaining']
                 market_order['amount'] = int(D(order['give_remaining']) / D(price))
+                if supplies[order['give_asset']][1] and not supplies[order['get_asset']][1]:
+                    market_order['amount'] = int(market_order['amount'] / config.UNIT)
+                elif not supplies[order['give_asset']][1] and supplies[order['get_asset']][1]:
+                    market_order['amount'] = int(market_order['amount'] * config.UNIT)
 
             market_order['price'] = price
 
