@@ -6,6 +6,8 @@ import sys
 import logging
 import argparse
 import json
+import time
+import threading
 
 import flask
 from flask import request
@@ -66,19 +68,37 @@ def handle_post():
     rpc_response_json = json.dumps(rpc_response.data).encode()
     response = flask.Response(rpc_response_json, 200, mimetype='application/json')
     return response
-    
+
+class ArmoryBlockchainUpdaterThread(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+ 
+    def run(self):
+        #loop to check for new blocks
+        print("**** Polling for blockchain updates ...")
+        while(True):
+           prevTop = TheBDM.getTopBlockHeight()
+           TheBDM.readBlkFileUpdate()
+           newTop  = TheBDM.getTopBlockHeight()
+           if newTop > prevTop:
+              print 'New blocks: %d  (top: %d)' % (newTop-prevTop, newTop)
+           time.sleep(1.0)  # check every 1 second    
+
 if __name__ == '__main__':
+    print("**** Starting up ...")
     parser = argparse.ArgumentParser(description='Armory offline transaction generator daemon')
     parser.add_argument('--testnet', action='store_true', help='Run for testnet')
     args = parser.parse_args()
     btcdir = "/home/xcp/.bitcoin%s/" % ('-testnet/testnet3' if args.testnet else '')
 
-    print("**** Initializing armory...")
+    print("**** Initializing armory ...")
     #require armory to be installed, adding the configured armory path to PYTHONPATH
     TheBDM.btcdir = btcdir
     TheBDM.setBlocking(True)
     TheBDM.setOnlineMode(True)
+    blockchainUpdaterThread = ArmoryBlockchainUpdaterThread()
+    blockchainUpdaterThread.start()
 
-    print("**** Initializing Flask (HTTP) server...")
-    app.run(host="127.0.0.1", port=ARMORY_UTXSVR_PORT_MAINNET if not args.testnet else ARMORY_UTXSVR_PORT_TESTNET)
-    print("**** Ready to serve...")
+    print("**** Initializing Flask (HTTP) server ...")
+    app.run(host="127.0.0.1", port=ARMORY_UTXSVR_PORT_MAINNET if not args.testnet else ARMORY_UTXSVR_PORT_TESTNET, threaded=True)
+    print("**** Ready to serve ...")
