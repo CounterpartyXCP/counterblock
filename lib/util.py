@@ -47,6 +47,9 @@ def http_basic_auth_str(username, password):
     return authstr
 
 def is_valid_url(url, suffix='', allow_localhost=False, allow_no_protocol=False):
+    if url is None:
+        return False
+
     regex = re.compile(
         r'^https?://' if not allow_no_protocol else r'^(https?://)?' # http:// or https://
         r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
@@ -59,7 +62,7 @@ def is_valid_url(url, suffix='', allow_localhost=False, allow_no_protocol=False)
         if re.search(r'^https?://localhost', url, re.IGNORECASE) or re.search(r'^https?://127', url, re.IGNORECASE):
             return None
     
-    return url is not None and regex.search(url)
+    return regex.search(url)
 
 def assets_to_asset_pair(asset1, asset2):
     base, quote = None, None
