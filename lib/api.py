@@ -118,7 +118,7 @@ def serve_api(mongo_db, redis_client):
             raise Exception("txn_hashes must be a list of txn hashes, even if it just contains one hash")
         results = []
         for tx_hash in txn_hashes:
-            tx_info = blockchain.gettransaction(tx_hash);
+            tx_info = blockchain.gettransaction(tx_hash)
             if tx_info:
                 assert tx_info['txid'] == tx_hash
                 results.append({
