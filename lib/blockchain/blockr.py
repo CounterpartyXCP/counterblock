@@ -71,8 +71,11 @@ def getaddressinfo(address):
 def gettransaction(tx_hash):
     url = get_host() + '/api/v1/tx/raw/{}'.format(tx_hash)
     tx = util.get_url(url, abort_on_error=False)
-    if tx and tx.get('code') == 404:
+    assert tx and tx.get('status') and tx.get('code')
+    if tx['code'] == 404:
         return None
+    elif tx['code'] != 200:
+        raise Exception("Invalid result (code %s), body: %s" % (tx['code'], tx))
     
     if 'status' in tx and tx['status'] == 'success':
         valueOut = 0
