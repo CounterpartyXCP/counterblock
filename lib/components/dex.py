@@ -21,8 +21,8 @@ def calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divi
             decimal.setcontext(decimal.Context(prec=7, rounding=decimal.ROUND_DOWN))
         elif order_type == 'SELL':
             decimal.setcontext(decimal.Context(prec=7, rounding=decimal.ROUND_UP))
-        
-        price = str(D(quote_quantity) / D(base_quantity))
+
+        price = format(D(quote_quantity) / D(base_quantity), '.8f')
 
         decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
         return price
