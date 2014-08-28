@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-VERSION = "1.4.0" #should keep up with the counterwallet version it works with (for now at least)
+VERSION = "1.5.0" #should keep up with the counterwallet version it works with (for now at least)
 
 DB_VERSION = 22 #a db version increment will cause counterblockd to rebuild its database off of counterpartyd 
 

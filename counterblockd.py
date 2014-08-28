@@ -479,6 +479,8 @@ if __name__ == '__main__':
     tx_logger.addHandler(tx_fileh)
     tx_logger.propagate = False
     
+    logging.info("counterblock Version %s starting ..." % config.VERSION)
+    
     #Load in counterwallet config settings
     #TODO: Hardcode in cw path for now. Will be taken out to a plugin shortly...
     counterwallet_config_path = os.path.join('/home/xcp/counterwallet/counterwallet.conf.json')
@@ -509,6 +511,7 @@ if __name__ == '__main__':
     config.GEOIP = util.init_geoip()
 
     #Connect to mongodb
+    logging.info("Connecting to mongoDB backend ...")
     mongo_client = pymongo.MongoClient(config.MONGODB_CONNECT, config.MONGODB_PORT)
     mongo_db = mongo_client[config.MONGODB_DATABASE] #will create if it doesn't exist
     if config.MONGODB_USER and config.MONGODB_PASSWORD:
@@ -610,7 +613,6 @@ if __name__ == '__main__':
     mongo_db.feeds.ensure_index('owner')
     mongo_db.feeds.ensure_index('category')
     mongo_db.feeds.ensure_index('info_url')
-
     #mempool
     mongo_db.mempool.ensure_index('tx_hash')
     

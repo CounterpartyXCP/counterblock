@@ -40,6 +40,7 @@ class MessagesFeedServerNamespace(BaseNamespace):
                 #logging.info("socket.io: Sending message ID %s -- %s:%s" % (
                 #    event['_message_index'], event['_category'], event['_command']))
                 self.emit(event['_category'], event)
+
         #sock.shutdown(socket.SHUT_RDWR)
         sock.close()
 
