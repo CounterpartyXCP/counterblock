@@ -1,3 +1,5 @@
+.. default-domain:: py
+
 Interacting with the API
 =========================
 
@@ -34,26 +36,67 @@ double-hashed with SHA256 and converted to base 64.
 Read API Function Reference
 ------------------------------------
 
-.. _get_preferences:
+Asset Functions
+^^^^^^^^^^^^^^^
 
-get_preferences
-^^^^^^^^^^^^^^
+.. function:: get_normalized_balances(addresses)
 
-.. py:function:: get_preferences(wallet_id)
+  This call augments counterpartyd's get_balances with a normalized_quantity field. It also will include any owned assets for an address, even if their balance is zero. NOTE: Does not retrieve BTC balance. Use get_address_info for that.
 
-   Gets the preferences for a given wallet ID.
+  :param list addresses: List of addresses to check
+  :return: List
+  :rtype: [{'address','asset','quantity','normalized_quantity','owner'}]
 
-   :param string wallet_id: The wallet ID to retrieve the preferences for.
-   :return: A :ref:`wallet preferences object <wallet-preferences-object>` if the wallet ID had stored preferences, otherwise ``{}`` (empty object).
+Debugging Functions
+^^^^^^^^^^^^^^^^^^
+
+.. function:: get_reflected_host_info()
+
+  Allows the requesting host to get some info about itself, such as its IP. Used for troubleshooting.
+
+  :return: Client host info
+  :rtype: {'ip','cookie','country'}
+
+Blockchain Functions
+^^^^^^^^^^^^^^^^^^^^
+
+.. function:: get_chain_address_info(addresses, with_uxtos=True, with_last_txn_hashes=4, with_block_height=False)
+
+  Get info for one or more addresses
+
+  :parameter list addresses: Address to query
+  :parameter boolean with_uxtos: Include Unspent
+  :parameter int with_last_txn_hashes: Include n recent confirmed transactions
+  :param boolean with_block_height: Include block height
+  :return: Address info
+  :rtype: [{'addr','info',('uxto'),('last_txns'),('block_height')}]
+
+.. function:: get_chain_block_height()
+
+  :return: The height of the block chain
+
+.. function get_chain_txns_status(txn_hashes)
+  :param list txn_hashes: A list of one or more txn hashes
+  :return: Transaction information
+  :rtype: [{'tx_hash','blockhash','confirmations','blocktime'}]
 
 
 
-.. _action_api:
+Message Functions
+^^^^^^^^^^^^^^^^^
+
+.. function:: get_messagefeed_messages_by_index(message_indexes)
+
+  Alias for counterpartyd get_messages_by_index
+
+  :param list message_indexs: Message IDs to fetch
+  :return: A list of messages
+
+
 
 Action/Write API Function Reference
 -----------------------------------
 
-.. _store_preferences:
 
 store_preferences
 ^^^^^^^^^^^^^^^^^^
