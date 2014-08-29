@@ -59,7 +59,8 @@ def serve_api(mongo_db, redis_client):
             'testnet': config.TESTNET,
             'ip': ip,
             'country': country,
-            'quote_assets': config.QUOTE_ASSETS
+            'quote_assets': config.QUOTE_ASSETS,
+            'quick_buy_enable': True if config.VENDING_MACHINE_PROVIDER is not None else False
         }
     
     @dispatcher.add_method
@@ -1417,76 +1418,11 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def get_vennd_machine():
-        machines = [{
-            'type': 'gateway',
-            'name': 'Vennd.io',
-            'url': 'http://vennd.io',
-            'image': 'assets/vennd-logo.png',
-            'base-asset': 'XCP',
-            'quote-asset': 'BTC',
-            'buy': {
-                'title': 'Buy XCP with BTC',
-                'description': 'Send BTC and receive XCP after 3 confirmations.',
-                'price': 0.004,
-                'min-amount': 0.1,
-                'max-amount': 10.0,
-                'reserve': 100,
-                'fees': 0.01,
-                'address': 'mzRuPj1UL1GYkqHU3Ud371sWtPF2x1pgpm',
-                'confirmations-required': 3
-            }
-        }, {
-            'type': 'gateway',
-            'name': 'Vennd.io',
-            'url': 'http://vennd.io',         
-            'image': 'assets/vennd-logo.png',
-            'base-asset': 'XBTC',
-            'quote-asset': 'BTC',
-            'buy': {
-                'title': 'Buy XBTC with BTC',
-                'description': 'Send BTC and receive XBTC after 3 confirmations.',
-                'price': 1.0,
-                'min-amount': 0.1,
-                'max-amount': 10.0,
-                'reserve': 100,
-                'fees': 0.01,
-                'address': 'mzRuPj1UL1GYkqHU3Ud371sWtPF2x1pgpm',
-                'confirmations-required': 3
-            },
-            'sell': {
-                'title': 'Sell XBTC for BTC',
-                'description': 'Send XBTC and receive BTC after 3 confirmations.',
-                'price': 1.0,
-                'min-amount': 0.1,
-                'max-amount': 10.0,
-                'reserve': 100,
-                'fees': 0.01,
-                'address': 'mzRuPj1UL1GYkqHU3Ud371sWtPF2x1pgpm',
-                'confirmations-required': 3
-            }
-            
-        }, {
-            'type': 'crowdsale',
-            'name': 'Storj.io',
-            'url': 'http://storj.io',
-            'image': 'assets/storj-logo.png',
-            'base-asset': 'SJCX',
-            'quote-asset': 'BTC',
-            'start': 1406218575,
-            'end': 1408320000,
-            'amount-reached': 500,
-            'buy': {
-                'title': 'Decentralized Cloud Storage',
-                'description': 'Storj is based on the Bitcoin blockchain technology and peer-to-peer protocols to provide the most secure, private and efficient cloud storage.',
-                'min-amount': 0.1,
-                'max-amount': 10.0,
-                'reserve': 1000,
-                'fees': 0.01,
-                'address': 'mzRuPj1UL1GYkqHU3Ud371sWtPF2x1pgpm',
-                'confirmations-required': 3
-            }
-        }]
-        return machines
+        # https://gist.github.com/JahPowerBit/655bee2b35d9997ac0af
+        if config.VENDING_MACHINE_PROVIDER is not None:
+            return util.get_url(config.VENDING_MACHINE_PROVIDER)
+        else:
+            return []
     
     @dispatcher.add_method
     def get_pubkey_for_address(address):
