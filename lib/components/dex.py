@@ -142,7 +142,7 @@ def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None):
 
     for currency in config.MARKET_LIST_QUOTE_ASSETS:
         currency_pairs = get_pairs(quote_asset=currency, exclude_pairs=exclude_pairs, max_pairs=max_pairs, from_time=from_time)
-        max_pair = max_pair - len(currency_pairs)
+        max_pairs = max_pairs - len(currency_pairs)
         for currency_pair in currency_pairs:
             if currency_pair['pair'] == 'XCP/BTC':
                 all_pairs.insert(0, currency_pair)
