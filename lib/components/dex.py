@@ -19,9 +19,9 @@ def calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divi
 
     try: 
         if order_type == 'BUY':
-            decimal.setcontext(decimal.Context(prec=7, rounding=decimal.ROUND_DOWN))
+            decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_DOWN))
         elif order_type == 'SELL':
-            decimal.setcontext(decimal.Context(prec=7, rounding=decimal.ROUND_UP))
+            decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_UP))
 
         price = format(D(quote_quantity) / D(base_quantity), '.8f')
 
