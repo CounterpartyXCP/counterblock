@@ -10,6 +10,7 @@ from lib import config, util
 decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
 D = decimal.Decimal
 
+
 def calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility, order_type = None):
     if not base_divisibility:
         base_quantity *= config.UNIT
@@ -149,6 +150,7 @@ def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None):
 
     return all_pairs
 
+@util.block_cache
 def get_users_pairs(addresses=[], max_pairs=12):
     
     top_pairs = []
@@ -212,6 +214,7 @@ def merge_same_price_orders(orders):
     else:
         return orders
 
+@util.block_cache
 def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provided=0.95, max_fee_required=0.95):
 
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
@@ -308,7 +311,7 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
 
     return market_orders
 
-
+@util.block_cache
 def get_market_trades(asset1, asset2, addresses=[], limit=100, supplies=None):
 
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
@@ -461,8 +464,9 @@ def get_price_movement(base_asset, quote_asset, supplies=None):
 
     return price, trend, price24h, progression
 
+@util.block_cache
 def get_markets_list(mongo_db=None):
-
+    
     yesterday = int(time.time() - (24*60*60))
     markets = []
     pairs = []
@@ -511,7 +515,7 @@ def get_markets_list(mongo_db=None):
 
     return markets
 
-
+@util.block_cache
 def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95, mongo_db=None):
 
     yesterday = int(time.time() - (24*60*60))
