@@ -277,6 +277,7 @@ def decorate_message_for_feed(msg, msg_data=None):
     message['_message_index'] = msg['message_index']
     message['_command'] = msg['command']
     message['_block_index'] = msg['block_index']
+    message['_block_time'] = get_block_time(block_index)
     message['_category'] = msg['category']
     message['_status'] = msg_data.get('status', 'valid')
     message = decorate_message(message)
