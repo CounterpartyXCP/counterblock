@@ -118,7 +118,7 @@ def serve_api(mongo_db, redis_client):
             raise Exception("txn_hashes must be a list of txn hashes, even if it just contains one hash")
         results = []
         for tx_hash in txn_hashes:
-            tx_info = blockchain.gettransaction(tx_hash);
+            tx_info = blockchain.gettransaction(tx_hash)
             if tx_info:
                 assert tx_info['txid'] == tx_hash
                 results.append({
@@ -1413,10 +1413,7 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95):
-        try:
-          return dex.get_market_details(asset1, asset2, min_fee_provided, max_fee_required, mongo_db)
-        except Exception, e:
-          logging.error(e)
+        return dex.get_market_details(asset1, asset2, min_fee_provided, max_fee_required, mongo_db)
     
     @dispatcher.add_method
     def get_pubkey_for_address(address):

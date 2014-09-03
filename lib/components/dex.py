@@ -10,6 +10,7 @@ from lib import config, util
 decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
 D = decimal.Decimal
 
+
 def calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility, order_type = None):
     if not base_divisibility:
         base_quantity *= config.UNIT
@@ -18,11 +19,11 @@ def calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divi
 
     try: 
         if order_type == 'BUY':
-            decimal.setcontext(decimal.Context(prec=7, rounding=decimal.ROUND_DOWN))
+            decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_DOWN))
         elif order_type == 'SELL':
-            decimal.setcontext(decimal.Context(prec=7, rounding=decimal.ROUND_UP))
-        
-        price = str(D(quote_quantity) / D(base_quantity))
+            decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_UP))
+
+        price = format(D(quote_quantity) / D(base_quantity), '.8f')
 
         decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
         return price
@@ -141,6 +142,7 @@ def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None):
 
     for currency in config.MARKET_LIST_QUOTE_ASSETS:
         currency_pairs = get_pairs(quote_asset=currency, exclude_pairs=exclude_pairs, max_pairs=max_pairs, from_time=from_time)
+        max_pairs = max_pairs - len(currency_pairs)
         for currency_pair in currency_pairs:
             if currency_pair['pair'] == 'XCP/BTC':
                 all_pairs.insert(0, currency_pair)
@@ -149,6 +151,7 @@ def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None):
 
     return all_pairs
 
+@util.block_cache
 def get_users_pairs(addresses=[], max_pairs=12):
     
     top_pairs = []
@@ -212,6 +215,7 @@ def merge_same_price_orders(orders):
     else:
         return orders
 
+@util.block_cache
 def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provided=0.95, max_fee_required=0.95):
 
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
@@ -267,20 +271,24 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
                 price = calculate_price(order['give_quantity'], order['get_quantity'], supplies[order['give_asset']][1], supplies[order['get_asset']][1], 'SELL')
                 market_order['type'] = 'SELL'
                 market_order['amount'] = order['give_remaining']
-                market_order['total'] = int(D(order['give_remaining']) * D(price))
+                market_order['total'] = D(order['give_remaining']) * D(price)
                 if not supplies[order['give_asset']][1] and supplies[order['get_asset']][1]:
-                    market_order['total'] = market_order['total'] * config.UNIT
+                    market_order['total'] = int(market_order['total'] * config.UNIT)
                 elif supplies[order['give_asset']][1] and not supplies[order['get_asset']][1]:
-                    market_order['total'] = market_order['total'] / config.UNIT
+                    market_order['total'] = int(market_order['total'] / config.UNIT)
+                else:
+                    market_order['total'] = int(market_order['total'])
             else:
                 price = calculate_price(order['get_quantity'], order['give_quantity'], supplies[order['get_asset']][1], supplies[order['give_asset']][1], 'BUY')
                 market_order['type'] = 'BUY'
                 market_order['total'] = order['give_remaining']
-                market_order['amount'] = int(D(order['give_remaining']) / D(price))
+                market_order['amount'] = D(order['give_remaining']) / D(price)
                 if supplies[order['give_asset']][1] and not supplies[order['get_asset']][1]:
                     market_order['amount'] = int(market_order['amount'] / config.UNIT)
                 elif not supplies[order['give_asset']][1] and supplies[order['get_asset']][1]:
                     market_order['amount'] = int(market_order['amount'] * config.UNIT)
+                else:
+                    market_order['amount'] = int(market_order['amount'])
 
             market_order['price'] = price
 
@@ -304,7 +312,7 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
 
     return market_orders
 
-
+@util.block_cache
 def get_market_trades(asset1, asset2, addresses=[], limit=100, supplies=None):
 
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
@@ -457,18 +465,19 @@ def get_price_movement(base_asset, quote_asset, supplies=None):
 
     return price, trend, price24h, progression
 
+@util.block_cache
 def get_markets_list(mongo_db=None):
-
+    
     yesterday = int(time.time() - (24*60*60))
     markets = []
     pairs = []
 
     # pairs with volume last 24h
-    pairs += get_quotation_pairs(exclude_pairs=[], max_pairs=50, from_time=yesterday)
+    pairs += get_quotation_pairs(exclude_pairs=[], max_pairs=500, from_time=yesterday)
     pair_with_volume = [p['pair'] for p in pairs]
 
     # pairs without volume last 24h
-    pairs += get_quotation_pairs(exclude_pairs=pair_with_volume, max_pairs=50)
+    pairs += get_quotation_pairs(exclude_pairs=pair_with_volume, max_pairs=500 - len(pair_with_volume))
 
     base_assets  = [p['base_asset'] for p in pairs]
     quote_assets  = [p['quote_asset'] for p in pairs]
@@ -507,7 +516,7 @@ def get_markets_list(mongo_db=None):
 
     return markets
 
-
+@util.block_cache
 def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95, mongo_db=None):
 
     yesterday = int(time.time() - (24*60*60))

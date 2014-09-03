@@ -263,6 +263,9 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 logging.warn(str(e) + " Waiting 5 seconds before trying again...")
                 time.sleep(5)
                 continue
+
+            # clean api cache
+            util.clean_block_cache(cur_block_index)
             
             #parse out response (list of txns, ordered as they appeared in the block)
             for msg in block_data:
