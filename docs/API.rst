@@ -71,32 +71,46 @@ Asset Functions
   :param limit: Number of results to return
   :return: Array
   :rtype: {base_currency:[{
-                           '24h_ohlc_in_btc'
-                           'total_supply'
-                           'aggregated_price_in_btc'
-                           'price_in_btc'
-                           '24h_vol_price_change_in_xcp'
-                           'aggregated_price_in_xcp'
-                           '24h_summary: {'vol','count'}
-                           'price_in_xcp'
-                           'price_as_btc'
-                           'market_cap_in_btc'
-                           '24h_ohlc_in_xcp'
-                           '24h_vol_price_change_in_btc'
-                           'aggregated_price_as_xcp'
-                           'market_cap_in_xcp'
-                           'asset'
-                           'price_as_xcp'
-                           '7d_history_in_xcp'
-                           '7d_history_in_btc'
+                           '24h_ohlc_in_btc',
+                           'total_supply',
+                           'aggregated_price_in_btc',
+                           'price_in_btc',
+                           '24h_vol_price_change_in_xcp',
+                           'aggregated_price_in_xcp',
+                           '24h_summary: {'vol','count'},
+                           'price_in_xcp',
+                           'price_as_btc',
+                           'market_cap_in_btc',
+                           '24h_ohlc_in_xcp',
+                           '24h_vol_price_change_in_btc',
+                           'aggregated_price_as_xcp',
+                           'market_cap_in_xcp',
+                           'asset',
+                           'price_as_xcp',
+                           '7d_history_in_xcp',
+                           '7d_history_in_btc',
                            'aggregated_price_as_btc'}]}
+
+.. function:: get_market_price_history(asset1, asset2, start_ts=None, end_ts=None, as_dict=False)
+
+   Return block-by-block aggregated market history data for the specified asset pair, within the specified date range.
+
+   :param asset1: An asset
+   :param asset2: An asset                            .
+   :param start_ts: Unix timestamp
+   :param end_ts: Unix timestamp
+   :param as_dict: Return as list of list or list of dicts
+   :return: List of lists or dicts
+   :rtype: [{'block_time','block_index','open','high','low','close','vol','count'}]
+
+
 
 .. function:: get_market_price_summary(asset1, asset2, with_last_trades=0)
 
   :param asset1: An asset
   :param asset2: An asset
   :param with_last_trades: Include last trades
-  :return Array:
+  :return: Array
   :rtype: {'quote_asset','base_asset','market_price',('last_trades')}
 
 .. function:: get_normalized_balances(addresses)
@@ -106,6 +120,48 @@ Asset Functions
   :param list addresses: List of addresses to check
   :return: List
   :rtype: [{'address','asset','quantity','normalized_quantity','owner'}]
+
+.. function:: get_order_book_buysell(buy_asset, sell_asset, pct_fee_provided=None, pct_fee_required=None)
+
+   :param buy_asset: Asset
+   :param sell_asset: Asset
+   :param pct_fee_provided: A minimum fee level in satoshis
+   :param pct_fee_required: A minimum fee level in satoshis
+   :return: Object
+   :rtype: {'base_bid_book':[{'count','depth','unit_price','quantity'}],
+            'bid_depth',
+            'raw_orders:[{
+              'status',
+              'tx_hash',
+              'give_quantity',
+              '_is_online',
+              'fee_provided',
+              'source',
+              'give_asset',
+              'expire_index',
+              'fee_required_remaining',
+              'block_index',
+              'tx_index',
+              'give_remaining',
+              'block_time',
+              'get_asset',
+              'expiration',
+              'fee_required',
+              'get_remaining',
+              'get_quantity',
+              'fee_provided_remaining'}],
+             'bid_ask_median',
+             'quote_asset',
+             'base_asset',
+             'ask_depth',
+             'bid_ask_spread',
+             'base_ask_book':[{'count','depth','unit_price','quantity'}],
+             'id'}
+
+
+
+
+
 
 
 
@@ -175,6 +231,50 @@ Transaction Functions
       :param limit: the maximum number of transactions to return; defaults to ten thousand
       :return: Returns the data, ordered from newest txn to oldest. If any limit is applied, it will cut back from the oldest results
       :rtype: {id: {status, tx_hash, _divisible, _tx_index, block_index, _category, destination, tx_index, _block_time, source, asset, _command, quantity}}
+
+.. function::  get_trade_history(asset1=None, asset2=None, start_ts=None, end_ts=None, limit=50)
+
+    Gets last N of trades within a specific date range (normally, for a specified asset pair, but this can be left blank to get any/all trades).
+
+    :param asset1: An asset
+    :param asset2: An asset
+    :param start_ts: Unix timestamp
+    :param end_ts: Unix timestamp
+    :param limit: Number of trades to return
+    :return: Array of length `n`
+    :rtype: [{'base_quantity',
+            'message_index',
+            'order_match_tx1_index',
+            'base_asset',
+            'quote_quantity',
+            'order_match_tx0_address',
+            'unit_price',
+            'base_quantity_normalized',
+            'block_index',
+            'block_time',
+            'quote_quantity_normalized',
+            'unit_price_inverse',
+            'order_match_tx0_index',
+            'order_match_id',
+            'order_match_tx1_address',
+            'quote_asset'}]
+
+.. function:: get_transaction_stats(start_ts=None, end_ts=None)
+
+   This function returns the number of transactions in each 24 hour clock within the given time range, or the last 360 days if no time range is given.
+
+   :param start_ts: Unix timestamp
+   :param end_ts: Unix timestamp
+   :return: The number of transactions in each time interval.
+   :rtype: [[`unix timestamp *in milliseconds* (e.g. 1000 * a typical unix timestamp)`, `transaction count`]]
+
+
+
+Wallet Functions
+^^^^^^^^^^^^^^^^
+
+
+
 
 
 Action/Write API Function Reference
