@@ -203,10 +203,10 @@ def get_users_pairs(addresses=[], max_pairs=12):
 def merge_same_price_orders(orders):   
     if len(orders) > 1:
         merged_orders = []
-        orders = sorted(orders, key=lambda x: float(x['price']))
+        orders = sorted(orders, key=lambda x: D(x['price']))
         merged_orders.append(orders[0])
         for o in range(1, len(orders)):
-            if float(orders[o]['price']) == float(merged_orders[-1]['price']):
+            if D(orders[o]['price']) == D(merged_orders[-1]['price']):
                 merged_orders[-1]['amount'] += orders[o]['amount']
                 merged_orders[-1]['total'] += orders[o]['total']
             else:
@@ -555,8 +555,8 @@ def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0
         'supply': supplies[base_asset][0],
         'base_asset_divisible': supplies[base_asset][1],
         'quote_asset_divisible': supplies[quote_asset][1],
-        'buy_orders': sorted(buy_orders, key=lambda x: x['price'], reverse=True),
-        'sell_orders': sorted(sell_orders, key=lambda x: x['price']),
+        'buy_orders': sorted(buy_orders, key=lambda x: D(x['price']), reverse=True),
+        'sell_orders': sorted(sell_orders, key=lambda x: D(x['price'])),
         'last_trades': last_trades,
         'base_asset_infos': ext_info
     }

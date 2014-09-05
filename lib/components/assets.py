@@ -11,6 +11,9 @@ ASSET_MAX_RETRY = 3
 D = decimal.Decimal
 
 def parse_issuance(db, message, cur_block_index, cur_block):
+    if message['status'] != 'valid':
+        return
+
     def modify_extended_asset_info(asset, description):
         """adds an asset to asset_extended_info collection if the description is a valid json link. or, if the link
         is not a valid json link, will remove the asset entry from the table if it exists"""
