@@ -486,7 +486,7 @@ def block_cache(func):
 
         cached_result = config.mongo_db.counterblockd_cache.find_one({'block_index': block_index, 'function': function_signature})
 
-        if not cached_result:
+        if not cached_result or config.TESTNET:
             #logging.info("generate cache ({}, {}, {})".format(func.__name__, block_index, function_signature))
             try:
                 result = func(*args, **kwargs)
