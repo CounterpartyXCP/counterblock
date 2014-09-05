@@ -457,7 +457,10 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             #get the current blockchain service block
             if config.BLOCKCHAIN_SERVICE_LAST_BLOCK == 0 or config.BLOCKCHAIN_SERVICE_LAST_BLOCK - config.CURRENT_BLOCK_INDEX < config.MAX_REORG_NUM_BLOCKS:
                 #update as CURRENT_BLOCK_INDEX catches up with BLOCKCHAIN_SERVICE_LAST_BLOCK and/or surpasses it (i.e. if blockchain service gets behind for some reason)
-                block_height_response = blockchain.getinfo()
+                try:
+                    block_height_response = blockchain.getinfo()
+                except:
+                    block_height_response = None
                 config.BLOCKCHAIN_SERVICE_LAST_BLOCK = block_height_response['info']['blocks'] if block_height_response else 0
             logging.info("Block: %i (message_index height=%s) (blockchain latest block=%s)" % (config.CURRENT_BLOCK_INDEX,
                 config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX != -1 else '???',
