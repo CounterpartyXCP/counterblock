@@ -203,9 +203,7 @@ def get_users_pairs(addresses=[], max_pairs=12):
 def merge_same_price_orders(orders):   
     if len(orders) > 1:
         merged_orders = []
-        logging.error(orders);
         orders = sorted(orders, key=lambda x: D(x['price']))
-        logging.error(orders);
         merged_orders.append(orders[0])
         for o in range(1, len(orders)):
             if D(orders[o]['price']) == D(merged_orders[-1]['price']):
