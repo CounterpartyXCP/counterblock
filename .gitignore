@@ -39,3 +39,9 @@ schema.py
 # MACOS Files
 .DS_Store
 ._.*
+
+#IntelliJ
+.idea
+
+#Docs 
+docs/_build
