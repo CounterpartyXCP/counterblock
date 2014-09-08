@@ -92,8 +92,7 @@ Asset Functions
    :param asset2: An asset
    :param limit: Max # of records to return
    :return: Market info for the given pair
-   :rtype: {'24h_vol_in_btc','open_orders_count','lowest_ask','base_asset','completed_trades_count','24h_pct_change','vol_quote','highest_bid','24h_vol_in_xcp','vol_base','last_updated','quote_asset'}
-
+   :rtype: {'24h_vol_in_btc', 'open_orders_count', 'lowest_ask', 'base_asset', 'completed_trades_count', '24h_pct_change', 'vol_quote', 'highest_bid', '24h_vol_in_xcp', 'vol_base', 'last_updated', 'quote_asset'}
 
 .. function:: get_balance_history(asset, addresses, normalize=True, start_ts=None, end_ts=None)
 
@@ -110,7 +109,7 @@ Asset Functions
   :param asset1: An asset
   :param asset2: An asset
   :return Array:
-  :rtype: {'base_asset','quote_asset','pair_name'}
+  :rtype: {'base_asset', 'quote_asset', 'pair_name'}
 
 .. function:: get_escrowed_balance(addresses)
 
@@ -129,7 +128,7 @@ Asset Functions
 
   :param list assets: Assets to check
   :return: Array
-  :rtype: {'24h_hlc_in_btc','extended_description','extended_pgpsig','aggregated_price_as_btc','price_in_btc','24h_summary':{'vol','count'}, 'market_cap_in_btc','asset','price_as_xcp', '7d_history_in_btc':[[ts, price]], '24h_vol_price_change_in_xcp','price_in_xcp','extended_website','24h_vol_price_change_in_btc','aggregated_price_as_xcp','market_cap_in_xcp','7d_history_in_xcp':[[ts, price]],'aggregated_price_in_btc','aggregated_price_in_xcp','price_as_btc','total_supply','24h_ohlc_xcp','extended_image'}
+  :rtype: {'24h_hlc_in_btc', 'extended_description', 'extended_pgpsig', 'aggregated_price_as_btc', 'price_in_btc', '24h_summary':{'vol', 'count'}, 'market_cap_in_btc', 'asset', 'price_as_xcp', '7d_history_in_btc':[[ts, price]], '24h_vol_price_change_in_xcp', 'price_in_xcp', 'extended_website', '24h_vol_price_change_in_btc', 'aggregated_price_as_xcp', 'market_cap_in_xcp', '7d_history_in_xcp':[[ts, price]], 'aggregated_price_in_btc', 'aggregated_price_in_xcp', 'price_as_btc', 'total_supply', '24h_ohlc_xcp', 'extended_image'}
 
 .. function:: get_market_info_leaderboard(limit=100)
 
@@ -142,7 +141,7 @@ Asset Functions
                                      'price_in_btc',
                                      '24h_vol_price_change_in_xcp',
                                      'aggregated_price_in_xcp',
-                                     '24h_summary: {'vol','count'},
+                                     '24h_summary: {'vol', 'count'},
                                      'price_in_xcp',
                                      'price_as_btc',
                                      'market_cap_in_btc',
@@ -166,20 +165,20 @@ Asset Functions
     'trend',
     'price_24h',
     'price',
-    'sell_orders': [{'fee_required','amount','total','type','price'}],
+    'sell_orders': [{'fee_required', 'amount', 'total', 'type', 'price'}],
     'quote_asset_divisible',
-    'buy_orders': [{'amount','total','type','price','fee_provided'}],
-    'last_trades': [{'status','match_id','countersource','source','price','block_index','amount','block_time','total','type'}],
+    'buy_orders': [{'amount', 'total', 'type', 'price', 'fee_provided'}],
+    'last_trades': [{'status', 'match_id', 'countersource', 'source', 'price', 'block_index', 'amount', 'block_time', 'total', 'type'}],
     'base_asset_infos',
     'base_asset_divisible',
-    'quote_asset'}
+    'quote_asset'} 
     
 
-.. function:: get_market_list()
+.. function:: get_markets_list()
 
   Returns available markets
   
-  :rtype: [{'market_cap','base_asset','progression','supply','trend','price_24h','price',' quote_divisibility','pos','volume','with_image','base_divisibility','quote_asset'}]
+  :rtype: [{'market_cap', 'base_asset', 'progression', 'supply', 'trend', 'price_24h', 'price', ' quote_divisibility', 'pos', 'volume', 'with_image', 'base_divisibility', 'quote_asset'}]
 
 .. function:: get_market_price_history(asset1, asset2, start_ts=None, end_ts=None, as_dict=False)
 
@@ -191,14 +190,14 @@ Asset Functions
    :param end_ts: Unix timestamp
    :param as_dict: Return as list of list or list of dicts
    :return: List of lists or dicts
-   :rtype: [{'block_time','block_index','open','high','low','close','vol','count'}]
-
+   :rtype: [{'block_time', 'block_index', 'open', 'high', 'low', 'close', 'vol', 'count'}]
 
 .. function:: get_market_orders(asset1, asset2, addresses=[], min_fee_provided=0.95, max_fee_required=0.95)
 
   Returns orders for the search parameters
 
-  :rtype: [{'completion','tx_hash','fee_provided','block_index','price','tx_index','source','amount','block_time','total','type'}]
+  :rtype: [{'completion', 'tx_hash', 'fee_provided', 'block_index', 'price', 'tx_index', 'source', 'amount', 'block_time', 'total', 'type'}]
+
 
 .. function:: get_market_price_summary(asset1, asset2, with_last_trades=0)
 
@@ -206,14 +205,13 @@ Asset Functions
   :param asset2: An asset
   :param with_last_trades: Include last trades
   :return: Array
-  :rtype: {'quote_asset','base_asset','market_price',('last_trades')}
+  :rtype: {'quote_asset', 'base_asset', 'market_price',('last_trades')}
 
-    
 .. function:: get_market_trades(asset1, asset2, addresses=[], limit=100)
 
   Returns completed trades for the search parameters
-  
-  :rtype: [{'status','match_id','countersource','block_index','price','source','amount','block_time','total','type'}]
+
+  :rtype: [{'status', 'match_id', 'countersource', 'block_index', 'price', 'source', 'amount', 'block_time', 'total', 'type'}]
 
 .. function:: get_normalized_balances(addresses)
 
@@ -221,7 +219,7 @@ Asset Functions
 
   :param list addresses: List of addresses to check
   :return: List
-  :rtype: [{'address','asset','quantity','normalized_quantity','owner'}]
+  :rtype: [{'address', 'asset', 'quantity', 'normalized_quantity', 'owner'}]
 
 .. function:: get_order_book_buysell(buy_asset, sell_asset, pct_fee_provided=None, pct_fee_required=None)
 
@@ -230,7 +228,7 @@ Asset Functions
    :param pct_fee_provided: A minimum fee level in satoshis
    :param pct_fee_required: A minimum fee level in satoshis
    :return: Object
-   :rtype: {'base_bid_book':[{'count','depth','unit_price','quantity'}],
+   :rtype: {'base_bid_book':[{'count', 'depth', 'unit_price', 'quantity'}],
             'bid_depth',
             'raw_orders:[{
             'status',
@@ -257,7 +255,7 @@ Asset Functions
             'base_asset',
             'ask_depth',
             'bid_ask_spread',
-            'base_ask_book':[{'count','depth','unit_price','quantity'}],
+            'base_ask_book':[{'count', 'depth', 'unit_price', 'quantity'}],
             'id'}
 
 .. function:: get_order_book_simple(asset1, asset2, min_pct_fee_provided=None, max_pct_fee_required=None)
@@ -269,7 +267,7 @@ Asset Functions
     :param pct_fee_provided: A minimum fee level in satoshis
     :param pct_fee_required: A minimum fee level in satoshis
     :return: Object
-    :rtype: {'base_bid_book':[{'count','depth','unit_price','quantity'}],
+    :rtype: {'base_bid_book':[{'count', 'depth', 'unit_price', 'quantity'}],
       'bid_depth',
       'raw_orders:[{
       'status',
@@ -296,7 +294,7 @@ Asset Functions
       'base_asset',
       'ask_depth',
       'bid_ask_spread',
-      'base_ask_book':[{'count','depth','unit_price','quantity'}],
+      'base_ask_book':[{'count', 'depth', 'unit_price', 'quantity'}],
       'id'}
 
 .. function:: get_owned_assets(addresses)
@@ -305,16 +303,13 @@ Asset Functions
 
   :param addresses: An array of addresses.
   :return: Information on owned assets
-  :rtype: [{'_change_type','locked','description','_at_block','divisible','total_issued_normalized','_at_block_time','asset','total_issued','owner', history:[]]
+  :rtype: [{'_change_type', 'locked', 'description', '_at_block', 'divisible', 'total_issued_normalized', '_at_block_time', 'asset', 'total_issued', 'owner', history:[]]
 
 .. function:: get_users_pairs(addresses=[], max_pairs=12)
 
   Return pairs held by the addresses.
 
-  :rtype: [{'base_asset','progression','trend','price_24h','price','quote_asset'}]
-
-
-
+  :rtype: [{'base_asset', 'progression', 'trend', 'price_24h', 'price', 'quote_asset'}]
 
 Betting Functions
 ^^^^^^^^^^^^^^^^^
@@ -371,13 +366,13 @@ Betting Functions
 .. function:: get_feed(address_or_url='')
 
   :param address_or_url: Feed URL or Bitcoin Address
-    :rtype: {'broadcasts':[{'status','tx_hash','locked','timestamp','source','text','tx_index','value','block_index','fee_fraction_int'}],'counters':{'bets':[]}
-    
+  :rtype: {'broadcasts':[{'status', 'tx_hash', 'locked', 'timestamp', 'source', 'text', 'tx_index', 'value', 'block_index', 'fee_fraction_int'}], 'counters':{'bets':[]}
+
 .. function:: get_feeds_by_source(addresses=[])
 
   :param addresses: Address list
-  :rtype: {<address>:{'errors':[], 'locked','info_url','info_data':{}, 'fetch_info_retry','source','info_status','fee_fraction_int','last_broadcast':{}}}
-  
+  :rtype: {<address>:{'errors':[], 'locked', 'info_url', 'info_data':{}, 'fetch_info_retry', 'source', 'info_status', 'fee_fraction_int', 'last_broadcast':{}}}
+
 .. function:: parse_base64_feed(base64_feed):
 
   Takes a base64-encoded feed and decodes it.
@@ -412,8 +407,8 @@ RPS Betting Functions
   
 .. function:: get_user_rps(addresses):
 
-  :rtype: [{'tx_hash','block_index','move','status','expiration','address', 'possible_moves','wager','counter_move'}]
-    
+  :rtype: [{'tx_hash', 'block_index', 'move', 'status', 'expiration', 'address', 'possible_moves', 'wager', 'counter_move'}]
+
 
 Debugging/Server Functions
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -427,7 +422,7 @@ Debugging/Server Functions
 
 .. function:: get_chat_handle(wallet_id)
 
-  :rtype: {'handle','is_op','last_updated', 'banned_until'}
+  :rtype: {'handle', 'is_op', 'last_updated', 'banned_until'}
 
 .. function:: get_chat_history(start_ts=None, end_ts=None, handle=None, limit=1000)
 
@@ -442,7 +437,7 @@ Debugging/Server Functions
   Allows the requesting host to get some info about itself, such as its IP. Used for troubleshooting.
 
   :return: Client host info
-  :rtype: {'ip','cookie','country'}
+  :rtype: {'ip', 'cookie', 'country'}
 
 .. function:: is_chat_handle_in_use(handle)
 
@@ -464,19 +459,20 @@ Blockchain Functions
   :parameter int with_last_txn_hashes: Include n recent confirmed transactions
   :param boolean with_block_height: Include block height
   :return: Address info
-  :rtype: [{'addr','info',('uxto'),('last_txns'),('block_height')}]
+  :rtype: [{'addr', 'info',('uxto'),('last_txns'),('block_height')}]
+
 
 .. function:: get_chain_block_height()
 
   :return: The height of the block chain
 
-.. function get_chain_txns_status
+.. function:: get_chain_txns_status
 
   :param list txn_hashes: A list of one or more txn hashes
   :return: Transaction information
-  :rtype: [{'tx_hash','blockhash','confirmations','blocktime'}]
+  :rtype: [{'tx_hash', 'blockhash', 'confirmations', 'blocktime'}]
 
-.. function get_pubkey_for_address(address)
+.. function:: get_pubkey_for_address(address)
 
   Returns None if the address has made 0 transactions (as we wouldn't be able to get the public key)
 
@@ -500,7 +496,7 @@ Message Functions
   Alias for counterpartyd get_messages_by_index
 
   :param list message_indexs: Message IDs to fetch
-            :return: A list of messages
+  :return: A list of messages
 
 Transaction Functions
 ^^^^^^^^^^^^^^^^^^^^^
@@ -574,7 +570,7 @@ Wallet Functions
    :param start_ts: Unix timestamp
    :param end_ts: Unix timestamp
    :return: Wallet information
-   :rtype: {'wallet_stats':[id: {'data': [{}], 'name'}],'num_wallets_testnet','num_wallets_mainnet','num_wallets_unknown'}
+   :rtype: {'wallet_stats':[id: {'data': [{}], 'name'}], 'num_wallets_testnet', 'num_wallets_mainnet', 'num_wallets_unknown'}
 
 .. function:: is_wallet_online(wallet_id)
 
@@ -600,9 +596,13 @@ Action/Write API Function Reference
 
 .. function:: cancel_btc_open_order(wallet_id, order_tx_hash)
 
-.. function:: proxy_to_counterpartyd(method='', params=[])
+.. function:: proxy_to_counterpartyd(method='', params={})
 
-  It's APInception. Relays a request to the counterpartyd server, with the given method and params, and returns the result. See the counterpartyd API documentation for available methods.
+  :param method: Method name to call in counterpartyd.
+  :param params: Array of function parameters.
+  :returns: The method response from counterpartyd
+
+  Relays a request to the counterpartyd server, with the given method and params, and returns the result. See the `counterpartyd API documentation <http://counterpartyd.readthedocs.org/en/latest/API.html>`_ for available methods.
 
 .. function:: record_btc_open_order(wallet_id, order_tx_hash)
 
