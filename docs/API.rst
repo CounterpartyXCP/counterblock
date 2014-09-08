@@ -156,9 +156,9 @@ Asset Functions
                                      'aggregated_price_as_btc'}]}
 
 .. function:: get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95)
-  
+
   Return detailed information on a market.
-  
+
   :rtype: {'base_asset',
     'progression',
     'supply',
@@ -171,13 +171,13 @@ Asset Functions
     'last_trades': [{'status', 'match_id', 'countersource', 'source', 'price', 'block_index', 'amount', 'block_time', 'total', 'type'}],
     'base_asset_infos',
     'base_asset_divisible',
-    'quote_asset'} 
-    
+    'quote_asset'}
+
 
 .. function:: get_markets_list()
 
   Returns available markets
-  
+
   :rtype: [{'market_cap', 'base_asset', 'progression', 'supply', 'trend', 'price_24h', 'price', ' quote_divisibility', 'pos', 'volume', 'with_image', 'base_divisibility', 'quote_asset'}]
 
 .. function:: get_market_price_history(asset1, asset2, start_ts=None, end_ts=None, as_dict=False)
@@ -324,11 +324,11 @@ Betting Functions
   :rtype: [{'tx_hash'
     'feed_address',
     'wager_quantity',
-    'leverage', 
+    'leverage',
     'source',
-    'expire_index', 
-    'status', 
-    'tx_index', 
+    'expire_index',
+    'status',
+    'tx_index',
     'block_index',
     'counterwager_quantity',
     'deadline',
@@ -339,7 +339,7 @@ Betting Functions
     'wager_remaining',
     'target_value'
     }]
-          
+
 .. function:: get_user_bets(addresses=[], status="open")
 
   :param addresses: List of addresses
@@ -347,11 +347,11 @@ Betting Functions
   :rtype: [{'tx_hash'
         'feed_address',
         'wager_quantity',
-        'leverage', 
+        'leverage',
         'source',
-        'expire_index', 
-        'status', 
-        'tx_index', 
+        'expire_index',
+        'status',
+        'tx_index',
         'block_index',
         'counterwager_quantity',
         'deadline',
@@ -376,15 +376,15 @@ Betting Functions
 .. function:: parse_base64_feed(base64_feed):
 
   Takes a base64-encoded feed and decodes it.
-  
-  :rtype: [{'tx_hash' 
+
+  :rtype: [{'tx_hash'
       'feed_address',
       'wager_quantity',
-      'leverage', 
+      'leverage',
       'source',
-      'expire_index', 
-      'status', 
-      'tx_index', 
+      'expire_index',
+      'status',
+      'tx_index',
       'block_index',
       'counterwager_quantity',
       'deadline',
@@ -395,16 +395,16 @@ Betting Functions
       'wager_remaining',
       'target_value'
       }]
-      
+
 RPS Betting Functions
 ^^^^^^^^^^^^^^^^^^^^^
 
 .. function:: get_open_rps_count(possible_moves=3, exclude_addresses=[])
-  
+
   Get the open RPS bets matching the given parameters, except those from `exclude_addresses`
-  
+
   :rtype: [<total wager>, <game count>]
-  
+
 .. function:: get_user_rps(addresses):
 
   :rtype: [{'tx_hash', 'block_index', 'move', 'status', 'expiration', 'address', 'possible_moves', 'wager', 'counter_move'}]
