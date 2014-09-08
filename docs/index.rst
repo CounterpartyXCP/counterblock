@@ -16,7 +16,7 @@ Such services include:
 Contents:
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
 
    API
 
