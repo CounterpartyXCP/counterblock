@@ -40,8 +40,5 @@ schema.py
 .DS_Store
 ._.*
 
-#IntelliJ
-.idea
-
 #Docs 
 docs/_build
