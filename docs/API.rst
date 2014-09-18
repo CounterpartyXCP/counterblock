@@ -86,6 +86,10 @@ Asset Functions
 
 .. function:: get_asset_pair_market_info(asset1=None, asset2=None, limit=50):
 
+
+   .. deprecated:: 1.5
+      Use `get_market_details/get_market_info`
+
    Given two arbitrary assets, returns the base asset and the quote asset.
 
    :param asset1: An asset
@@ -105,6 +109,9 @@ Asset Functions
 .. function:: get_base_quote_asset(asset1, asset2)
 
   Given two arbitrary assets, returns the base asset and the quote asset.
+
+  .. deprecated:: 1.5
+    Use `get_market_info/get_market_details`
 
   :param asset1: An asset
   :param asset2: An asset
@@ -201,6 +208,9 @@ Asset Functions
 
 .. function:: get_market_price_summary(asset1, asset2, with_last_trades=0)
 
+  .. deprecated:: 1.5
+    Use `get_market_price_history`
+
   :param asset1: An asset
   :param asset2: An asset
   :param with_last_trades: Include last trades
@@ -222,6 +232,10 @@ Asset Functions
   :rtype: [{'address', 'asset', 'quantity', 'normalized_quantity', 'owner'}]
 
 .. function:: get_order_book_buysell(buy_asset, sell_asset, pct_fee_provided=None, pct_fee_required=None)
+
+   .. deprecated:: 1.5
+      Use counterpartyd's `get_orders`
+
 
    :param buy_asset: Asset
    :param sell_asset: Asset
@@ -259,6 +273,9 @@ Asset Functions
             'id'}
 
 .. function:: get_order_book_simple(asset1, asset2, min_pct_fee_provided=None, max_pct_fee_required=None)
+
+    .. deprecated:: 1.5
+      Use counterpartyd's `get_orders`
 
     Easier to call version when you want all orders involving the two assets.
 
@@ -426,6 +443,7 @@ Debugging/Server Functions
 
 .. function:: get_chat_history(start_ts=None, end_ts=None, handle=None, limit=1000)
 
+   .. deprecated:: 1.5
 
 .. function:: get_num_users_online()
 
@@ -440,10 +458,16 @@ Debugging/Server Functions
   :rtype: {'ip', 'cookie', 'country'}
 
 .. function:: is_chat_handle_in_use(handle)
-
+  .. deprecated:: 1.5
   :rtype: Boolean
 
+.. function:: is_ready()
 
+    Used by the client to check if the server is alive, caught up, and ready to accept requests.
+    If the server is NOT caught up, a 525 error will be returned actually before hitting this point. Thus,
+    if we actually return data from this function, it should always be true. (may change this behaviour later)
+
+    :rtype: Boolean
 
 
 
@@ -463,6 +487,9 @@ Blockchain Functions
 
 
 .. function:: get_chain_block_height()
+
+  .. deprecated:: 1.5
+    Use `get_chain_address_info`
 
   :return: The height of the block chain
 
@@ -595,6 +622,9 @@ Action/Write API Function Reference
 
 
 .. function:: cancel_btc_open_order(wallet_id, order_tx_hash)
+
+    .. deprecated:: 1.5
+
 
 .. function:: proxy_to_counterpartyd(method='', params={})
 
