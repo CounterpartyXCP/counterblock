@@ -670,3 +670,26 @@ An object that stores the Counterwallet preferences for the given wallet ID.
 * **address_aliases** (*list*): A list of zero or objects, with each object having an ``address`` string property,
   being the Bitcoin base56 address, and an ``alias`` string property, being the textual alias (i.e. nickname)
   for this address. Using aliases helps make the wallet more user-friendly.
+
+
+
+API Changes
+-------------
+
+This section documents any changes to the ``counterblockd`` API, for version numbers where there were API-level modifications.
+
+1.5
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+
+**Summary:** Deprecated several redundant/unused functions for removal in a future version. Any code calling these functions should be re-written. Refer to the documentation of the individual functions for replacements.
+
+* ``cancel_btc_open_order``
+* ``get_asset_pair_market_info``
+* ``get_base_quote_asset``
+* ``get_chain_block_height``
+* ``get_chat_history``
+* ``get_market_price_summary``
+* ``get_order_book_buysell``
+* ``get_order_book_simple``
+* ``is_chat_handle_in_use``
