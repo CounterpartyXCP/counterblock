@@ -67,6 +67,9 @@ if __name__ == '__main__':
 
     parser.add_argument('--armory-utxsvr-enable', help='enable use of armory_utxsvr service (for signing offline armory txns')
 
+    #Vending machine provider
+    parser.add_argument('--vending-machine-provider', help='JSON url containing vending machines list')
+
     #THINGS WE HOST
     parser.add_argument('--rpc-host', help='the IP of the interface to bind to for providing JSON-RPC API access (0.0.0.0 for all interfaces)')
     parser.add_argument('--rpc-port', type=int, help='port on which to provide the counterblockd JSON-RPC API')
@@ -272,6 +275,12 @@ if __name__ == '__main__':
     else:
         config.ARMORY_UTXSVR_ENABLE = False
 
+    if args.vending_machine_provider:
+        config.VENDING_MACHINE_PROVIDER = args.vending_machine_provider
+    elif has_config and configfile.has_option('Default', 'vending-machine-provider') and configfile.get('Default', 'vending-machine-provider'):
+        config.VENDING_MACHINE_PROVIDER = configfile.get('Default', 'vending-machine-provider')
+    else:
+        config.VENDING_MACHINE_PROVIDER = None
 
     ##############
     # THINGS WE SERVE

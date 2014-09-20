@@ -59,7 +59,8 @@ def serve_api(mongo_db, redis_client):
             'testnet': config.TESTNET,
             'ip': ip,
             'country': country,
-            'quote_assets': config.QUOTE_ASSETS
+            'quote_assets': config.QUOTE_ASSETS,
+            'quick_buy_enable': True if config.VENDING_MACHINE_PROVIDER is not None else False
         }
     
     @dispatcher.add_method
@@ -83,6 +84,7 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def get_chain_block_height():
+        #DEPRECATED 1.5
         data = blockchain.getinfo()
         return data['info']['blocks']
 
@@ -403,6 +405,7 @@ def serve_api(mongo_db, redis_client):
     def get_base_quote_asset(asset1, asset2):
         """Given two arbitrary assets, returns the base asset and the quote asset.
         """
+        #DEPRECATED 1.5
         base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
         base_asset_info = mongo_db.tracked_assets.find_one({'asset': base_asset})
         quote_asset_info = mongo_db.tracked_assets.find_one({'asset': quote_asset})
@@ -419,6 +422,7 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def get_market_price_summary(asset1, asset2, with_last_trades=0):
+        #DEPRECATED 1.5
         result = assets_trading.get_market_price_summary(asset1, asset2, with_last_trades)
         return result if result is not None else False
         #^ due to current bug in our jsonrpc stack, just return False if None is returned
@@ -804,6 +808,7 @@ def serve_api(mongo_db, redis_client):
     
     @dispatcher.add_method
     def get_order_book_simple(asset1, asset2, min_pct_fee_provided=None, max_pct_fee_required=None):
+        #DEPRECATED 1.5
         base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
         result = _get_order_book(base_asset, quote_asset,
             bid_book_min_pct_fee_provided=min_pct_fee_provided,
@@ -813,6 +818,7 @@ def serve_api(mongo_db, redis_client):
         return result
 
     @dispatcher.add_method
+        #DEPRECATED 1.5
     def get_order_book_buysell(buy_asset, sell_asset, pct_fee_provided=None, pct_fee_required=None):
         base_asset, quote_asset = util.assets_to_asset_pair(buy_asset, sell_asset)
         bid_book_min_pct_fee_provided = None
@@ -972,6 +978,7 @@ def serve_api(mongo_db, redis_client):
     def get_asset_pair_market_info(asset1=None, asset2=None, limit=50):
         """Given two arbitrary assets, returns the base asset and the quote asset.
         """
+        #DEPRECATED 1.5
         assert (asset1 and asset2) or (asset1 is None and asset2 is None)
         if asset1 and asset2:
             base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
@@ -1120,6 +1127,7 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def cancel_btc_open_order(wallet_id, order_tx_hash):
+        #DEPRECATED 1.5
         mongo_db.btc_open_orders.remove({'order_tx_hash': order_tx_hash, 'wallet_id': wallet_id})
         #^ wallet_id is used more for security here so random folks can't remove orders from this collection just by tx hash
         return True
@@ -1172,6 +1180,7 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def is_chat_handle_in_use(handle):
+        #DEPRECATED 1.5
         results = mongo_db.chat_handles.find({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
         return True if results.count() else False 
 
@@ -1223,6 +1232,7 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def get_chat_history(start_ts=None, end_ts=None, handle=None, limit=1000):
+        #DEPRECATED 1.5
         now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not end_ts: #default to current datetime
             end_ts = now_ts
@@ -1414,6 +1424,14 @@ def serve_api(mongo_db, redis_client):
     @dispatcher.add_method
     def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95):
         return dex.get_market_details(asset1, asset2, min_fee_provided, max_fee_required, mongo_db)
+
+    @dispatcher.add_method
+    def get_vennd_machine():
+        # https://gist.github.com/JahPowerBit/655bee2b35d9997ac0af
+        if config.VENDING_MACHINE_PROVIDER is not None:
+            return util.get_url(config.VENDING_MACHINE_PROVIDER)
+        else:
+            return []
     
     @dispatcher.add_method
     def get_pubkey_for_address(address):
