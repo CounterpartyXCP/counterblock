@@ -16,7 +16,7 @@ import pymongo
 import gevent
 
 from lib import config, util, events, blockchain, util_bitcoin
-from lib.components import assets, betting
+from lib.components import assets, betting, btc_escrow
 
 D = decimal.Decimal
 
@@ -264,8 +264,12 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 time.sleep(5)
                 continue
 
+            #HANDLERS FOR ON EACH NEW BLOCK
+            
             # clean api cache
             util.clean_block_cache(cur_block_index)
+            # process btc escrow
+            btc_escrow.process_new_block(mongo_db, cur_block_index)
             
             #parse out response (list of txns, ordered as they appeared in the block)
             for msg in block_data:

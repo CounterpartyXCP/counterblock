@@ -30,3 +30,8 @@ ARMORY_UTXSVR_PORT_TESTNET = 6591
 
 QUOTE_ASSETS = ['BTC', 'XBTC', 'XCP'] # define the priority for quote asset
 MARKET_LIST_QUOTE_ASSETS = ['XCP', 'XBTC', 'BTC'] # define the order in the market list
+
+MIN_FEE = 20000
+DEFAULT_FEE_PER_KB = 10000
+AUTOBTCESCROW_NUM_BLOCKS_FOR_BTCPAY = 6 #number of blocks after a valid order match to make a BTCpay
+MIN_CONF_FOR_ESCROWED_FUND = 5

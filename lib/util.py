@@ -26,6 +26,7 @@ import dateutil.parser
 import calendar
 import pygeoip
 import hashlib
+import ssl
 
 from jsonschema import FormatChecker, Draft4Validator, FormatError
 # not needed here but to ensure that installed
@@ -77,7 +78,7 @@ def assets_to_asset_pair(asset1, asset2):
         
     return (base, quote)
 
-def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False):
+def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False, http_client_params={}):
     if not endpoint: endpoint = config.COUNTERPARTYD_RPC
     if not auth: auth = config.COUNTERPARTYD_AUTH
     if not params: params = {}
@@ -98,8 +99,12 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
     
     try:
         u = URL(endpoint)
-        client = HTTPClient.from_url(u, connection_timeout=JSONRPC_API_REQUEST_TIMEOUT,
-            network_timeout=JSONRPC_API_REQUEST_TIMEOUT)
+        client_kwargs = {
+            'connection_timeout': JSONRPC_API_REQUEST_TIMEOUT,
+            'network_timeout': JSONRPC_API_REQUEST_TIMEOUT
+        }
+        client_kwargs.update(http_client_params)
+        client = HTTPClient.from_url(u, **client_kwargs)
         r = client.post(u.request_uri, body=json.dumps(payload), headers=headers)
     except Exception, e:
         raise Exception("Got call_jsonrpc_api request error: %s" % e)
@@ -110,9 +115,16 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
     finally:
         client.close()
     
-    if abort_on_error and 'error' in result:
+    if abort_on_error and 'error' in result and result['error'] is not None:
         raise Exception("Got back error from server: %s" % result['error'])
     return result
+
+def bitcoind_rpc(command, params):
+    return call_jsonrpc_api(command, 
+                             params = params,
+                             endpoint = config.BACKEND_RPC, 
+                             auth = config.BACKEND_AUTH, 
+                             abort_on_error = True)['result']
 
 def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5):
     headers = { 'Connection':'close', } #no keepalive

@@ -46,6 +46,11 @@ if __name__ == '__main__':
     parser.add_argument('--pid-file', help='the location of the pid file')
 
     #THINGS WE CONNECT TO
+    parser.add_argument('--backend-rpc-connect', help='the hostname or IP of the backend bitcoind JSON-RPC server')
+    parser.add_argument('--backend-rpc-port', type=int, help='the backend JSON-RPC port to connect to')
+    parser.add_argument('--backend-rpc-user', help='the username used to communicate with backend over JSON-RPC')
+    parser.add_argument('--backend-rpc-password', help='the password used to communicate with backend over JSON-RPC')
+
     parser.add_argument('--counterpartyd-rpc-connect', help='the hostname of the counterpartyd JSON-RPC server')
     parser.add_argument('--counterpartyd-rpc-port', type=int, help='the port used to communicate with counterpartyd over JSON-RPC')
     parser.add_argument('--counterpartyd-rpc-user', help='the username used to communicate with counterpartyd over JSON-RPC')
@@ -69,6 +74,15 @@ if __name__ == '__main__':
 
     #Vending machine provider
     parser.add_argument('--vending-machine-provider', help='JSON url containing vending machines list')
+
+    #btc escrow machine
+    parser.add_argument('--auto-btc-escrow-machine', action='store_true', default=False, help='enable this counterblockd to act as an auto BTC escrow server')
+    parser.add_argument('--auto-btc-escrow-commission', type=float, help='commission used by btc escrow machine')
+    parser.add_argument('--auto-btc-escrow-fee-retainer', type=int, help='BTCPay fees retaining by the escrow machine')
+    parser.add_argument('--auto-btc-escrow-commission-address', help='Address to send commission')
+    #proxy for btc escrow machine
+    parser.add_argument('--auto-btc-escrow-enable', action='store_true', default=False, help='enable this counterblockd to act as a proxy for auto BTC escrow server')
+    parser.add_argument('--auto-btc-escrow-server', help='base url for the auto BTC escrow server')
 
     #THINGS WE HOST
     parser.add_argument('--rpc-host', help='the IP of the interface to bind to for providing JSON-RPC API access (0.0.0.0 for all interfaces)')
@@ -113,6 +127,57 @@ if __name__ == '__main__':
         
     ##############
     # THINGS WE CONNECT TO
+
+    # backend (e.g. bitcoind) RPC host
+    if args.counterpartyd_rpc_connect:
+        config.BACKEND_RPC_CONNECT = args.backend_rpc_connect
+    elif has_config and configfile.has_option('Default', 'backend-rpc-connect') and configfile.get('Default', 'backend-rpc-connect'):
+        config.BACKEND_RPC_CONNECT = configfile.get('Default', 'backend-rpc-connect')
+    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-connect') and configfile.get('Default', 'bitcoind-rpc-connect'):
+        config.BACKEND_RPC_CONNECT = configfile.get('Default', 'bitcoind-rpc-connect')
+    else:
+        config.BACKEND_RPC_CONNECT = 'localhost'
+
+    # backend (e.g. bitcoind) RPC port
+    if args.backend_rpc_port:
+        config.BACKEND_RPC_PORT = args.backend_rpc_port
+    elif has_config and configfile.has_option('Default', 'backend-rpc-port') and configfile.get('Default', 'backend-rpc-port'):
+        config.BACKEND_RPC_PORT = configfile.get('Default', 'backend-rpc-port')
+    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-port') and configfile.get('Default', 'bitcoind-rpc-port'):
+        config.BACKEND_RPC_PORT = configfile.get('Default', 'bitcoind-rpc-port')
+    else:
+        if config.TESTNET:
+            config.BACKEND_RPC_PORT = config.DEFAULT_BACKEND_RPC_PORT_TESTNET
+        else:
+            config.BACKEND_RPC_PORT = config.DEFAULT_BACKEND_RPC_PORT
+    try:
+        config.BACKEND_RPC_PORT = int(config.BACKEND_RPC_PORT)
+        assert int(config.BACKEND_RPC_PORT) > 1 and int(config.BACKEND_RPC_PORT) < 65535
+    except:
+        raise Exception("Please specific a valid port number backend-rpc-port configuration parameter")
+            
+    # backend (e.g. bitcoind) RPC user
+    if args.backend_rpc_user:
+        config.BACKEND_RPC_USER = args.backend_rpc_user
+    elif has_config and configfile.has_option('Default', 'backend-rpc-user') and configfile.get('Default', 'backend-rpc-user'):
+        config.BACKEND_RPC_USER = configfile.get('Default', 'backend-rpc-user')
+    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-user') and configfile.get('Default', 'bitcoind-rpc-user'):
+        config.BACKEND_RPC_USER = configfile.get('Default', 'bitcoind-rpc-user')
+    else:
+        config.BACKEND_RPC_USER = 'rpcuser'
+
+    # backend (e.g. bitcoind) RPC password
+    if args.backend_rpc_password:
+        config.BACKEND_RPC_PASSWORD = args.backend_rpc_password
+    elif has_config and configfile.has_option('Default', 'backend-rpc-password') and configfile.get('Default', 'backend-rpc-password'):
+        config.BACKEND_RPC_PASSWORD = configfile.get('Default', 'backend-rpc-password')
+    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-password') and configfile.get('Default', 'bitcoind-rpc-password'):
+        config.BACKEND_RPC_PASSWORD = configfile.get('Default', 'bitcoind-rpc-password')
+    else:
+        config.BACKEND_RPC_PASSWORD = 'rpcpassword'
+
+    config.BACKEND_RPC = 'http://' + config.BACKEND_RPC_CONNECT + ':' + str(config.BACKEND_RPC_PORT) + '/'
+    config.BACKEND_AUTH = (config.BACKEND_RPC_USER, config.BACKEND_RPC_PASSWORD) if (config.BACKEND_RPC_USER and config.BACKEND_RPC_PASSWORD) else None
 
     # counterpartyd RPC host
     if args.counterpartyd_rpc_connect:
@@ -281,6 +346,56 @@ if __name__ == '__main__':
         config.VENDING_MACHINE_PROVIDER = configfile.get('Default', 'vending-machine-provider')
     else:
         config.VENDING_MACHINE_PROVIDER = None
+
+    #auto BTC escrow proxy enablement
+    if args.auto_btc_escrow_enable:
+        config.AUTO_BTC_ESCROW_ENABLE = args.auto_btc_escrow_enable
+    elif has_config and configfile.has_option('Default', 'auto-btc-escrow-enable') and configfile.getboolean('Default', 'auto-btc-escrow-enable'):
+        config.AUTO_BTC_ESCROW_ENABLE = configfile.getboolean('Default', 'auto-btc-escrow-enable')
+    else:
+        config.AUTO_BTC_ESCROW_ENABLE = False
+
+    if args.auto_btc_escrow_server:
+        config.AUTO_BTC_ESCROW_SERVER = args.auto_btc_escrow_server
+    elif has_config and configfile.has_option('Default', 'auto-btc-escrow-server') and configfile.get('Default', 'auto-btc-escrow-server'):
+        config.AUTO_BTC_ESCROW_SERVER = configfile.get('Default', 'auto-btc-escrow-server')
+    elif config.AUTO_BTC_ESCROW_ENABLE:
+        raise Exception("Please specific a BTC escrow server")
+
+    #auto BTC escrow machine enablement
+    if args.auto_btc_escrow_machine:
+        config.AUTO_BTC_ESCROW_MACHINE = args.auto_btc_escrow_machine
+    elif has_config and configfile.has_option('Default', 'auto-btc-escrow-machine') and configfile.getboolean('Default', 'auto-btc-escrow-machine'):
+        config.AUTO_BTC_ESCROW_MACHINE = configfile.getboolean('Default', 'auto-btc-escrow-machine')
+    else:
+        config.AUTO_BTC_ESCROW_MACHINE = False
+
+    if args.auto_btc_escrow_commission:
+        config.ESCROW_COMMISSION = float(args.auto_btc_escrow_commission)
+    elif has_config and configfile.has_option('Default', 'auto-btc-escrow-commission') and configfile.get('Default', 'auto-btc-escrow-commission'):
+        config.ESCROW_COMMISSION = float(configfile.get('Default', 'auto-btc-escrow-commission'))
+    elif config.AUTO_BTC_ESCROW_MACHINE:
+        raise Exception("Please specific a BTC escrow commission")
+
+    # IMPORTANT: private key should be in bitcoind wallet
+    if args.auto_btc_escrow_commission_address:
+        config.ESCROW_COMMISSION_ADDRESS = args.auto_btc_escrow_commission_address
+    elif has_config and configfile.has_option('Default', 'auto-btc-escrow-commission-address') and configfile.get('Default', 'auto-btc-escrow-commission-address'):
+        config.ESCROW_COMMISSION_ADDRESS = configfile.get('Default', 'auto-btc-escrow-commission-address')
+    elif config.AUTO_BTC_ESCROW_MACHINE:
+        raise Exception("Please specific a BTC escrow commission address")
+
+    if args.auto_btc_escrow_fee_retainer:
+        config.BTCPAY_FEE_RETAINER = int(args.auto_btc_escrow_fee_retainer)
+    elif has_config and configfile.has_option('Default', 'auto-btc-escrow-fee-retainer') and configfile.get('Default', 'auto-btc-escrow-fee-retainer'):
+        config.BTCPAY_FEE_RETAINER = configfile.get('Default', 'auto-btc-escrow-fee-retainer')
+    elif config.AUTO_BTC_ESCROW_MACHINE:
+        raise Exception("Please specific a BTC escrow BTCPay fee retainer")
+
+    # don't wait 6 blocks when testnet
+    if config.TESTNET:
+        config.AUTOBTCESCROW_NUM_BLOCKS_FOR_BTCPAY = 1
+        config.MIN_CONF_FOR_ESCROWED_FUND = 0    
 
     ##############
     # THINGS WE SERVE
@@ -622,6 +737,12 @@ if __name__ == '__main__':
     mongo_db.feeds.ensure_index('owner')
     mongo_db.feeds.ensure_index('category')
     mongo_db.feeds.ensure_index('info_url')
+
+    #escrow_infos
+    mongo_db.escrow_infos.ensure_index('order_tx_hash')
+    mongo_db.escrow_infos.ensure_index('order_signed_tx_hash')
+    mongo_db.escrow_infos.ensure_index('wallet_id')
+
     #mempool
     mongo_db.mempool.ensure_index('tx_hash')
     
