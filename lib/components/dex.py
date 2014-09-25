@@ -136,11 +136,12 @@ def get_pairs(quote_asset='XCP', exclude_pairs=[], max_pairs=12, from_time=None)
     return util.call_jsonrpc_api('sql', {'query': sql, 'bindings': bindings})['result']
 
 
-def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None):
+def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None, include_currencies=[]):
 
     all_pairs = []
+    currencies = include_currencies if len(include_currencies) > 0 else config.MARKET_LIST_QUOTE_ASSETS
 
-    for currency in config.MARKET_LIST_QUOTE_ASSETS:
+    for currency in currencies:
         currency_pairs = get_pairs(quote_asset=currency, exclude_pairs=exclude_pairs, max_pairs=max_pairs, from_time=from_time)
         max_pairs = max_pairs - len(currency_pairs)
         for currency_pair in currency_pairs:
@@ -466,18 +467,19 @@ def get_price_movement(base_asset, quote_asset, supplies=None):
     return price, trend, price24h, progression
 
 @util.block_cache
-def get_markets_list(mongo_db=None):
+def get_markets_list(mongo_db=None, quote_asset=None, order_by=None):
     
     yesterday = int(time.time() - (24*60*60))
     markets = []
     pairs = []
+    currencies = [] if not quote_asset else [quote_asset]
 
     # pairs with volume last 24h
-    pairs += get_quotation_pairs(exclude_pairs=[], max_pairs=500, from_time=yesterday)
+    pairs += get_quotation_pairs(exclude_pairs=[], max_pairs=500, from_time=yesterday, include_currencies=currencies)
     pair_with_volume = [p['pair'] for p in pairs]
 
     # pairs without volume last 24h
-    pairs += get_quotation_pairs(exclude_pairs=pair_with_volume, max_pairs=500 - len(pair_with_volume))
+    pairs += get_quotation_pairs(exclude_pairs=pair_with_volume, max_pairs=500 - len(pair_with_volume), include_currencies=currencies)
 
     base_assets  = [p['base_asset'] for p in pairs]
     quote_assets  = [p['quote_asset'] for p in pairs]
@@ -510,6 +512,11 @@ def get_markets_list(mongo_db=None):
             markets.insert(0, market)
         else:
             markets.append(market)
+
+    if order_by in ['price', 'progression', 'supply', 'market_cap']:
+        markets = sorted(markets, key=lambda x: D(x[order_by]), reverse=True)
+    elif order_by in ['base_asset', 'quote_asset']:
+        markets = sorted(markets, key=lambda x: x['order_by'])
 
     for m in range(len(markets)):
         markets[m]['pos'] = m + 1
