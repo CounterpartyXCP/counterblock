@@ -1418,8 +1418,8 @@ def serve_api(mongo_db, redis_client):
         return dex.get_market_trades(asset1, asset2, addresses, limit)
 
     @dispatcher.add_method
-    def get_markets_list():
-        return dex.get_markets_list(mongo_db)
+    def get_markets_list(quote_asset = None, order_by=None):
+        return dex.get_markets_list(mongo_db, quote_asset=quote_asset, order_by=order_by)
 
     @dispatcher.add_method
     def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95):
