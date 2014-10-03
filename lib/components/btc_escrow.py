@@ -80,11 +80,10 @@ def get_escrowed_balances(db, wallet_id):
     results = {}
     for escrow_info in escrow_infos:
         escrowed_balance =  get_escrow_balance(escrow_info['escrow_address'])
-        if (escrowed_balance > 0):
-            if escrow_info['order_source'] in results:
-                results[escrow_info['order_source']] += escrowed_balance
-            else:
-                results[escrow_info['order_source']] = escrowed_balance
+        if escrow_info['order_source'] in results:
+            results[escrow_info['order_source']] += escrowed_balance
+        else:
+            results[escrow_info['order_source']] = escrowed_balance
     return results
 
 def get_by_order_signed_tx_hashes(db, order_signed_tx_hashes, status='open'):
