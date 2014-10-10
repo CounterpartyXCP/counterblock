@@ -6,4 +6,8 @@ counterblockd
 
 Provides extended API functionality over counterpartyd (such as market information, asset history, etc). Works alongside counterpartyd.
 
-[See also: counterpartyd build-system](http://counterparty.io/docs/build-system/federated-node/)
+See also: 
+
+[fully automated installation script and installs ALL dependencies, including ``bitcoind`` and ``insight``](http://counterpartyd-build.readthedocs.org/en/latest/SettingUpAFederatedNode.html#node-setup)
+[counterpartyd build-system](http://counterparty.io/docs/build-system/federated-node/)
+
