@@ -9,5 +9,6 @@ Provides extended API functionality over counterpartyd (such as market informati
 See also: 
 
 [fully automated installation script and installs ALL dependencies, including ``bitcoind`` and ``insight``](http://counterpartyd-build.readthedocs.org/en/latest/SettingUpAFederatedNode.html#node-setup)
+[setup_federated_node.py](https://raw.githubusercontent.com/CounterpartyXCP/counterpartyd_build/master/setup_federated_node.py)
 [counterpartyd build-system](http://counterparty.io/docs/build-system/federated-node/)
 
