@@ -371,7 +371,7 @@ if __name__ == '__main__':
 
     #More testnet
     if config.TESTNET:
-        config.BLOCK_FIRST = 281000
+        config.BLOCK_FIRST = 154908
     else:
         config.BLOCK_FIRST = 278270
 
