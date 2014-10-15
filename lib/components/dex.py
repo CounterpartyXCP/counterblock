@@ -314,8 +314,8 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
     return market_orders
 
 @util.block_cache
-def get_market_trades(asset1, asset2, addresses=[], limit=100, supplies=None):
-
+def get_market_trades(asset1, asset2, addresses=[], limit=50, supplies=None):
+    limit = min(limit, 100)
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
     if not supplies:
         supplies = get_assets_supply([asset1, asset2])
@@ -332,9 +332,10 @@ def get_market_trades(asset1, asset2, addresses=[], limit=100, supplies=None):
              WHERE status != ? {}
                 AND forward_asset IN (?, ?) 
                 AND backward_asset IN (?, ?) 
-             ORDER BY block_index DESC'''.format(sources)
+             ORDER BY block_index DESC
+             LIMIT ?'''.format(sources)
 
-    bindings +=  [asset1, asset2, asset1, asset2]
+    bindings +=  [asset1, asset2, asset1, asset2, limit]
 
     order_matches = util.call_jsonrpc_api('sql', {'query': sql, 'bindings': bindings})['result']
 

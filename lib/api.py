@@ -1414,7 +1414,7 @@ def serve_api(mongo_db, redis_client):
         return dex.get_market_orders(asset1, asset2, addresses, None, min_fee_provided, max_fee_required)
 
     @dispatcher.add_method
-    def get_market_trades(asset1, asset2, addresses=[], limit=100):
+    def get_market_trades(asset1, asset2, addresses=[], limit=50):
         return dex.get_market_trades(asset1, asset2, addresses, limit)
 
     @dispatcher.add_method
