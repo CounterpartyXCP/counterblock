@@ -96,7 +96,10 @@ if __name__ == '__main__':
 
     #Read config file
     configfile = ConfigParser.ConfigParser()
-    config_path = os.path.join(config.DATA_DIR, 'counterblockd.conf')
+    if args.config_file:
+        config_path = args.config_file
+    else:
+        config_path = os.path.join(config.DATA_DIR, 'counterblockd.conf')
     configfile.read(config_path)
     has_config = configfile.has_section('Default')
 
