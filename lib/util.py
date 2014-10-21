@@ -467,7 +467,7 @@ def download_geoip_data():
 
     if download:
         logging.info("Downloading GeoIP.dat")
-        cmd = "cd {}; wget -N -q http://geolite.maxmind.com/download/geoip/database/GeoLiteCountry/GeoIP.dat.gz; gzip -dfq GeoIP.dat.gz".format(config.DATA_DIR)
+        cmd = "cd '{}'; wget -N -q http://geolite.maxmind.com/download/geoip/database/GeoLiteCountry/GeoIP.dat.gz; gzip -dfq GeoIP.dat.gz".format(config.DATA_DIR)
         subprocess_cmd(cmd)
     else:
         logging.info("GeoIP.dat OK")
