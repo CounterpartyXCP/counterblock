@@ -153,7 +153,7 @@ def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None, include_
     return all_pairs
 
 @util.block_cache
-def get_users_pairs(addresses=[], max_pairs=12):
+def get_users_pairs(addresses=[], max_pairs=12, quote_assets=config.MARKET_LIST_QUOTE_ASSETS):
     
     top_pairs = []
     all_assets = []
@@ -166,7 +166,7 @@ def get_users_pairs(addresses=[], max_pairs=12):
         exclude_pairs += [p['base_asset'] + '/' + p['quote_asset']]
         all_assets += [p['base_asset'], p['quote_asset']]
 
-    for currency in config.MARKET_LIST_QUOTE_ASSETS:
+    for currency in quote_assets:
         if len(top_pairs) < max_pairs:
             limit = max_pairs - len(top_pairs)
             currency_pairs = get_pairs(currency, exclude_pairs, limit)
@@ -181,7 +181,7 @@ def get_users_pairs(addresses=[], max_pairs=12):
                     top_pairs.append(top_pair)
                 all_assets += [currency_pair['base_asset'], currency_pair['quote_asset']]
 
-    if 'XCP/BTC' not in [p['base_asset'] + '/' + p['quote_asset'] for p in top_pairs]:
+    if ('BTC' in quote_assets) and ('XCP/BTC' not in [p['base_asset'] + '/' + p['quote_asset'] for p in top_pairs]):
         top_pairs.insert(0, {
             'base_asset': 'XCP',
             'quote_asset': 'BTC'
@@ -473,7 +473,7 @@ def get_markets_list(mongo_db=None, quote_asset=None, order_by=None):
     yesterday = int(time.time() - (24*60*60))
     markets = []
     pairs = []
-    currencies = [] if not quote_asset else [quote_asset]
+    currencies = ['XCP', 'XBTC'] if not quote_asset else [quote_asset]
 
     # pairs with volume last 24h
     pairs += get_quotation_pairs(exclude_pairs=[], max_pairs=500, from_time=yesterday, include_currencies=currencies)
