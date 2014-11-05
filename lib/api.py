@@ -1407,14 +1407,14 @@ def serve_api(mongo_db, redis_client):
 
     @dispatcher.add_method
     def get_users_pairs(addresses=[], max_pairs=12):
-        return dex.get_users_pairs(addresses, max_pairs)
+        return dex.get_users_pairs(addresses, max_pairs, quote_assets=['XCP', 'XBTC'])
 
     @dispatcher.add_method
     def get_market_orders(asset1, asset2, addresses=[], min_fee_provided=0.95, max_fee_required=0.95):
         return dex.get_market_orders(asset1, asset2, addresses, None, min_fee_provided, max_fee_required)
 
     @dispatcher.add_method
-    def get_market_trades(asset1, asset2, addresses=[], limit=100):
+    def get_market_trades(asset1, asset2, addresses=[], limit=50):
         return dex.get_market_trades(asset1, asset2, addresses, limit)
 
     @dispatcher.add_method

@@ -153,7 +153,7 @@ def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None, include_
     return all_pairs
 
 @util.block_cache
-def get_users_pairs(addresses=[], max_pairs=12):
+def get_users_pairs(addresses=[], max_pairs=12, quote_assets=config.MARKET_LIST_QUOTE_ASSETS):
     
     top_pairs = []
     all_assets = []
@@ -166,7 +166,7 @@ def get_users_pairs(addresses=[], max_pairs=12):
         exclude_pairs += [p['base_asset'] + '/' + p['quote_asset']]
         all_assets += [p['base_asset'], p['quote_asset']]
 
-    for currency in config.MARKET_LIST_QUOTE_ASSETS:
+    for currency in quote_assets:
         if len(top_pairs) < max_pairs:
             limit = max_pairs - len(top_pairs)
             currency_pairs = get_pairs(currency, exclude_pairs, limit)
@@ -181,7 +181,7 @@ def get_users_pairs(addresses=[], max_pairs=12):
                     top_pairs.append(top_pair)
                 all_assets += [currency_pair['base_asset'], currency_pair['quote_asset']]
 
-    if 'XCP/BTC' not in [p['base_asset'] + '/' + p['quote_asset'] for p in top_pairs]:
+    if ('BTC' in quote_assets) and ('XCP/BTC' not in [p['base_asset'] + '/' + p['quote_asset'] for p in top_pairs]):
         top_pairs.insert(0, {
             'base_asset': 'XCP',
             'quote_asset': 'BTC'
@@ -314,8 +314,8 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
     return market_orders
 
 @util.block_cache
-def get_market_trades(asset1, asset2, addresses=[], limit=100, supplies=None):
-
+def get_market_trades(asset1, asset2, addresses=[], limit=50, supplies=None):
+    limit = min(limit, 100)
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
     if not supplies:
         supplies = get_assets_supply([asset1, asset2])
@@ -332,9 +332,10 @@ def get_market_trades(asset1, asset2, addresses=[], limit=100, supplies=None):
              WHERE status != ? {}
                 AND forward_asset IN (?, ?) 
                 AND backward_asset IN (?, ?) 
-             ORDER BY block_index DESC'''.format(sources)
+             ORDER BY block_index DESC
+             LIMIT ?'''.format(sources)
 
-    bindings +=  [asset1, asset2, asset1, asset2]
+    bindings +=  [asset1, asset2, asset1, asset2, limit]
 
     order_matches = util.call_jsonrpc_api('sql', {'query': sql, 'bindings': bindings})['result']
 
@@ -472,7 +473,7 @@ def get_markets_list(mongo_db=None, quote_asset=None, order_by=None):
     yesterday = int(time.time() - (24*60*60))
     markets = []
     pairs = []
-    currencies = [] if not quote_asset else [quote_asset]
+    currencies = ['XCP', 'XBTC'] if not quote_asset else [quote_asset]
 
     # pairs with volume last 24h
     pairs += get_quotation_pairs(exclude_pairs=[], max_pairs=500, from_time=yesterday, include_currencies=currencies)
