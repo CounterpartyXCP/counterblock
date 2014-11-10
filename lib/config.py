@@ -30,3 +30,6 @@ ARMORY_UTXSVR_PORT_TESTNET = 6591
 
 QUOTE_ASSETS = ['BTC', 'XBTC', 'XCP'] # define the priority for quote asset
 MARKET_LIST_QUOTE_ASSETS = ['XCP', 'XBTC', 'BTC'] # define the order in the market list
+
+DEFAULT_BACKEND_RPC_PORT_TESTNET = 18332
+DEFAULT_BACKEND_RPC_PORT = 8332

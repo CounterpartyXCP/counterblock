@@ -4,7 +4,7 @@ Proxy API to make queries to popular blockchains explorer
 import sys
 
 from lib import config
-import blockr, insight, sochain
+import blockr, insight, sochain, jmcorgan
 
 # http://test.insight.is/api/sync
 def check():

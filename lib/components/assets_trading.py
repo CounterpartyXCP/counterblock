@@ -631,6 +631,7 @@ def compile_asset_market_info():
             for asset in assets:
                 #recalculate the market cap for the asset this trade is for
                 asset_info = get_asset_info(asset, at_dt=t['block_time'])
+                if not asset_info: continue
                 (price_summary_in_xcp, price_summary_in_btc, price_in_xcp, price_in_btc, aggregated_price_in_xcp, aggregated_price_in_btc
                 ) = get_xcp_btc_price_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price, with_last_trades=0, end_dt=t['block_time'])
                 market_cap_in_xcp, market_cap_in_btc = calc_market_cap(asset_info, price_in_xcp, price_in_btc)

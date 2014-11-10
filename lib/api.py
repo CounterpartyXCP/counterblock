@@ -48,20 +48,22 @@ def serve_api(mongo_db, redis_client):
         """this method used by the client to check if the server is alive, caught up, and ready to accept requests.
         If the server is NOT caught up, a 525 error will be returned actually before hitting this point. Thus,
         if we actually return data from this function, it should always be true. (may change this behaviour later)"""
-
-        blockchainInfo = blockchain.getinfo()
-        ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
-        country = config.GEOIP.country_code_by_addr(ip)
-        return {
-            'caught_up': util.is_caught_up_well_enough_for_government_work(),
-            'last_message_index': config.LAST_MESSAGE_INDEX,
-            'block_height': blockchainInfo['info']['blocks'], 
-            'testnet': config.TESTNET,
-            'ip': ip,
-            'country': country,
-            'quote_assets': config.QUOTE_ASSETS,
-            'quick_buy_enable': True if config.VENDING_MACHINE_PROVIDER is not None else False
-        }
+        try:
+            blockchainInfo = blockchain.getinfo()
+            ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
+            country = config.GEOIP.country_code_by_addr(ip)
+            return {
+                'caught_up': util.is_caught_up_well_enough_for_government_work(),
+                'last_message_index': config.LAST_MESSAGE_INDEX,
+                'block_height': blockchainInfo['info']['blocks'], 
+                'testnet': config.TESTNET,
+                'ip': ip,
+                'country': country,
+                'quote_assets': config.QUOTE_ASSETS,
+                'quick_buy_enable': True if config.VENDING_MACHINE_PROVIDER is not None else False
+            }
+        except Exception, e:
+            logging.exception(e)
     
     @dispatcher.add_method
     def get_reflected_host_info():
@@ -93,25 +95,28 @@ def serve_api(mongo_db, redis_client):
         if not isinstance(addresses, list):
             raise Exception("addresses must be a list of addresses, even if it just contains one address")
         results = []
-        if with_block_height:
-            block_height_response = blockchain.getinfo()
-            block_height = block_height_response['info']['blocks'] if block_height_response else None
-        for address in addresses:
-            info = blockchain.getaddressinfo(address)
-            txns = info['transactions']
-            del info['transactions']
+        try:
+            if with_block_height:
+                block_height_response = blockchain.getinfo()
+                block_height = block_height_response['info']['blocks'] if block_height_response else None
+            for address in addresses:
+                info = blockchain.getaddressinfo(address)
+                txns = info['transactions']
+                del info['transactions']
+                result = {}
+                result['addr'] = address
+                result['info'] = info
+                if with_block_height: result['block_height'] = block_height
+                #^ yeah, hacky...it will be the same block height for each address (we do this to avoid an extra API call to get_block_height)
+                if with_uxtos:
+                  result['uxtos'] = blockchain.listunspent(address)
+                if with_last_txn_hashes:
+                  #with last_txns, only show CONFIRMED txns (so skip the first info['unconfirmedTxApperances'] # of txns, if not 0
+                  result['last_txns'] = txns[info['unconfirmedTxApperances']:with_last_txn_hashes+info['unconfirmedTxApperances']]
+                results.append(result)
+        except Exception, e:
+            logging.exception(e)
 
-            result = {}
-            result['addr'] = address
-            result['info'] = info
-            if with_block_height: result['block_height'] = block_height
-            #^ yeah, hacky...it will be the same block height for each address (we do this to avoid an extra API call to get_block_height)
-            if with_uxtos:
-                result['uxtos'] = blockchain.listunspent(address)
-            if with_last_txn_hashes:
-                #with last_txns, only show CONFIRMED txns (so skip the first info['unconfirmedTxApperances'] # of txns, if not 0
-                result['last_txns'] = txns[info['unconfirmedTxApperances']:with_last_txn_hashes+info['unconfirmedTxApperances']]
-            results.append(result)
         return results
 
     @dispatcher.add_method
