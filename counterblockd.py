@@ -56,9 +56,6 @@ if __name__ == '__main__':
     parser.add_argument('--counterpartyd-rpc-user', help='the username used to communicate with counterpartyd over JSON-RPC')
     parser.add_argument('--counterpartyd-rpc-password', help='the password used to communicate with counterpartyd over JSON-RPC')
 
-    parser.add_argument('--blockchain-service-name', help='the blockchain service name to connect to')
-    parser.add_argument('--blockchain-service-connect', help='the blockchain service server URL base to connect to, if not default')
-
     parser.add_argument('--mongodb-connect', help='the hostname of the mongodb server to connect to')
     parser.add_argument('--mongodb-port', type=int, help='the port used to communicate with mongodb')
     parser.add_argument('--mongodb-database', help='the mongodb database to connect to')
@@ -213,23 +210,6 @@ if __name__ == '__main__':
 
     config.COUNTERPARTYD_RPC = 'http://' + config.COUNTERPARTYD_RPC_CONNECT + ':' + str(config.COUNTERPARTYD_RPC_PORT) + '/api/'
     config.COUNTERPARTYD_AUTH = (config.COUNTERPARTYD_RPC_USER, config.COUNTERPARTYD_RPC_PASSWORD) if (config.COUNTERPARTYD_RPC_USER and config.COUNTERPARTYD_RPC_PASSWORD) else None
-
-    # blockchain service name
-    if args.blockchain_service_name:
-        config.BLOCKCHAIN_SERVICE_NAME = args.blockchain_service_name
-    elif has_config and configfile.has_option('Default', 'blockchain-service-name') and configfile.get('Default', 'blockchain-service-name'):
-        config.BLOCKCHAIN_SERVICE_NAME = configfile.get('Default', 'blockchain-service-name')
-    else:
-        config.BLOCKCHAIN_SERVICE_NAME = 'insight'
-
-    # custom blockchain service API endpoint
-    # leave blank to use the default. if specified, include the scheme prefix and port, without a trailing slash (e.g. http://localhost:3001)
-    if args.blockchain_service_connect:
-        config.BLOCKCHAIN_SERVICE_CONNECT = args.blockchain_service_connect
-    elif has_config and configfile.has_option('Default', 'blockchain-service-connect') and configfile.get('Default', 'blockchain-service-connect'):
-        config.BLOCKCHAIN_SERVICE_CONNECT = configfile.get('Default', 'blockchain-service-connect')
-    else:
-        config.BLOCKCHAIN_SERVICE_CONNECT = None #use default specified by the library
 
     # mongodb host
     if args.mongodb_connect:
