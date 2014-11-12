@@ -96,24 +96,36 @@ def gettransaction(tx_hash):
         'vin': tx['vin'],
         'vout': tx['vout']
     }
+    return None
 
+def get_pubkey_from_transactions(address, raw_transactions):
+    #for each transaction we got back, extract the vin, pubkey, go through, convert it to binary, and see if it reduces down to the given address
+    for tx in raw_transactions:
+        #parse the pubkey out of the first sent transaction
+        for vin in tx['vin']:
+            scriptsig = vin['scriptSig']
+            asm = scriptsig['asm'].split(' ')
+            pubkey_hex = asm[1]
+            try:
+                if util_bitcoin.pubkey_to_address(pubkey_hex) == address:
+                    return pubkey_hex
+            except:
+                pass
     return None
 
 def get_pubkey_for_address(address):
-    #first, get a list of transactions for the address
-    address_info = getaddressinfo(address)
 
-    #if no transactions, we can't get the pubkey
-    if not address_info['transactions']:
-        return None
+    if is_multisig(address):
+        array = address.split('_')
+        addresses = array[1:-1]
+    else:
+        addresses = [address]
     
-    #for each transaction we got back, extract the vin, pubkey, go through, convert it to binary, and see if it reduces down to the given address
-    for tx_id in address_info['transactions']:
-        #parse the pubkey out of the first sent transaction
-        tx = gettransaction(tx_id)
-        for vout in tx['vout']:
-            scriptpubkey = vout['scriptPubKey'] 
-            pubkey_hex = vout['scriptPubKey']['asm'].split(' ')[1]
-            if util_bitcoin.pubkey_to_address(pubkey_hex) == address:
-                return pubkey_hex
-    return None
+    pubkeys = []
+
+    for address in addresses:
+        raw_transactions = search_raw_transactions(address)
+        pubkey = get_pubkey_from_transactions(address, raw_transactions)
+        if pubkey: pubkeys.append(pubkey)
+
+    return pubkeys
