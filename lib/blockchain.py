@@ -16,8 +16,8 @@ def is_multisig(address):
 def search_raw_transactions(address):
     return util.call_jsonrpc_api('search_raw_transactions', {'address': address})['result']
 
-def get_unspent_txouts(address):
-    return util.call_jsonrpc_api('get_unspent_txouts', {'address': address})['result']
+def get_unspent_txouts(address, return_confirmed=False):
+    return util.call_jsonrpc_api('get_unspent_txouts', {'address': address, 'return_confirmed': return_confirmed})['result']
 
 def get_block_count():
     return int(util.bitcoind_rpc('getblockcount', None))
@@ -51,12 +51,14 @@ def listunspent(address):
 
 def getaddressinfo(address):
 
-    outputs = get_unspent_txouts(address)
-    balance = sum(out['amount'] for out in outputs)
+    outputs = get_unspent_txouts(address, return_confirmed=True)
+
+    balance = sum(out['amount'] for out in outputs['confirmed'])
+    unconfirmed_balance = sum(out['amount'] for out in outputs['all']) - balance
     
     if is_multisig(address):
         array = address.split('_')
-        # this return too much results, but avoid more queries
+        # TODO: filter transactions
         raw_transactions = reversed(search_raw_transactions(array[1:-1][1]))
     else:
         raw_transactions = reversed(search_raw_transactions(address))
@@ -70,10 +72,8 @@ def getaddressinfo(address):
         'addrStr': address,
         'balance': balance,
         'balanceSat': balance * config.UNIT,
-        'unconfirmedBalance': 0,
-        'unconfirmedBalanceSat': 0,
-        'unconfirmedTxApperances': 0,
-        'txApperances': len(transactions),
+        'unconfirmedBalance': unconfirmed_balance,
+        'unconfirmedBalanceSat': unconfirmed_balance * config.UNIT,
         'transactions': transactions
     }
     

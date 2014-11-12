@@ -111,8 +111,7 @@ def serve_api(mongo_db, redis_client):
                 if with_uxtos:
                   result['uxtos'] = blockchain.listunspent(address)
                 if with_last_txn_hashes:
-                  #with last_txns, only show CONFIRMED txns (so skip the first info['unconfirmedTxApperances'] # of txns, if not 0
-                  result['last_txns'] = txns[info['unconfirmedTxApperances']:with_last_txn_hashes+info['unconfirmedTxApperances']]
+                  result['last_txns'] = txns
                 results.append(result)
         except Exception, e:
             logging.exception(e)
