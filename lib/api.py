@@ -107,9 +107,9 @@ def serve_api(mongo_db, redis_client):
             if with_block_height: result['block_height'] = block_height
             #^ yeah, hacky...it will be the same block height for each address (we do this to avoid an extra API call to get_block_height)
             if with_uxtos:
-              result['uxtos'] = blockchain.listunspent(address)
+                result['uxtos'] = blockchain.listunspent(address)
             if with_last_txn_hashes:
-              result['last_txns'] = txns
+                result['last_txns'] = txns
             results.append(result)
 
         return results
