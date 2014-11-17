@@ -14,10 +14,10 @@ def is_multisig(address):
     return (len(array) > 1)
 
 def search_raw_transactions(address):
-    return util.call_jsonrpc_api('search_raw_transactions', {'address': address})['result']
+    result = util.call_jsonrpc_api('search_raw_transactions', {'address': address}, abort_on_error=True))['result']
 
 def get_unspent_txouts(address, return_confirmed=False):
-    return util.call_jsonrpc_api('get_unspent_txouts', {'address': address, 'return_confirmed': return_confirmed})['result']
+    result = util.call_jsonrpc_api('get_unspent_txouts', {'address': address, 'return_confirmed': return_confirmed}, abort_on_error=True))['result']
 
 def get_block_count():
     return int(util.bitcoind_rpc('getblockcount', None))

@@ -42,29 +42,27 @@ def serve_api(mongo_db, redis_client):
     DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD = 60 #in seconds
     app = flask.Flask(__name__)
     tx_logger = logging.getLogger("transaction_log") #get transaction logger
-    
+
     @dispatcher.add_method
     def is_ready():
         """this method used by the client to check if the server is alive, caught up, and ready to accept requests.
         If the server is NOT caught up, a 525 error will be returned actually before hitting this point. Thus,
         if we actually return data from this function, it should always be true. (may change this behaviour later)"""
-        try:
-            blockchainInfo = blockchain.getinfo()
-            ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
-            country = config.GEOIP.country_code_by_addr(ip)
-            return {
-                'caught_up': util.is_caught_up_well_enough_for_government_work(),
-                'last_message_index': config.LAST_MESSAGE_INDEX,
-                'block_height': blockchainInfo['info']['blocks'], 
-                'testnet': config.TESTNET,
-                'ip': ip,
-                'country': country,
-                'quote_assets': config.QUOTE_ASSETS,
-                'quick_buy_enable': True if config.VENDING_MACHINE_PROVIDER is not None else False
-            }
-        except Exception, e:
-            logging.exception(e)
-    
+
+        blockchainInfo = blockchain.getinfo()
+        ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
+        country = config.GEOIP.country_code_by_addr(ip)
+        return {
+            'caught_up': util.is_caught_up_well_enough_for_government_work(),
+            'last_message_index': config.LAST_MESSAGE_INDEX,
+            'block_height': blockchainInfo['info']['blocks'],
+            'testnet': config.TESTNET,
+            'ip': ip,
+            'country': country,
+            'quote_assets': config.QUOTE_ASSETS,
+            'quick_buy_enable': True if config.VENDING_MACHINE_PROVIDER is not None else False
+        }
+
     @dispatcher.add_method
     def get_reflected_host_info():
         """Allows the requesting host to get some info about itself, such as its IP. Used for troubleshooting."""
@@ -95,26 +93,24 @@ def serve_api(mongo_db, redis_client):
         if not isinstance(addresses, list):
             raise Exception("addresses must be a list of addresses, even if it just contains one address")
         results = []
-        try:
-            if with_block_height:
-                block_height_response = blockchain.getinfo()
-                block_height = block_height_response['info']['blocks'] if block_height_response else None
-            for address in addresses:
-                info = blockchain.getaddressinfo(address)
-                txns = info['transactions']
-                del info['transactions']
-                result = {}
-                result['addr'] = address
-                result['info'] = info
-                if with_block_height: result['block_height'] = block_height
-                #^ yeah, hacky...it will be the same block height for each address (we do this to avoid an extra API call to get_block_height)
-                if with_uxtos:
-                  result['uxtos'] = blockchain.listunspent(address)
-                if with_last_txn_hashes:
-                  result['last_txns'] = txns
-                results.append(result)
-        except Exception, e:
-            logging.exception(e)
+
+        if with_block_height:
+            block_height_response = blockchain.getinfo()
+            block_height = block_height_response['info']['blocks'] if block_height_response else None
+        for address in addresses:
+            info = blockchain.getaddressinfo(address)
+            txns = info['transactions']
+            del info['transactions']
+            result = {}
+            result['addr'] = address
+            result['info'] = info
+            if with_block_height: result['block_height'] = block_height
+            #^ yeah, hacky...it will be the same block height for each address (we do this to avoid an extra API call to get_block_height)
+            if with_uxtos:
+              result['uxtos'] = blockchain.listunspent(address)
+            if with_last_txn_hashes:
+              result['last_txns'] = txns
+            results.append(result)
 
         return results
 
@@ -1515,6 +1511,13 @@ def serve_api(mongo_db, redis_client):
         server = smtplib.SMTP(config.EMAIL_SERVER)
         server.sendmail(from_email, config.SUPPORT_EMAIL, msg.as_string())
         return True
+
+    @dispatcher.add_method
+    def get_script_pub_key(tx_hash, vout_index):
+        tx = blockchain.gettransaction(tx_hash)
+        if 'vout' in tx and len(tx['vout']) > vout_index:
+          return tx['vout'][vout_index]
+        return None
 
     def _set_cors_headers(response):
         if config.RPC_ALLOW_CORS:
