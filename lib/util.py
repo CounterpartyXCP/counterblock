@@ -83,11 +83,13 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
     if not params: params = {}
     
     payload = {
-      "id": 0,
-      "jsonrpc": "2.0",
-      "method": method,
-      "params": params,
+        "id": 0,
+        "jsonrpc": "2.0",
+        "method": method
     }
+    if params:
+        payload['params'] = params
+
     headers = {
         'Content-Type': 'application/json',
         'Connection':'close', #no keepalive
@@ -109,10 +111,17 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
         result = json.loads(r.read())
     finally:
         client.close()
-    
-    if abort_on_error and 'error' in result:
+
+    if abort_on_error and 'error' in result and result['error'] is not None:
         raise Exception("Got back error from server: %s" % result['error'])
     return result
+
+def bitcoind_rpc(command, params):
+    return call_jsonrpc_api(command, 
+                             params = params,
+                             endpoint = config.BACKEND_RPC, 
+                             auth = config.BACKEND_AUTH, 
+                             abort_on_error = True)['result']
 
 def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5):
     headers = { 'Connection':'close', } #no keepalive

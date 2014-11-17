@@ -46,13 +46,15 @@ if __name__ == '__main__':
     parser.add_argument('--pid-file', help='the location of the pid file')
 
     #THINGS WE CONNECT TO
+    parser.add_argument('--backend-rpc-connect', help='the hostname or IP of the backend bitcoind JSON-RPC server')
+    parser.add_argument('--backend-rpc-port', type=int, help='the backend JSON-RPC port to connect to')
+    parser.add_argument('--backend-rpc-user', help='the username used to communicate with backend over JSON-RPC')
+    parser.add_argument('--backend-rpc-password', help='the password used to communicate with backend over JSON-RPC')
+
     parser.add_argument('--counterpartyd-rpc-connect', help='the hostname of the counterpartyd JSON-RPC server')
     parser.add_argument('--counterpartyd-rpc-port', type=int, help='the port used to communicate with counterpartyd over JSON-RPC')
     parser.add_argument('--counterpartyd-rpc-user', help='the username used to communicate with counterpartyd over JSON-RPC')
     parser.add_argument('--counterpartyd-rpc-password', help='the password used to communicate with counterpartyd over JSON-RPC')
-
-    parser.add_argument('--blockchain-service-name', help='the blockchain service name to connect to')
-    parser.add_argument('--blockchain-service-connect', help='the blockchain service server URL base to connect to, if not default')
 
     parser.add_argument('--mongodb-connect', help='the hostname of the mongodb server to connect to')
     parser.add_argument('--mongodb-port', type=int, help='the port used to communicate with mongodb')
@@ -114,6 +116,58 @@ if __name__ == '__main__':
     ##############
     # THINGS WE CONNECT TO
 
+    # backend (e.g. bitcoind) RPC host
+    if args.counterpartyd_rpc_connect:
+        config.BACKEND_RPC_CONNECT = args.backend_rpc_connect
+    elif has_config and configfile.has_option('Default', 'backend-rpc-connect') and configfile.get('Default', 'backend-rpc-connect'):
+        config.BACKEND_RPC_CONNECT = configfile.get('Default', 'backend-rpc-connect')
+    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-connect') and configfile.get('Default', 'bitcoind-rpc-connect'):
+        config.BACKEND_RPC_CONNECT = configfile.get('Default', 'bitcoind-rpc-connect')
+    else:
+        config.BACKEND_RPC_CONNECT = 'localhost'
+
+    # backend (e.g. bitcoind) RPC port
+    if args.backend_rpc_port:
+        config.BACKEND_RPC_PORT = args.backend_rpc_port
+    elif has_config and configfile.has_option('Default', 'backend-rpc-port') and configfile.get('Default', 'backend-rpc-port'):
+        config.BACKEND_RPC_PORT = configfile.get('Default', 'backend-rpc-port')
+    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-port') and configfile.get('Default', 'bitcoind-rpc-port'):
+        config.BACKEND_RPC_PORT = configfile.get('Default', 'bitcoind-rpc-port')
+    else:
+        if config.TESTNET:
+            config.BACKEND_RPC_PORT = config.DEFAULT_BACKEND_RPC_PORT_TESTNET
+        else:
+            config.BACKEND_RPC_PORT = config.DEFAULT_BACKEND_RPC_PORT
+    try:
+        config.BACKEND_RPC_PORT = int(config.BACKEND_RPC_PORT)
+        assert int(config.BACKEND_RPC_PORT) > 1 and int(config.BACKEND_RPC_PORT) < 65535
+    except:
+        raise Exception("Please specific a valid port number backend-rpc-port configuration parameter")
+            
+    # backend (e.g. bitcoind) RPC user
+    if args.backend_rpc_user:
+        config.BACKEND_RPC_USER = args.backend_rpc_user
+    elif has_config and configfile.has_option('Default', 'backend-rpc-user') and configfile.get('Default', 'backend-rpc-user'):
+        config.BACKEND_RPC_USER = configfile.get('Default', 'backend-rpc-user')
+    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-user') and configfile.get('Default', 'bitcoind-rpc-user'):
+        config.BACKEND_RPC_USER = configfile.get('Default', 'bitcoind-rpc-user')
+    else:
+        config.BACKEND_RPC_USER = 'rpcuser'
+
+    # backend (e.g. bitcoind) RPC password
+    if args.backend_rpc_password:
+        config.BACKEND_RPC_PASSWORD = args.backend_rpc_password
+    elif has_config and configfile.has_option('Default', 'backend-rpc-password') and configfile.get('Default', 'backend-rpc-password'):
+        config.BACKEND_RPC_PASSWORD = configfile.get('Default', 'backend-rpc-password')
+    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-password') and configfile.get('Default', 'bitcoind-rpc-password'):
+        config.BACKEND_RPC_PASSWORD = configfile.get('Default', 'bitcoind-rpc-password')
+    else:
+        config.BACKEND_RPC_PASSWORD = 'rpcpassword'
+
+    config.BACKEND_RPC = 'http://' + config.BACKEND_RPC_CONNECT + ':' + str(config.BACKEND_RPC_PORT) + '/'
+    config.BACKEND_AUTH = (config.BACKEND_RPC_USER, config.BACKEND_RPC_PASSWORD) if (config.BACKEND_RPC_USER and config.BACKEND_RPC_PASSWORD) else None
+
+
     # counterpartyd RPC host
     if args.counterpartyd_rpc_connect:
         config.COUNTERPARTYD_RPC_CONNECT = args.counterpartyd_rpc_connect
@@ -156,23 +210,6 @@ if __name__ == '__main__':
 
     config.COUNTERPARTYD_RPC = 'http://' + config.COUNTERPARTYD_RPC_CONNECT + ':' + str(config.COUNTERPARTYD_RPC_PORT) + '/api/'
     config.COUNTERPARTYD_AUTH = (config.COUNTERPARTYD_RPC_USER, config.COUNTERPARTYD_RPC_PASSWORD) if (config.COUNTERPARTYD_RPC_USER and config.COUNTERPARTYD_RPC_PASSWORD) else None
-
-    # blockchain service name
-    if args.blockchain_service_name:
-        config.BLOCKCHAIN_SERVICE_NAME = args.blockchain_service_name
-    elif has_config and configfile.has_option('Default', 'blockchain-service-name') and configfile.get('Default', 'blockchain-service-name'):
-        config.BLOCKCHAIN_SERVICE_NAME = configfile.get('Default', 'blockchain-service-name')
-    else:
-        config.BLOCKCHAIN_SERVICE_NAME = 'insight'
-
-    # custom blockchain service API endpoint
-    # leave blank to use the default. if specified, include the scheme prefix and port, without a trailing slash (e.g. http://localhost:3001)
-    if args.blockchain_service_connect:
-        config.BLOCKCHAIN_SERVICE_CONNECT = args.blockchain_service_connect
-    elif has_config and configfile.has_option('Default', 'blockchain-service-connect') and configfile.get('Default', 'blockchain-service-connect'):
-        config.BLOCKCHAIN_SERVICE_CONNECT = configfile.get('Default', 'blockchain-service-connect')
-    else:
-        config.BLOCKCHAIN_SERVICE_CONNECT = None #use default specified by the library
 
     # mongodb host
     if args.mongodb_connect:
