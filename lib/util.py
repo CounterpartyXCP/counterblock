@@ -77,6 +77,22 @@ def assets_to_asset_pair(asset1, asset2):
         
     return (base, quote)
 
+
+blockinfo_cache = {}
+
+def get_block_info_cached(block_index, prefetch=0):
+    global blockinfo_cache
+    if block_index in blockinfo_cache:
+        return blockinfo_cache[block_index]
+    blockinfo_cache.clear()
+    blocks = call_jsonrpc_api('get_blocks',
+                              {'block_indexes': range(block_index, block_index + prefetch)},
+                              abort_on_error=True)['result']
+    for block in blocks:
+        blockinfo_cache[block['block_index']] = block
+    return blockinfo_cache[block_index]
+
+
 def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False):
     if not endpoint: endpoint = config.COUNTERPARTYD_RPC
     if not auth: auth = config.COUNTERPARTYD_AUTH
