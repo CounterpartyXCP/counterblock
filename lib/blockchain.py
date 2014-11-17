@@ -14,10 +14,12 @@ def is_multisig(address):
     return (len(array) > 1)
 
 def search_raw_transactions(address):
-    result = util.call_jsonrpc_api('search_raw_transactions', {'address': address}, abort_on_error=True))['result']
+    result = util.call_jsonrpc_api('search_raw_transactions', {'address': address})
+    return result['result']
 
 def get_unspent_txouts(address, return_confirmed=False):
-    result = util.call_jsonrpc_api('get_unspent_txouts', {'address': address, 'return_confirmed': return_confirmed}, abort_on_error=True))['result']
+    result = util.call_jsonrpc_api('get_unspent_txouts', {'address': address, 'return_confirmed': return_confirmed})
+    return result['result']
 
 def get_block_count():
     return int(util.bitcoind_rpc('getblockcount', None))
@@ -50,9 +52,7 @@ def listunspent(address):
     return utxo
 
 def getaddressinfo(address):
-
     outputs = get_unspent_txouts(address, return_confirmed=True)
-
     balance = sum(out['amount'] for out in outputs['confirmed'])
     unconfirmed_balance = sum(out['amount'] for out in outputs['all']) - balance
     
@@ -114,7 +114,6 @@ def get_pubkey_from_transactions(address, raw_transactions):
     return None
 
 def get_pubkey_for_address(address):
-
     if is_multisig(address):
         array = address.split('_')
         addresses = array[1:-1]
