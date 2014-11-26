@@ -350,6 +350,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                     asset_info = mongo_db.tracked_assets.find_one({ 'asset': msg_data['asset'] })
                     if asset_info is None:
                         logging.warn("Credit/debit of %s where asset ('%s') does not exist. Ignoring..." % (msg_data['quantity'], msg_data['asset']))
+                        config.LAST_MESSAGE_INDEX = msg['message_index']
                         continue
                     quantity = msg_data['quantity'] if msg['category'] == 'credits' else -msg_data['quantity']
                     quantity_normalized = util_bitcoin.normalize_quantity(quantity, asset_info['divisible'])
@@ -411,6 +412,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                     if    (order_match['forward_asset'] == config.BTC and order_match['forward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF) \
                        or (order_match['backward_asset'] == config.BTC and order_match['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF):
                         logging.debug("Order match %s ignored due to %s under dust limit." % (order_match['tx0_hash'] + order_match['tx1_hash'], config.BTC))
+                        config.LAST_MESSAGE_INDEX = msg['message_index']
                         continue
 
                     #take divisible trade quantities to floating point
