@@ -23,6 +23,7 @@ D = decimal.Decimal
 def process_cpd_blockfeed(zmq_publisher_eventfeed):
     LATEST_BLOCK_INIT = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
     mongo_db = config.mongo_db
+    blocks_to_insert = []
 
     def blow_away_db():
         """boom! blow away all applicable collections in mongo"""
@@ -108,7 +109,9 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                     prev_ver['_history'] = asset['_history']
                     mongo_db.tracked_assets.save(prev_ver)
 
+        config.LAST_MESSAGE_INDEX = -1
         config.CAUGHT_UP = False
+        util.blockinfo_cache.clear()
         latest_block = mongo_db.processed_blocks.find_one({"block_index": max_block_index}) or LATEST_BLOCK_INIT
         return latest_block
     
@@ -180,22 +183,28 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         # or errored out while processing a block)
         my_latest_block = prune_my_stale_blocks(my_latest_block['block_index'])
 
-    #start polling counterpartyd for new blocks    
+
+    #avoid contacting counterpartyd (on reparse, to speed up)
+    autopilot = False
+    autopilot_runner = 0
+
+    #start polling counterpartyd for new blocks
     while True:
-        try:
-            running_info = util.call_jsonrpc_api("get_running_info", abort_on_error=True)
-            if 'result' not in running_info:
-                raise AssertionError("Could not contact counterpartyd")
-            running_info = running_info['result']
-        except Exception, e:
-            logging.warn(str(e) + " -- Waiting 3 seconds before trying again...")
-            time.sleep(3)
-            continue
-        
-        if running_info['last_message_index'] == -1: #last_message_index not set yet (due to no messages in counterpartyd DB yet)
-            logging.warn("No last_message_index returned. Waiting until counterpartyd has messages...")
-            time.sleep(10)
-            continue
+        if not autopilot or autopilot_runner == 0:
+            try:
+                running_info = util.call_jsonrpc_api("get_running_info", abort_on_error=True)
+                if 'result' not in running_info:
+                    raise AssertionError("Could not contact counterpartyd")
+                running_info = running_info['result']
+            except Exception, e:
+                logging.warn(str(e) + " -- Waiting 3 seconds before trying again...")
+                time.sleep(3)
+                continue
+
+            if running_info['last_message_index'] == -1: #last_message_index not set yet (due to no messages in counterpartyd DB yet)
+                logging.warn("No last_message_index returned. Waiting until counterpartyd has messages...")
+                time.sleep(10)
+                continue
         
         #wipe our state data if necessary, if counterpartyd has moved on to a new DB version
         wipeState = False
@@ -243,29 +252,30 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         if my_latest_block['block_index'] < last_processed_block['block_index']:
             #need to catch up
             config.CAUGHT_UP = False
+
+            if last_processed_block['block_index'] - my_latest_block['block_index'] > 500: #we are safely far from the tip, switch to bulk-everything
+                autopilot = True
+                if autopilot_runner == 0:
+                    autopilot_runner = 500
+                autopilot_runner -= 1
+            else:
+                autopilot = False
             
             cur_block_index = my_latest_block['block_index'] + 1
-            #get the blocktime for the next block we have to process 
             try:
-                cur_block = util.call_jsonrpc_api("get_block_info",
-                    {'block_index': cur_block_index}, abort_on_error=True)['result']
+                cur_block = util.get_block_info_cached(cur_block_index, min(200, last_processed_block['block_index'] - my_latest_block['block_index']))
+                block_data = cur_block['_messages']
             except Exception, e:
                 logging.warn(str(e) + " Waiting 3 seconds before trying again...")
                 time.sleep(3)
                 continue
+
             cur_block['block_time_obj'] = datetime.datetime.utcfromtimestamp(cur_block['block_time'])
             cur_block['block_time_str'] = cur_block['block_time_obj'].isoformat()
             
-            try:
-                block_data = util.call_jsonrpc_api("get_messages",
-                    {'block_index': cur_block_index}, abort_on_error=True)['result']
-            except Exception, e:
-                logging.warn(str(e) + " Waiting 5 seconds before trying again...")
-                time.sleep(5)
-                continue
-
             # clean api cache
-            util.clean_block_cache(cur_block_index)
+            if last_processed_block['block_index'] - cur_block_index <= config.MAX_REORG_NUM_BLOCKS: #only when we are near the tip
+                util.clean_block_cache(cur_block_index)
             
             #parse out response (list of txns, ordered as they appeared in the block)
             for msg in block_data:
@@ -274,9 +284,13 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 if msg['message_index'] != config.LAST_MESSAGE_INDEX + 1 and config.LAST_MESSAGE_INDEX != -1:
                     logging.error("BUG: MESSAGE RECEIVED NOT WHAT WE EXPECTED. EXPECTED: %s, GOT: %s: %s (ALL MSGS IN get_messages PAYLOAD: %s)..." % (
                         config.LAST_MESSAGE_INDEX + 1, msg['message_index'], msg, [m['message_index'] for m in block_data]))
+                    # we are likely cojones deep in desync, enforcing deep reorg
+                    my_latest_block = prune_my_stale_blocks(cur_block_index - config.MAX_FORCED_REORG_NUM_BLOCKS)
+                    break
                     #sys.exit(1) #FOR NOW
                 
                 #BUG: sometimes counterpartyd seems to return OLD messages out of the message feed. deal with those
+                #TODO unreachable now, delete?
                 if msg['message_index'] <= config.LAST_MESSAGE_INDEX:
                     logging.warn("BUG: IGNORED old RAW message %s: %s ..." % (msg['message_index'], msg))
                     continue
@@ -336,6 +350,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                     asset_info = mongo_db.tracked_assets.find_one({ 'asset': msg_data['asset'] })
                     if asset_info is None:
                         logging.warn("Credit/debit of %s where asset ('%s') does not exist. Ignoring..." % (msg_data['quantity'], msg_data['asset']))
+                        config.LAST_MESSAGE_INDEX = msg['message_index']
                         continue
                     quantity = msg_data['quantity'] if msg['category'] == 'credits' else -msg_data['quantity']
                     quantity_normalized = util_bitcoin.normalize_quantity(quantity, asset_info['divisible'])
@@ -397,6 +412,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                     if    (order_match['forward_asset'] == config.BTC and order_match['forward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF) \
                        or (order_match['backward_asset'] == config.BTC and order_match['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF):
                         logging.debug("Order match %s ignored due to %s under dust limit." % (order_match['tx0_hash'] + order_match['tx1_hash'], config.BTC))
+                        config.LAST_MESSAGE_INDEX = msg['message_index']
                         continue
 
                     #take divisible trade quantities to floating point
@@ -445,28 +461,38 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 #this is the last processed message index
                 config.LAST_MESSAGE_INDEX = msg['message_index']
             
-            #block successfully processed, track this in our DB
-            new_block = {
-                'block_index': cur_block_index,
-                'block_time': cur_block['block_time_obj'],
-                'block_hash': cur_block['block_hash'],
-            }
-            mongo_db.processed_blocks.insert(new_block)
-            my_latest_block = new_block
-            config.CURRENT_BLOCK_INDEX = cur_block_index
-            #get the current blockchain service block
-            if config.BLOCKCHAIN_SERVICE_LAST_BLOCK == 0 or config.BLOCKCHAIN_SERVICE_LAST_BLOCK - config.CURRENT_BLOCK_INDEX < config.MAX_REORG_NUM_BLOCKS:
-                #update as CURRENT_BLOCK_INDEX catches up with BLOCKCHAIN_SERVICE_LAST_BLOCK and/or surpasses it (i.e. if blockchain service gets behind for some reason)
-                try:
-                    block_height_response = blockchain.getinfo()
-                except:
-                    block_height_response = None
-                config.BLOCKCHAIN_SERVICE_LAST_BLOCK = block_height_response['info']['blocks'] if block_height_response else 0
-            logging.info("Block: %i (message_index height=%s) (blockchain latest block=%s)" % (config.CURRENT_BLOCK_INDEX,
-                config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX != -1 else '???',
-                config.BLOCKCHAIN_SERVICE_LAST_BLOCK if config.BLOCKCHAIN_SERVICE_LAST_BLOCK else '???'))
+            else:
+                #block successfully processed, track this in our DB
+                new_block = {
+                    'block_index': cur_block_index,
+                    'block_time': cur_block['block_time_obj'],
+                    'block_hash': cur_block['block_hash'],
+                }
+                blocks_to_insert.append(new_block)
+                if last_processed_block['block_index'] - cur_block_index > 1000: #reparsing, do bulk inserts
+                    if len(blocks_to_insert) >= 1000:
+                        mongo_db.processed_blocks.insert(blocks_to_insert)
+                        blocks_to_insert[:] = []
+                else:
+                    mongo_db.processed_blocks.insert(blocks_to_insert)
+                    blocks_to_insert[:] = []
 
-            clean_mempool_tx()
+                my_latest_block = new_block
+                config.CURRENT_BLOCK_INDEX = cur_block_index
+                #get the current blockchain service block
+                if config.BLOCKCHAIN_SERVICE_LAST_BLOCK == 0 or config.BLOCKCHAIN_SERVICE_LAST_BLOCK - config.CURRENT_BLOCK_INDEX < config.MAX_REORG_NUM_BLOCKS:
+                    #update as CURRENT_BLOCK_INDEX catches up with BLOCKCHAIN_SERVICE_LAST_BLOCK and/or surpasses it (i.e. if blockchain service gets behind for some reason)
+                    try:
+                        block_height_response = blockchain.getinfo()
+                    except:
+                        block_height_response = None
+                    config.BLOCKCHAIN_SERVICE_LAST_BLOCK = block_height_response['info']['blocks'] if block_height_response else 0
+                logging.info("Block: %i (message_index height=%s) (blockchain latest block=%s)" % (config.CURRENT_BLOCK_INDEX,
+                    config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX != -1 else '???',
+                    config.BLOCKCHAIN_SERVICE_LAST_BLOCK if config.BLOCKCHAIN_SERVICE_LAST_BLOCK else '???'))
+
+                if last_processed_block['block_index'] - cur_block_index < config.MAX_REORG_NUM_BLOCKS: #only when we are near the tip
+                    clean_mempool_tx()
 
         elif my_latest_block['block_index'] > last_processed_block['block_index']:
             #we have stale blocks (i.e. most likely a reorg happened in counterpartyd)?? this shouldn't happen, as we
