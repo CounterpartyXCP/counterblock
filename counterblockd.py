@@ -4,16 +4,26 @@ counterblockd server
 """
 
 #import before importing other modules
-import gevent
-from gevent import monkey; monkey.patch_all()
+#import gevent
+#from gevent import monkey; monkey.patch_all()
 
 import sys
 import os
+#import dl
+from mpi4py.dl import dlopen, RTLD_NOW, RTLD_GLOBAL
+from mpi4py.dl import dlerror
+sys.setdlopenflags(RTLD_NOW | RTLD_GLOBAL)
+
+#import before importing other modules
+import gevent
+from gevent import monkey; monkey.patch_all()
+
+
 import argparse
 import json
 import logging
 import datetime
-import ConfigParser
+import configparser
 import time
 import email.utils
 
@@ -539,7 +549,7 @@ if __name__ == '__main__':
         config.COUNTERWALLET_CONFIG_JSON = '{}'
     try:
         config.COUNTERWALLET_CONFIG = json.loads(config.COUNTERWALLET_CONFIG_JSON)
-    except Exception, e:
+    except Exception as e:
         logging.error("Exception loading counterwallet config: %s" % e)
     
     #xnova(7/16/2014): Disable for now, as this uses requests under the surface, which may not be safe for a gevent-based app

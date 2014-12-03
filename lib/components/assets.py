@@ -96,6 +96,8 @@ def parse_issuance(db, message, cur_block_index, cur_block):
             db.tracked_assets.insert(tracked_asset)
             logging.info("Tracking new asset: %s" % message['asset'])
             modify_extended_asset_info(message['asset'], message['description'])
+        elif message['quantity'] >= 5000000000000000000 :
+            return True
         else: #issuing additional of existing asset
             assert tracked_asset is not None
             db.tracked_assets.update(
