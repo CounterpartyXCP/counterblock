@@ -1,0 +1,48 @@
+file.py
+*.py[cod]
+counterblockd.conf
+# C extensions
+*.so
+# Packages
+*.egg
+*.egg-info
+build
+eggs
+parts
+bin
+var
+sdist
+develop-eggs
+.installed.cfg
+lib64
+__pycache__
+
+# Installer logs
+pip-log.txt
+
+# Unit test / coverage reports
+.coverage
+.tox
+nosetests.xml
+
+# Translations
+*.mo
+
+# Mr Developer
+.mr.developer.cfg
+.project
+.pydevproject
+
+# tests
+schema.py
+
+# MACOS Files
+.DS_Store
+._.*
+
+#IntelliJ
+.idea
+
+#Docs 
+docs/_build
+
