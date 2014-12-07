@@ -1,5 +1,5 @@
 from lib.apihandler import Dispatcher
-
+import logging
 class Processor(Dispatcher):
     def subscribe(self, name=None, priority=0, enabled=True):
         def inner(f): 
@@ -17,7 +17,7 @@ class Processor(Dispatcher):
     def active_functions(self): 
         return sorted((func for func in self.values() if func['enabled']), key=lambda x: x['priority'], reverse=True)
     def run_active_functions(self): 
-        for func in active_functions(): 
+        for func in self.active_functions(): 
             logging.debug('starting {}'.format(func['name']))
             func['function']()
             

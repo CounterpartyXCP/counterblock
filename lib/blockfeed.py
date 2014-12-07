@@ -190,7 +190,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         logging.debug("*config.state* {}".format(config.state))
         
         #Run Block Processor Functions
-        BlockProcessor.run_active_functions():
+        BlockProcessor.run_active_functions()
     
         #block successfully processed, track this in our DB
         new_block = {
@@ -225,11 +225,11 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         else:
             logging.warn("counterblockd database app_config collection doesn't exist. BUILDING FROM SCRATCH...")
         app_config = blow_away_db()
-        config.state['my_latest_block'] = LATEST_BLOCK_INIT
+        config.state['my_latest_block'] = config.LATEST_BLOCK_INIT
     else:
         app_config = app_config[0]
         #get the last processed block out of mongo
-        config.state['my_latest_block'] = mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)]) or LATEST_BLOCK_INIT
+        config.state['my_latest_block'] = mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)]) or config.LATEST_BLOCK_INIT
         #remove any data we have for blocks higher than this (would happen if counterblockd or mongo died
         # or errored out while processing a block)
         config.state['my_latest_block'] = prune_my_stale_blocks(config.state['my_latest_block']['block_index'])
@@ -356,7 +356,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             
             if config.CAUGHT_UP and not config.CAUGHT_UP_STARTED_EVENTS:
                 #start up recurring events that depend on us being fully caught up with the blockchain to run
-                CaughtUpProcessor.run_active_functions():
+                CaughtUpProcessor.run_active_functions()
                 
                 config.CAUGHT_UP_STARTED_EVENTS = True
 
