@@ -307,7 +307,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             config.CAUGHT_UP = False
             
             #Autopilot and autopilot runner are redundant
-            if last_processed_block['block_index'] - my_latest_block['block_index'] > 500: #we are safely far from the tip, switch to bulk-everything
+            if config.state['last_processed_block']['block_index'] - config.state['my_latest_block']['block_index'] > 500: #we are safely far from the tip, switch to bulk-everything
                 autopilot = True
                 if autopilot_runner == 0:
                     autopilot_runner = 500
@@ -326,7 +326,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             parse_block(block_data['_messages'])
             
             #What's this for, if it's not general to blockfeed it should be in BlockProcessor
-            if last_processed_block['block_index'] - cur_block_index <= config.MAX_REORG_NUM_BLOCKS: #only when we are near the tip
+            if config.state['last_processed_block']['block_index'] - cur_block_index <= config.MAX_REORG_NUM_BLOCKS: #only when we are near the tip
                 util.clean_block_cache(cur_block_index)
 
         elif config.state['my_latest_block']['block_index'] > config.state['last_processed_block']['block_index']:
