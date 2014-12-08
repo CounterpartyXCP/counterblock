@@ -23,6 +23,7 @@ D = decimal.Decimal
 from lib.processor.processor import MessageProcessor, BlockProcessor, CaughtUpProcessor
 
 def prune_my_stale_blocks(max_block_index):
+    mongo_db = config.mongo_db
     """called if there are any records for blocks higher than this in the database? If so, they were impartially created
        and we should get rid of them
     
@@ -68,6 +69,13 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
     config.LATEST_BLOCK_INIT = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
     mongo_db = config.mongo_db
     zmq_publisher_eventfeed = config.ZMQ_PUBLISHER_EVENTFEED
+    
+    config.CURRENT_BLOCK_INDEX = 0 #initialize (last processed block index -- i.e. currently active block)
+    config.LAST_MESSAGE_INDEX = -1 #initialize (last processed message index)
+    config.BLOCKCHAIN_SERVICE_LAST_BLOCK = 0 #simply for printing/alerting purposes
+    config.CAUGHT_UP_STARTED_EVENTS = False
+    
+    #^ set after we are caught up and start up the recurring events that depend on us being caught up with the blockchain 
     #enabled processor functions
     logging.debug("Enabled Message Processor Functions {0}".format(MessageProcessor.active_functions()))
     logging.debug("Enabled Block Processor Functions {0}".format(BlockProcessor.active_functions()))
@@ -157,13 +165,6 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
     def clean_mempool_tx():
         """clean mempool transactions older than MAX_REORG_NUM_BLOCKS blocks"""
         mongo_db.mempool.remove({"viewed_in_block": {"$lt": config.CURRENT_BLOCK_INDEX - config.MAX_REORG_NUM_BLOCKS}})
-
-
-    config.CURRENT_BLOCK_INDEX = 0 #initialize (last processed block index -- i.e. currently active block)
-    config.LAST_MESSAGE_INDEX = -1 #initialize (last processed message index)
-    config.BLOCKCHAIN_SERVICE_LAST_BLOCK = 0 #simply for printing/alerting purposes
-    config.CAUGHT_UP_STARTED_EVENTS = False
-    #^ set after we are caught up and start up the recurring events that depend on us being caught up with the blockchain 
     
     #New Message Handling
     def parse_message(msg): 
@@ -234,23 +235,32 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         # or errored out while processing a block)
         config.state['my_latest_block'] = prune_my_stale_blocks(config.state['my_latest_block']['block_index'])
     
+    config.state['autopilot_runner'] = 0
     #start polling counterpartyd for new blocks    
     while True:
-        try:
-            running_info = util.call_jsonrpc_api("get_running_info", abort_on_error=True)
-            if 'result' not in running_info:
-                raise AssertionError("Could not contact counterpartyd")
-            running_info = running_info['result']
-        except Exception, e:
-            logging.warn(str(e) + " -- Waiting 3 seconds before trying again...")
-            time.sleep(3)
-            continue
-        
-        if running_info['last_message_index'] == -1: #last_message_index not set yet (due to no messages in counterpartyd DB yet)
-            logging.warn("No last_message_index returned. Waiting until counterpartyd has messages...")
-            time.sleep(10)
-            continue
-        
+        if config.state['autopilot_runner'] < 1: 
+            try:
+                running_info = util.call_jsonrpc_api("get_running_info", abort_on_error=True)
+                if 'result' not in running_info:
+                    raise AssertionError("Could not contact counterpartyd")
+                running_info = running_info['result']
+            except Exception, e:
+                logging.warn(str(e) + " -- Waiting 3 seconds before trying again...")
+                time.sleep(3)
+                continue
+            if running_info['last_message_index'] == -1: #last_message_index not set yet (due to no messages in counterpartyd DB yet)
+                logging.warn("No last_message_index returned. Waiting until counterpartyd has messages...")
+                time.sleep(10)
+                continue
+            #set the last block processed by counterpartyd
+            config.state['last_processed_block'] = running_info['last_block']
+            
+            if config.state['last_processed_block']['block_index'] - config.state['my_latest_block']['block_index'] > 500: 
+                config.state['autopilot_runner'] = 400
+            else:
+                config.state['autopilot_runner'] = 0 
+        else: config.state['autopilot_runner'] -= 1
+                
         #wipe our state data if necessary, if counterpartyd has moved on to a new DB version
         wipeState = False
         updatePrefs = False
@@ -287,9 +297,6 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             config.state['my_latest_block'] = config.LATEST_BLOCK_INIT
             config.CAUGHT_UP = False #You've Come a Long Way, Baby
             
-        #work up to what block counterpartyd is at
-        config.state['last_processed_block'] = running_info['last_block']
-        
         if config.state['last_processed_block']['block_index'] is None:
             logging.warn("counterpartyd has no last processed block (probably is reparsing). Waiting 3 seconds before trying again...")
             time.sleep(3)
@@ -297,44 +304,16 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         if config.state['my_latest_block']['block_index'] < config.state['last_processed_block']['block_index']:
             #need to catch up
             config.CAUGHT_UP = False
-            
+                
             cur_block_index = config.state['my_latest_block']['block_index'] + 1
-            #get the blocktime for the next block we have to process 
-            
-            #Check if we are less than 100 blocks behind
-            if (config.state['last_processed_block']['block_index'] - config.state['my_latest_block']['block_index']) < 100: 
-                try:
-                    config.state['cur_block'] = util.call_jsonrpc_api("get_block_info", {'block_index': cur_block_index}, abort_on_error=True)['result']
-                except Exception, e:
-                    logging.warn(str(e) + " Waiting 3 seconds before trying again...")
-                    time.sleep(3)
-                    continue
-                try:
-                    block_data = util.call_jsonrpc_api("get_messages", {'block_index': cur_block_index}, abort_on_error=True)['result']
-                except Exception, e:
-                    logging.warn(str(e) + " Waiting 5 seconds before trying again...")
-                    time.sleep(5)
-                    continue
-                #parse out response (list of txns, ordered as they appeared in the block)
-                parse_block(block_data)
-            #If we are more than 100 blocks behind, fetch messages in 100 block chunks
-            else: 
-                try: 
-                    blocks_info = util.call_jsonrpc_api("sql", {"query":'SELECT * FROM blocks WHERE block_index >= ? LIMIT 100', "bindings": [cur_block_index]})['result']
-                except Exception, e:
-                    logging.warn(str(e) + " Waiting 3.3 seconds before trying again...")
-                    time.sleep(3.3)
-                    continue
-                try:
-                    blocks_data = util.call_jsonrpc_api("sql", {"query":'SELECT * FROM messages WHERE (block_index >= ?) AND (block_index < ?) ORDER BY message_index ASC', "bindings": [cur_block_index, cur_block_index + 100]})['result'] 
-                except Exception, e:
-                    logging.warn(str(e) + " Waiting 5.5 seconds before trying again...")
-                    time.sleep(5.5)
-                    continue
-                for cur_block in blocks_info:
-                    block_data = [message for message in blocks_data if message['block_index'] == cur_block['block_index']]
-                    config.state['cur_block'] = cur_block
-                    parse_block(block_data) 
+            try:
+                block_data = util.get_block_info_cached(cur_block_index, min(100, (config.state['last_processed_block']['block_index'] - config.state['my_latest_block']['block_index'])))
+            except Exception, e:
+                logging.warn(str(e) + " Waiting 3 seconds before trying again...")
+                time.sleep(3)
+                continue
+            config.state['cur_block'] = block_data
+            parse_block(block_data['_messages'])
         
         elif config.state['my_latest_block']['block_index'] > config.state['last_processed_block']['block_index']:
             # should get a reorg message. Just to be on the safe side, prune back MAX_REORG_NUM_BLOCKS blocks

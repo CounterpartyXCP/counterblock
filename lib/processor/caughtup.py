@@ -2,6 +2,8 @@ from lib import config, events
 import gevent
 import logging
 from processor import CaughtUpProcessor
+import time
+
 @CaughtUpProcessor.subscribe(priority=69)
 def spawn_compile_asset_pair_market_info():
     logging.debug("Starting event timer: compile_asset_pair_market_info")
