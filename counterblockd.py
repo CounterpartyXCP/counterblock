@@ -15,6 +15,8 @@ import logging
 import datetime
 import ConfigParser
 import time
+from configobj import ConfigObj
+import imp
 import email.utils
 
 import appdirs
@@ -29,14 +31,23 @@ from socketio import server as socketio_server
 import pygeoip
 
 from lib import (config, api, events, blockfeed, siofeeds, util)
-
+from lib.processor import processor
+from lib.processor import messages, caughtup, startup
 
 if __name__ == '__main__':
     # Parse command-line arguments.
     parser = argparse.ArgumentParser(prog='counterblockd', description='Counterwallet daemon. Works with counterpartyd')
+    subparsers = parser.add_subparsers(dest='action', help='the action to be taken')
+    parser_server = subparsers.add_parser('server', help='Run Counterblockd')
+    
+    parser_dismod = subparsers.add_parser('dismod', help='Disable a module')
+    parser_dismod.add_argument('module_path', type=str, help='Path of module to Disable relative to Counterblockd directory')
+    parser_enmod = subparsers.add_parser('enmod', help='Enable a module')
+    parser_enmod.add_argument('module_path', type=str, help='Full Path of module to Enable relative to Counterblockd directory')
+    parser_listmod = subparsers.add_parser('listmod', help='Display Module Config')
     parser.add_argument('-V', '--version', action='version', version="counterblockd v%s" % config.VERSION)
     parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', default=False, help='sets log level to DEBUG instead of WARNING')
-
+    parser.add_argument('--enmod', type=str, help='Enable a module')
     parser.add_argument('--reparse', action='store_true', default=False, help='force full re-initialization of the counterblockd database')
     parser.add_argument('--testnet', action='store_true', default=False, help='use Bitcoin testnet addresses and block numbers')
     parser.add_argument('--data-dir', help='specify to explicitly override the directory in which to keep the config file and log file')
@@ -84,9 +95,11 @@ if __name__ == '__main__':
     parser.add_argument('--rollbar-token', help='the API token to use with rollbar (leave blank to disable rollbar integration)')
     parser.add_argument('--rollbar-env', help='the environment name for the rollbar integration (if enabled). Defaults to \'production\'')
 
+    if len(sys.argv) < 2: sys.argv.append('server')
+    if not [i for i in sys.argv if i in ('server', 'enmod', 'dismod', 'listmod')]: sys.argv.append('server')
+
     parser.add_argument('--support-email', help='the email address where support requests should go')
     parser.add_argument('--email-server', help='the email server to send support requests out from. Defaults to \'localhost\'')
-
     args = parser.parse_args()
 
     # Data directory
@@ -101,7 +114,47 @@ if __name__ == '__main__':
     config_path = os.path.join(config.DATA_DIR, 'counterblockd.conf')
     configfile.read(config_path)
     has_config = configfile.has_section('Default')
-
+    
+    #Do Module Args Actions
+    
+    def toggle_mod(mod, enabled=True):
+        try:
+            imp.find_module(mod)
+        except: 
+            print("Unable to find module %s" %mod)
+            return
+        mod_config_path = os.path.join(config.DATA_DIR, 'counterblockd_module.conf')
+        module_conf = ConfigObj(mod_config_path)
+        try:
+            try:
+                if module_conf['LoadModule'][mod][0] in ['True', 'False']: 
+                    module_conf['LoadModule'][mod][0] = enabled
+                else: module_conf['LoadModule'][mod][1] = enabled
+            except: module_conf['LoadModule'][mod].insert(0, enabled)
+        except: 
+            if not "LoadModule" in module_conf: module_conf['LoadModule'] = {}
+            module_conf['LoadModule'][mod] = enabled 
+        module_conf.write()
+        print("%s Module %s" %("Enabled" if enabled else "Disabled", mod))
+        
+    def list_mod():
+        mod_config_path = os.path.join(config.DATA_DIR, 'counterblockd_module.conf')
+        module_conf = ConfigObj(mod_config_path)
+        for name, modules in module_conf.items(): 
+            print("Configuration for %s" %name)
+            for module, settings in modules.items(): 
+                print("     %s %s: %s" %(("Module" if name == "LoadModule" else "Function"), module, settings))
+                
+    if args.action == 'enmod':
+        toggle_mod(args.module_path, True)
+        sys.exit(1)
+    if args.action == 'dismod': 
+        toggle_mod(args.module_path, False)
+        sys.exit(1)
+    if args.action == 'listmod':
+        list_mod()
+        sys.exit(1)
+        
     # testnet
     if args.testnet:
         config.TESTNET = args.testnet
@@ -191,7 +244,7 @@ if __name__ == '__main__':
         assert int(config.COUNTERPARTYD_RPC_PORT) > 1 and int(config.COUNTERPARTYD_RPC_PORT) < 65535
     except:
         raise Exception("Please specific a valid port number counterpartyd-rpc-port configuration parameter")
-            
+    
     # counterpartyd RPC user
     if args.counterpartyd_rpc_user:
         config.COUNTERPARTYD_RPC_USER = args.counterpartyd_rpc_user
@@ -408,7 +461,7 @@ if __name__ == '__main__':
 
     #More testnet
     if config.TESTNET:
-        config.BLOCK_FIRST = 310000
+        config.BLOCK_FIRST = 281000
     else:
         config.BLOCK_FIRST = 278270
 
@@ -472,7 +525,7 @@ if __name__ == '__main__':
 
     # current dir
     config.COUNTERBLOCKD_DIR = os.path.dirname(os.path.realpath(__file__))
-
+    
     # initialize json schema for json asset and feed validation
     config.ASSET_SCHEMA = json.load(open(os.path.join(config.COUNTERBLOCKD_DIR, 'schemas', 'asset.schema.json')))
     config.FEED_SCHEMA = json.load(open(os.path.join(config.COUNTERBLOCKD_DIR, 'schemas', 'feed.schema.json')))
@@ -542,6 +595,52 @@ if __name__ == '__main__':
     except Exception, e:
         logging.error("Exception loading counterwallet config: %s" % e)
     
+    #Module Setup
+    def module_setup(module_path): 
+        logging.debug('Loading Module %s' %module_path)
+        f, fl, dsc = imp.find_module(module_path)
+        module_name = module_path.split('/')[-1]
+        imp.load_module(module_name, f, fl, dsc) 
+        logging.info('Module Loaded %s' %module_name)
+        
+    def get_mod_params_dict(params):
+        if not isinstance(params, list): params = [params] 
+        params_dict = {} 
+        try: 
+            params_dict['priority'] = float(params[0])
+        except: params_dict['enabled'] = False if "false" == params[0].lower() else True
+        if len(params) > 1: 
+            try: params_dict['priority'] = float(params[1]) 
+            except: params_dict['enabled'] = False if "false" == params[1].lower() else True
+        return params_dict
+
+    #Read counterblockd_module.conf
+    #Moved to after logging config
+    module_conf = ConfigObj(os.path.join(config.DATA_DIR, 'counterblockd_module.conf'))
+    for key, container in module_conf.items():
+        if key == 'LoadModule':
+            for module, user_settings in container.items(): 
+                try:
+                    params = get_mod_params_dict(user_settings)
+                    if params['enabled'] is True: module_setup(module) 
+                except: logging.warn("Failed to load Module %s" %module)
+        elif 'Processor' in key:
+            try: processor_functions = processor.__dict__[key]
+            except: 
+                logging.warn("Invalid config header %s in counterblockd_module.conf" %key)
+                continue
+            #print(processor_functions)
+            for func_name, user_settings in container.items(): 
+                #print(func_name, user_settings)
+                if func_name in processor_functions:
+                    params = get_mod_params_dict(user_settings)
+                    #print(func_name, params)
+                    for param_name, param_value in params.items(): 
+                        processor_functions[func_name][param_name] = param_value
+                else:
+                    logging.warn("Attempted to configure a non-existent processor %s" %func_name)
+            logging.debug(processor_functions)
+            
     #xnova(7/16/2014): Disable for now, as this uses requests under the surface, which may not be safe for a gevent-based app
     #rollbar integration
     #if config.ROLLBAR_TOKEN:
@@ -666,14 +765,18 @@ if __name__ == '__main__':
     if config.REDIS_ENABLE_APICACHE:
         logging.info("Enabling redis read API caching... (%s:%s)" % (config.REDIS_CONNECT, config.REDIS_PORT))
         redis_client = redis.StrictRedis(host=config.REDIS_CONNECT, port=config.REDIS_PORT, db=config.REDIS_DATABASE)
+        config.REDIS_CLIENT = redis_client
     else:
         redis_client = None
+        config.REDIS_CLIENT = None
     
     #set up zeromq publisher for sending out received events to connected socket.io clients
     zmq_context = zmq.Context()
     zmq_publisher_eventfeed = zmq_context.socket(zmq.PUB)
     zmq_publisher_eventfeed.bind('inproc://queue_eventfeed')
-    
+    #set event feed for shared access
+    config.ZMQ_PUBLISHER_EVENTFEED = zmq_publisher_eventfeed
+
     logging.info("Starting up socket.io server (block event feed)...")
     sio_server = socketio_server.SocketIOServer(
         (config.SOCKETIO_HOST, config.SOCKETIO_PORT),
@@ -687,24 +790,13 @@ if __name__ == '__main__':
         siofeeds.SocketIOChatFeedServer(mongo_db),
         resource="socket.io", policy_server=False)
     sio_server.start() #start the socket.io server greenlets
+    
+    #Run Startup Functions
+    processor.StartUpProcessor.run_active_functions()
 
-    logging.info("Starting up counterpartyd block feed poller...")
-    gevent.spawn(blockfeed.process_cpd_blockfeed, zmq_publisher_eventfeed)
 
     #start up event timers that don't depend on the feed being fully caught up
-    logging.debug("Starting event timer: check_blockchain_service")
-    gevent.spawn(events.check_blockchain_service)
-    logging.debug("Starting event timer: expire_stale_prefs")
-    gevent.spawn(events.expire_stale_prefs)
-    logging.debug("Starting event timer: expire_stale_btc_open_order_records")
-    gevent.spawn(events.expire_stale_btc_open_order_records)
-    logging.debug("Starting event timer: generate_wallet_stats")
-    gevent.spawn(events.generate_wallet_stats)
 
-    logging.info("Starting up RPC API handler...")
-    api.serve_api(mongo_db, redis_client)
-    
-    #print some user friendly startup warnings as need be
     if not config.SUPPORT_EMAIL:
         logging.warn("Support email setting not set: To enable, please specify an email for the 'support-email' setting in your counterblockd.conf")
 

@@ -23,6 +23,8 @@ mongo_db = None #will be set on server init
 BTC = 'BTC'
 XCP = 'XCP'
 
+state = {}
+
 MAX_REORG_NUM_BLOCKS = 10 #max reorg we'd likely ever see
 MAX_FORCED_REORG_NUM_BLOCKS = 20 #but let us go deeper when messages are out of sync
 

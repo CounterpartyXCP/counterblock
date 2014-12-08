@@ -95,7 +95,9 @@ def get_block_info_cached(block_index, prefetch=0):
 
 def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False):
     if not endpoint: endpoint = config.COUNTERPARTYD_RPC
-    if not auth: auth = config.COUNTERPARTYD_AUTH
+    #if not auth: 
+    #I'm having some weird bug with a default auth being passed by some method *Needs Fix*
+    auth = config.COUNTERPARTYD_AUTH
     if not params: params = {}
     
     payload = {
@@ -113,7 +115,6 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
     if auth:
         #auth should be a (username, password) tuple, if specified
         headers['Authorization'] = http_basic_auth_str(auth[0], auth[1])
-    
     try:
         u = URL(endpoint)
         client = HTTPClient.from_url(u, connection_timeout=JSONRPC_API_REQUEST_TIMEOUT,
@@ -141,7 +142,6 @@ def bitcoind_rpc(command, params):
 
 def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5):
     headers = { 'Connection':'close', } #no keepalive
-
     try:
         u = URL(url)
         client_kwargs = {'connection_timeout': fetch_timeout, 'network_timeout': fetch_timeout, 'insecure': True}
@@ -471,6 +471,20 @@ def next_interval_date(interval):
         return None
     else:
         return next.isoformat()
+
+blockinfo_cache = {} 
+
+def get_block_info_cached(block_index, prefetch=0):
+    global blockinfo_cache
+    if block_index in blockinfo_cache:
+        return blockinfo_cache[block_index]
+    blockinfo_cache.clear()
+    blocks = call_jsonrpc_api('get_blocks',
+                              {'block_indexes': range(block_index, block_index + prefetch)},
+                              abort_on_error=True)['result']
+    for block in blocks:
+        blockinfo_cache[block['block_index']] = block
+    return blockinfo_cache[block_index]
 
 def subprocess_cmd(command):
     process = subprocess.Popen(command,stdout=subprocess.PIPE, shell=True)

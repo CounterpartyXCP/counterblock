@@ -18,7 +18,7 @@ from geventhttpclient import HTTPClient
 from geventhttpclient.url import URL
 import flask
 import jsonrpc
-from jsonrpc import dispatcher
+from lib.apihandler import dispatcher
 import pymongo
 from bson import json_util
 from bson.son import SON
@@ -87,7 +87,12 @@ def serve_api(mongo_db, redis_client):
         #DEPRECATED 1.5
         data = blockchain.getinfo()
         return data['info']['blocks']
-
+        
+    @dispatcher.add_method
+    def get_insight_block_info(block_hash):
+        info = blockchain.getBlockInfo(block_hash) #('/api/block/' + block_hash + '/', abort_on_error=True)
+        return info
+        
     @dispatcher.add_method
     def get_chain_address_info(addresses, with_uxtos=True, with_last_txn_hashes=4, with_block_height=False):
         if not isinstance(addresses, list):
@@ -1391,6 +1396,11 @@ def serve_api(mongo_db, redis_client):
     def get_feeds_by_source(addresses = []):
         feed = betting.get_feeds_by_source(mongo_db, addresses)
         return feed
+    
+    @dispatcher.add_method
+    def get_feeds_all(): 
+        feeds= betting.fetch_all_feed_info(mongo_db)
+        return feeds
 
     @dispatcher.add_method
     def parse_base64_feed(base64_feed):
