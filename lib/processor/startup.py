@@ -27,3 +27,4 @@ def generate_wallet_stats():
 def start_api():
     logging.info("Starting up RPC API handler...")
     api.serve_api(config.mongo_db, config.REDIS_CLIENT)
+

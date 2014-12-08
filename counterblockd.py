@@ -792,7 +792,7 @@ if __name__ == '__main__':
     sio_server.start() #start the socket.io server greenlets
     
     #Run Startup Functions
-    processor.StartUpProcessor.run_active_functions():
+    processor.StartUpProcessor.run_active_functions()
 
 
     #start up event timers that don't depend on the feed being fully caught up

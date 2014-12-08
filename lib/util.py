@@ -472,6 +472,20 @@ def next_interval_date(interval):
     else:
         return next.isoformat()
 
+blockinfo_cache = {} 
+
+def get_block_info_cached(block_index, prefetch=0):
+    global blockinfo_cache
+    if block_index in blockinfo_cache:
+        return blockinfo_cache[block_index]
+    blockinfo_cache.clear()
+    blocks = call_jsonrpc_api('get_blocks',
+                              {'block_indexes': range(block_index, block_index + prefetch)},
+                              abort_on_error=True)['result']
+    for block in blocks:
+        blockinfo_cache[block['block_index']] = block
+    return blockinfo_cache[block_index]
+
 def subprocess_cmd(command):
     process = subprocess.Popen(command,stdout=subprocess.PIPE, shell=True)
     proc_stdout = process.communicate()[0].strip()
