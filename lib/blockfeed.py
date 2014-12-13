@@ -70,7 +70,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
     mongo_db = config.mongo_db
     zmq_publisher_eventfeed = config.ZMQ_PUBLISHER_EVENTFEED
     
-    #At least have of these Big Letter Vars are redundant with config.state and should be scrapped
+    #At least half of these Big Letter Vars are redundant with config.state and should be scrapped
     config.CURRENT_BLOCK_INDEX = 0 #initialize (last processed block index -- i.e. currently active block)
     config.LAST_MESSAGE_INDEX = -1 #initialize (last processed message index)
     config.BLOCKCHAIN_SERVICE_LAST_BLOCK = 0 #simply for printing/alerting purposes

@@ -7,6 +7,7 @@
 
 appdirs==1.2.0
 #helps locate OS-specific directories (user data dir, etc)
+#beaware that newer versions of appdirs use ~/.local/share instead of ~/.config
 
 prettytable==0.7.2
 
@@ -59,3 +60,5 @@ aniso8601==0.82
 pygeoip==0.3.1
 
 colorama==0.3.1
+
+configobj==5.0.5
