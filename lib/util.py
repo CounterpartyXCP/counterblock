@@ -139,15 +139,24 @@ def bitcoind_rpc(command, params):
                              auth = config.BACKEND_AUTH, 
                              abort_on_error = True)['result']
 
-def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5):
+def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5, auth=None, post_data=None):
+    """
+    @param post_data: If not None, do a POST request, with the passed data (which should be in the correct string format already)
+    """
     headers = { 'Connection':'close', } #no keepalive
-
+    if auth:
+        #auth should be a (username, password) tuple, if specified
+        headers['Authorization'] = http_basic_auth_str(auth[0], auth[1])
+        
     try:
         u = URL(url)
         client_kwargs = {'connection_timeout': fetch_timeout, 'network_timeout': fetch_timeout, 'insecure': True}
         if u.scheme == "https": client_kwargs['ssl_options'] = {'cert_reqs': gevent.ssl.CERT_NONE}
         client = HTTPClient.from_url(u, **client_kwargs)
-        r = client.get(u.request_uri, headers=headers)
+        if post_data is not None:
+            r = client.post(u.request_uri, body=post_data, headers=headers)
+        else:
+            r = client.get(u.request_uri, headers=headers)
     except Exception, e:
         raise Exception("Got get_url request error: %s" % e)
     else:

@@ -21,6 +21,11 @@ def get_unspent_txouts(address, return_confirmed=False):
     result = util.call_jsonrpc_api('get_unspent_txouts', {'address': address, 'return_confirmed': return_confirmed})
     return result['result']
 
+def get_btc_balance(address, confirmed=True):
+    all_unspent, confirmed_unspent = get_unspent_txouts(address, return_confirmed=confirmed)
+    unspent = confirmed_unspent if confirmed else all_unspent
+    return sum(out['amount'] for out in unspent)
+
 def get_block_count():
     return int(util.bitcoind_rpc('getblockcount', None))
 
