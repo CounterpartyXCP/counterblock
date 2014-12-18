@@ -93,25 +93,27 @@ def serve_api(mongo_db, redis_client):
         if not isinstance(addresses, list):
             raise Exception("addresses must be a list of addresses, even if it just contains one address")
         results = []
-
-        if with_block_height:
-            block_height_response = blockchain.getinfo()
-            block_height = block_height_response['info']['blocks'] if block_height_response else None
-        for address in addresses:
-            info = blockchain.getaddressinfo(address)
-            txns = info['transactions']
-            del info['transactions']
-            result = {}
-            result['addr'] = address
-            result['info'] = info
-            if with_block_height: result['block_height'] = block_height
-            #^ yeah, hacky...it will be the same block height for each address (we do this to avoid an extra API call to get_block_height)
-            if with_uxtos:
-                result['uxtos'] = blockchain.listunspent(address)
-            if with_last_txn_hashes:
-                result['last_txns'] = txns
-            results.append(result)
-
+        try:
+            if with_block_height:
+              block_height_response = blockchain.getinfo()
+              block_height = block_height_response['info']['blocks'] if block_height_response else None
+            for address in addresses:
+              info = blockchain.getaddressinfo(address)
+              txns = info['transactions']
+              del info['transactions']
+              result = {}
+              result['addr'] = address
+              result['info'] = info
+              if with_block_height: result['block_height'] = block_height
+              #^ yeah, hacky...it will be the same block height for each address (we do this to avoid an extra API call to get_block_height)
+              if with_uxtos:
+                  result['uxtos'] = blockchain.listunspent(address)
+              if with_last_txn_hashes:
+                  result['last_txns'] = txns
+              results.append(result)
+        except Exception, e:
+            logging.exception(e)
+            
         return results
 
     @dispatcher.add_method
