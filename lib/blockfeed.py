@@ -529,5 +529,6 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
 
                 config.CAUGHT_UP_STARTED_EVENTS = True
 
+            blockchain.update_unconfirmed_addrindex()
             publish_mempool_tx()
             time.sleep(2) #counterblockd itself is at least caught up, wait a bit to query again for the latest block from cpd
