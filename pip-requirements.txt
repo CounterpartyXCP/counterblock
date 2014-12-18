@@ -30,6 +30,8 @@ https://github.com/surfly/gevent/archive/5f17846ec78d2c3439fb30fb304e0a99268e507
 
 gevent-socketio==0.3.6
 
+gevent-websocket==0.9.3
+
 geventhttpclient==1.1.0
 
 redis==2.10.1
