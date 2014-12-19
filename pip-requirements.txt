@@ -18,6 +18,8 @@ json-rpc==1.6.0
 
 pytest==2.5.1
 
+python-bitcoinlib==0.2.1
+
 #############
 #counterblockd specific deps
 

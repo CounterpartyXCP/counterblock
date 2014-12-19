@@ -167,6 +167,8 @@ if __name__ == '__main__':
     config.BACKEND_RPC = 'http://' + config.BACKEND_RPC_CONNECT + ':' + str(config.BACKEND_RPC_PORT) + '/'
     config.BACKEND_AUTH = (config.BACKEND_RPC_USER, config.BACKEND_RPC_PASSWORD) if (config.BACKEND_RPC_USER and config.BACKEND_RPC_PASSWORD) else None
 
+    config.BACKEND_RPC_URL = 'http://' + config.BACKEND_RPC_USER + ':' + config.BACKEND_RPC_PASSWORD + '@' + config.BACKEND_RPC_CONNECT + ':' + str(config.BACKEND_RPC_PORT)
+
 
     # counterpartyd RPC host
     if args.counterpartyd_rpc_connect:

@@ -7,6 +7,10 @@ import binascii
 import hashlib
 import json
 from repoze.lru import lru_cache
+import bitcoin as bitcoinlib
+import bitcoin.rpc as bitcoin_rpc
+from decimal import Decimal as D
+
 
 from lib import config, util, util_bitcoin
 
@@ -138,6 +142,25 @@ OLD_MEMPOOL = []
 def get_cached_raw_transaction(tx_hash):
     return util.bitcoind_rpc('getrawtransaction', [tx_hash, 1])
 
+@lru_cache(maxsize=8192)
+def get_cached_batch_raw_transactions(tx_hashes):
+    tx_hashes = json.loads(tx_hashes) # for lru_cache
+    call_id = 0
+    call_list = []
+    for tx_hash in tx_hashes:
+        call_list.append({
+            "method": 'getrawtransaction',
+            "params": [tx_hash, 1],
+            "jsonrpc": "2.0",
+            "id": call_id
+        })
+        call_id += 1
+
+    if config.TESTNET:
+        bitcoinlib.SelectParams('testnet')
+    proxy = bitcoin_rpc.Proxy(service_url=config.BACKEND_RPC_URL)
+    return proxy._batch(call_list)
+
 # TODO: use scriptpubkey_to_address()
 @lru_cache(maxsize=4096)
 def extract_addresses(tx):
@@ -148,29 +171,45 @@ def extract_addresses(tx):
         if 'addresses' in vout['scriptPubKey']:
             addresses += vout['scriptPubKey']['addresses']
 
+    vin_hashes = [vin['txid'] for vin in tx['vin']]        
+    batch_responses = get_cached_batch_raw_transactions(json.dumps(vin_hashes))
+    tx_dict = {}
+    for response in batch_responses:
+        if 'error' not in response or response['error'] is None:
+            if 'result' in response and response['result'] is not None:
+                vin_tx = response['result']
+                tx_dict[vin_tx['txid']] = vin_tx
+
     for vin in tx['vin']:
-        vin_tx = get_cached_raw_transaction(vin['txid'])
+        vin_tx = tx_dict[vin['txid']]
         vout = vin_tx['vout'][vin['vout']]
         if 'addresses' in vout['scriptPubKey']:
             addresses += vout['scriptPubKey']['addresses']
 
     return addresses
 
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, D):
+            return format(obj, '.8f')
+        # Let the base class default method raise the TypeError
+        return json.JSONEncoder.default(self, obj)
+
 def add_tx_to_addrindex(tx):
     global UNCONFIRMED_ADDRINDEX
 
-    addresses = extract_addresses(json.dumps(tx))
+    addresses = extract_addresses(json.dumps(tx, cls=DecimalEncoder))
     for address in addresses:
         if address not in UNCONFIRMED_ADDRINDEX:
             UNCONFIRMED_ADDRINDEX[address] = {}
         UNCONFIRMED_ADDRINDEX[address][tx['txid']] = tx
 
-def remove_tx_from_addrindex(tx):
+def remove_tx_from_addrindex(tx_hash):
     global UNCONFIRMED_ADDRINDEX
 
     for address in list(UNCONFIRMED_ADDRINDEX.keys()):
-        if tx['txid'] in UNCONFIRMED_ADDRINDEX[address]:
-            UNCONFIRMED_ADDRINDEX[address].pop(tx['txid'])
+        if tx_hash in UNCONFIRMED_ADDRINDEX[address]:
+            UNCONFIRMED_ADDRINDEX[address].pop(tx_hash)
             if len(UNCONFIRMED_ADDRINDEX[address]) == 0:
                 UNCONFIRMED_ADDRINDEX.pop(address)
 
@@ -186,16 +225,25 @@ def update_unconfirmed_addrindex():
     global OLD_MEMPOOL
 
     new_mempool = util.bitcoind_rpc('getrawmempool', [])
+
     # remove confirmed txs
     for tx_hash in OLD_MEMPOOL:
         if tx_hash not in new_mempool:
-            tx = get_cached_raw_transaction(tx_hash)
-            remove_tx_from_addrindex(tx)
+            remove_tx_from_addrindex(tx_hash)
+
     # add new txs
+    new_tx_hashes = []
     for tx_hash in new_mempool:
         if tx_hash not in OLD_MEMPOOL:
-            tx = get_cached_raw_transaction(tx_hash)
-            add_tx_to_addrindex(tx)
+            new_tx_hashes.append(tx_hash)
+
+    if len(new_tx_hashes) > 0:
+        batch_responses = get_cached_batch_raw_transactions(json.dumps(new_tx_hashes))
+        for response in batch_responses:
+            if 'error' not in response or response['error'] is None:
+                if 'result' in response and response['result'] is not None:
+                    tx = response['result']
+                    add_tx_to_addrindex(tx)
 
     OLD_MEMPOOL = list(new_mempool)
 
