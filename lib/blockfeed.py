@@ -131,7 +131,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 ],
                 'filterop': 'AND'
             }
-        new_txs = util.call_jsonrpc_api("get_mempool", params, abort_on_error=True)
+        new_txs = util.jsonrpc_api("get_mempool", params, abort_on_error=True)
 
         for new_tx in new_txs['result']:
             tx = {
@@ -191,20 +191,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
     #start polling counterpartyd for new blocks
     while True:
         if not autopilot or autopilot_runner == 0:
-            try:
-                running_info = util.call_jsonrpc_api("get_running_info", abort_on_error=True)
-                if 'result' not in running_info:
-                    raise AssertionError("Could not contact counterpartyd")
-                running_info = running_info['result']
-            except Exception, e:
-                logging.warn(str(e) + " -- Waiting 3 seconds before trying again...")
-                time.sleep(3)
-                continue
-
-            if running_info['last_message_index'] == -1: #last_message_index not set yet (due to no messages in counterpartyd DB yet)
-                logging.warn("No last_message_index returned. Waiting until counterpartyd has messages...")
-                time.sleep(10)
-                continue
+            running_info = util.jsonrpc_api("get_running_info", abort_on_error=True)['result']
         
         #wipe our state data if necessary, if counterpartyd has moved on to a new DB version
         wipeState = False
@@ -328,7 +315,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                     config.CURRENT_BLOCK_INDEX = msg_data['block_index'] - 1
 
                     #for the current last_message_index (which could have gone down after the reorg), query counterpartyd
-                    running_info = util.call_jsonrpc_api("get_running_info", abort_on_error=True)['result']
+                    running_info = util.jsonrpc_api("get_running_info", abort_on_error=True)['result']
                     config.LAST_MESSAGE_INDEX = running_info['last_message_index']
                     
                     #send out the message to listening clients (but don't forward along while we're catching up)
@@ -392,13 +379,13 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
 
                     if msg['command'] == 'update' and msg_data['status'] == 'completed':
                         #an order is being updated to a completed status (i.e. a BTCpay has completed)
-                        tx0_hash, tx1_hash = msg_data['order_match_id'][:64], msg_data['order_match_id'][64:] 
+                        tx0_hash, tx1_hash = msg_data['order_match_id'][:64], msg_data['order_match_id'][65:]
                         #get the order_match this btcpay settles
-                        order_match = util.call_jsonrpc_api("get_order_matches",
+                        order_match = util.jsonrpc_api("get_order_matches",
                             {'filters': [
                              {'field': 'tx0_hash', 'op': '==', 'value': tx0_hash},
                              {'field': 'tx1_hash', 'op': '==', 'value': tx1_hash}]
-                            }, abort_on_error=True)['result'][0]
+                            }, abort_on_error=False)['result'][0]
                     else:
                         assert msg_data['status'] == 'completed' #should not enter a pending state for non BTC matches
                         order_match = msg_data
@@ -424,7 +411,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                         'block_index': cur_block_index,
                         'block_time': cur_block['block_time_obj'],
                         'message_index': msg['message_index'], #secondary temporaral ordering off of when
-                        'order_match_id': order_match['tx0_hash'] + order_match['tx1_hash'],
+                        'order_match_id': order_match['tx0_hash'] + '_' + order_match['tx1_hash'],
                         'order_match_tx0_index': order_match['tx0_index'],
                         'order_match_tx1_index': order_match['tx1_index'],
                         'order_match_tx0_address': order_match['tx0_address'],
@@ -529,8 +516,6 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
 
                 config.CAUGHT_UP_STARTED_EVENTS = True
 
+            blockchain.update_unconfirmed_addrindex()
             publish_mempool_tx()
             time.sleep(2) #counterblockd itself is at least caught up, wait a bit to query again for the latest block from cpd
-        
-        blockchain.update_unconfirmed_addrindex()
-        

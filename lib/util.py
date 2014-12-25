@@ -26,6 +26,7 @@ import dateutil.parser
 import calendar
 import pygeoip
 import hashlib
+import socket
 
 from jsonschema import FormatChecker, Draft4Validator, FormatError
 # not needed here but to ensure that installed
@@ -33,7 +34,7 @@ import strict_rfc3339, rfc3987, aniso8601
 
 from lib import config, util_bitcoin
 
-JSONRPC_API_REQUEST_TIMEOUT = 10 #in seconds 
+JSONRPC_API_REQUEST_TIMEOUT = 120 #in seconds
 D = decimal.Decimal
 
 
@@ -82,6 +83,7 @@ blockinfo_cache = {}
 
 def get_block_info_cached(block_index, prefetch=0):
     global blockinfo_cache
+
     if block_index in blockinfo_cache:
         return blockinfo_cache[block_index]
     blockinfo_cache.clear()
@@ -90,10 +92,28 @@ def get_block_info_cached(block_index, prefetch=0):
                               abort_on_error=True)['result']
     for block in blocks:
         blockinfo_cache[block['block_index']] = block
+
     return blockinfo_cache[block_index]
 
+def jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False, max_retry=10, retry_interval=3):
+    retry = 0
+    while retry < max_retry or max_retry == 0:
+        try:
+            result = call_jsonrpc_api(method, params=params, endpoint=endpoint, auth=auth, abort_on_error=abort_on_error)
+            if 'result' not in result:
+                raise AssertionError("Could not contact counterpartyd")
+            return result
+        except Exception, e:
+            retry += 1
+            logging.warn(str(e) + " -- Waiting {} seconds before trying again...".format(retry_interval))
+            time.sleep(retry_interval)
+            continue
 
 def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False):
+    #logging.error("call_jsonrpc_api: " + method)
+    #start = time.time()
+
+    socket.setdefaulttimeout(JSONRPC_API_REQUEST_TIMEOUT)
     if not endpoint: endpoint = config.COUNTERPARTYD_RPC
     if not auth: auth = config.COUNTERPARTYD_AUTH
     if not params: params = {}
@@ -130,6 +150,8 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
 
     if abort_on_error and 'error' in result and result['error'] is not None:
         raise Exception("Got back error from server: %s" % result['error'])
+
+    #logging.error("duration: " + str(time.time() - start))
     return result
 
 def bitcoind_rpc(command, params):
