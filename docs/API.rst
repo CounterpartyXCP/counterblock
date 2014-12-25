@@ -413,20 +413,6 @@ Betting Functions
       'target_value'
       }]
 
-RPS Betting Functions
-^^^^^^^^^^^^^^^^^^^^^
-
-.. function:: get_open_rps_count(possible_moves=3, exclude_addresses=[])
-
-  Get the open RPS bets matching the given parameters, except those from `exclude_addresses`
-
-  :rtype: [<total wager>, <game count>]
-
-.. function:: get_user_rps(addresses):
-
-  :rtype: [{'tx_hash', 'block_index', 'move', 'status', 'expiration', 'address', 'possible_moves', 'wager', 'counter_move'}]
-
-
 Debugging/Server Functions
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 

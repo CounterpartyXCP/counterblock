@@ -247,27 +247,6 @@ def get_escrowed_balances(addresses):
     bindings = addresses + ['pending']
     results += util.call_jsonrpc_api("sql", {'query': sql, 'bindings': bindings}, abort_on_error=True)['result']
 
-    sql = '''SELECT source AS address, '{}' AS asset, SUM(wager) AS quantity
-             FROM rps
-             WHERE source IN ({}) AND status = ?
-             GROUP BY address'''.format(config.XCP, addresses_holder)
-    bindings = addresses + ['open']
-    results += util.call_jsonrpc_api("sql", {'query': sql, 'bindings': bindings}, abort_on_error=True)['result']
-
-    sql = '''SELECT tx0_address AS address, '{}' AS asset, SUM(wager) AS quantity
-             FROM rps_matches
-             WHERE tx0_address IN ({}) AND status IN (?, ?, ?)
-             GROUP BY address'''.format(config.XCP, addresses_holder)
-    bindings = addresses + ['pending', 'pending and resolved', 'resolved and pending']
-    results += util.call_jsonrpc_api("sql", {'query': sql, 'bindings': bindings}, abort_on_error=True)['result']
-
-    sql = '''SELECT tx1_address AS address, '{}' AS asset, SUM(wager) AS quantity
-             FROM rps_matches
-             WHERE tx1_address IN ({}) AND status IN (?, ?, ?)
-             GROUP BY address'''.format(config.XCP, addresses_holder)
-    bindings = addresses + ['pending', 'pending and resolved', 'resolved and pending']
-    results += util.call_jsonrpc_api("sql", {'query': sql, 'bindings': bindings}, abort_on_error=True)['result']
-
     escrowed_balances = {}
     for order in results:
         if order['address'] not in escrowed_balances:

@@ -194,7 +194,7 @@ def get_address_cols_for_entity(entity):
         return ['address',]
     elif entity in ['issuances',]:
         return ['issuer',]
-    elif entity in ['sends', 'dividends', 'bets', 'cancels', 'callbacks', 'orders', 'burns', 'broadcasts', 'btcpays']:
+    elif entity in ['sends', 'dividends', 'bets', 'cancels', 'orders', 'burns', 'broadcasts', 'btcpays']:
         return ['source',]
     #elif entity in ['order_matches', 'bet_matches']:
     elif entity in ['order_matches', 'order_expirations', 'order_match_expirations',
@@ -315,7 +315,7 @@ def decorate_message(message, for_txn_history=False):
              or ('backward_asset' in message and message['backward_asset'] == config.BTC and message['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF)
         )
 
-    if message['_category'] in ['dividends', 'sends', 'callbacks']:
+    if message['_category'] in ['dividends', 'sends']:
         asset_info = mongo_db.tracked_assets.find_one({'asset': message['asset']})
         message['_divisible'] = asset_info['divisible'] if asset_info else None
     
