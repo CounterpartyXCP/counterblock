@@ -103,8 +103,8 @@ Asset Functions
   Retrieves the ordered balance history for a given address (or list of addresses) and asset pair, within the specified date range
 
   :param normalize: If set to True, return quantities that (if the asset is divisible) have been divided by 100M (satoshi).
-            :return: A list of tuples, with the first entry of each tuple being the block time (epoch TS), and the second being the new balance at that block time.
-            :rtype: [(<block time>, <balance>)]
+  :return: A list of tuples, with the first entry of each tuple being the block time (epoch TS), and the second being the new balance at that block time.
+  :rtype: [(<block time>, <balance>)]
 
 .. function:: get_base_quote_asset(asset1, asset2)
 
