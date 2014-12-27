@@ -16,11 +16,16 @@ import itertools
 import pymongo
 import gevent
 
-from lib import config, util, events, blockchain
+from lib import config, util, blockchain, cache
 
 D = decimal.Decimal 
 
-from lib.processor.processor import MessageProcessor, BlockProcessor, CaughtUpProcessor
+from lib.processor import MessageProcessor, BlockProcessor, CaughtUpProcessor
+
+def is_caught_up_well_enough_for_government_work():
+    """We don't want to give users 525 errors or login errors if counterblockd/counterpartyd is in the process of
+    getting caught up, but we DO if counterblockd is either clearly out of date with the blockchain, or reinitializing its database"""
+    return config.CAUGHT_UP or (config.BLOCKCHAIN_SERVICE_LAST_BLOCK and config.CURRENT_BLOCK_INDEX >= config.BLOCKCHAIN_SERVICE_LAST_BLOCK - 1)
 
 def prune_my_stale_blocks(max_block_index):
     mongo_db = config.mongo_db
@@ -59,9 +64,10 @@ def prune_my_stale_blocks(max_block_index):
                 prev_ver['_id'] = asset['_id']
                 prev_ver['_history'] = asset['_history']
                 mongo_db.tracked_assets.save(prev_ver)
+    
     config.LAST_MESSAGE_INDEX = -1
     config.CAUGHT_UP = False
-    util.blockinfo_cache.clear()
+    cache.blockinfo_cache.clear()
     latest_block = mongo_db.processed_blocks.find_one({"block_index": max_block_index}) or config.LATEST_BLOCK_INIT
     return latest_block
         
@@ -103,7 +109,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         'counterpartyd_db_version_major': None,
         'counterpartyd_db_version_minor': None,
         'counterpartyd_running_testnet': None,
-        'last_block_assets_compiled': config.BLOCK_FIRST, #for asset data compilation in events.py (resets on reparse as well)
+        'last_block_assets_compiled': config.BLOCK_FIRST, #for asset data compilation in tasks.py (resets on reparse as well)
         }, upsert=True)
         app_config = mongo_db.app_config.find()[0]
         
@@ -189,7 +195,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         for msg in config.state['block_data']: 
             cmd = parse_message(msg)
             if cmd == 'break': break
-        logging.debug("*config.state* {}".format(config.state))
+        #logging.debug("*config.state* {}".format(config.state))
         
         #Run Block Processor Functions
         BlockProcessor.run_active_functions()
@@ -208,9 +214,9 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             #update as CURRENT_BLOCK_INDEX catches up with BLOCKCHAIN_SERVICE_LAST_BLOCK and/or surpasses it (i.e. if blockchain service gets behind for some reason)
             block_height_response = blockchain.getinfo()
             config.BLOCKCHAIN_SERVICE_LAST_BLOCK = block_height_response['info']['blocks'] if block_height_response else 0
-        logging.info("Block: %i (message_index height=%s) (blockchain latest block=%s)" % (config.CURRENT_BLOCK_INDEX,
-            config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX != -1 else '???',
-            config.BLOCKCHAIN_SERVICE_LAST_BLOCK if config.BLOCKCHAIN_SERVICE_LAST_BLOCK else '???'))
+        logging.info("Block: %i of %i [message height=%s]" % (config.CURRENT_BLOCK_INDEX,
+            config.BLOCKCHAIN_SERVICE_LAST_BLOCK if config.BLOCKCHAIN_SERVICE_LAST_BLOCK else '???',
+            config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX != -1 else '???'))
 
         clean_mempool_tx()
     
@@ -317,7 +323,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 
             cur_block_index = config.state['my_latest_block']['block_index'] + 1
             try:
-                block_data = util.get_block_info_cached(cur_block_index, min(100, (config.state['last_processed_block']['block_index'] - config.state['my_latest_block']['block_index'])))
+                block_data = cache.get_block_info(cur_block_index, min(100, (config.state['last_processed_block']['block_index'] - config.state['my_latest_block']['block_index'])))
             except Exception, e:
                 logging.warn(str(e) + " Waiting 3 seconds before trying again...")
                 time.sleep(3)
@@ -327,7 +333,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             
             #What's this for, if it's not general to blockfeed it should be in BlockProcessor
             if config.state['last_processed_block']['block_index'] - cur_block_index <= config.MAX_REORG_NUM_BLOCKS: #only when we are near the tip
-                util.clean_block_cache(cur_block_index)
+                cache.clean_block_cache(cur_block_index)
 
         elif config.state['my_latest_block']['block_index'] > config.state['last_processed_block']['block_index']:
             # should get a reorg message. Just to be on the safe side, prune back MAX_REORG_NUM_BLOCKS blocks

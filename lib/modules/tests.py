@@ -37,6 +37,7 @@ if __name__ != '__main__':
             log_database_hashes() 
             reparse_timer_stop()
             sys.exit(1)
+    
     def get_md5_collection_hashes(): 
         db_hashes = {} 
         for col_name in standard_collections: 

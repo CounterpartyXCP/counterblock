@@ -5,7 +5,7 @@ import base64
 import json
 from datetime import datetime
 
-from lib import config, util, util_bitcoin
+from lib import config, util, blockchain
 
 ASSET_MAX_RETRY = 3
 D = decimal.Decimal
@@ -90,7 +90,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                 'divisible': message['divisible'],
                 'locked': False,
                 'total_issued': message['quantity'],
-                'total_issued_normalized': util_bitcoin.normalize_quantity(message['quantity'], message['divisible']),
+                'total_issued_normalized': blockchain.normalize_quantity(message['quantity'], message['divisible']),
                 '_history': [] #to allow for block rollbacks
             }
             db.tracked_assets.insert(tracked_asset)
@@ -107,11 +107,11 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                  },
                  "$inc": {
                      'total_issued': message['quantity'],
-                     'total_issued_normalized': util_bitcoin.normalize_quantity(message['quantity'], message['divisible'])
+                     'total_issued_normalized': blockchain.normalize_quantity(message['quantity'], message['divisible'])
                  },
                  "$push": {'_history': tracked_asset} }, upsert=False)
             logging.info("Adding additional %s quantity for asset %s" % (
-                util_bitcoin.normalize_quantity(message['quantity'], message['divisible']), message['asset']))
+                blockchain.normalize_quantity(message['quantity'], message['divisible']), message['asset']))
     return True
 
 def inc_fetch_retry(db, asset, max_retry=ASSET_MAX_RETRY, new_status='error', errors=[]):

@@ -331,3 +331,28 @@ class SocketIOChatFeedServer(object):
             start_response('401 UNAUTHORIZED', [])
             return ''
         socketio_manage(environ, {'': ChatFeedServerNamespace}, self.request)
+
+
+def set_up():
+    #set up zeromq publisher for sending out received events to connected socket.io clients
+    import zmq.green as zmq
+    from socketio import server as socketio_server
+    zmq_context = zmq.Context()
+    zmq_publisher_eventfeed = zmq_context.socket(zmq.PUB)
+    zmq_publisher_eventfeed.bind('inproc://queue_eventfeed')
+    #set event feed for shared access
+    config.ZMQ_PUBLISHER_EVENTFEED = zmq_publisher_eventfeed
+
+    logging.info("Starting up socket.io server (block event feed)...")
+    sio_server = socketio_server.SocketIOServer(
+        (config.SOCKETIO_HOST, config.SOCKETIO_PORT),
+        SocketIOMessagesFeedServer(zmq_context),
+        resource="socket.io", policy_server=False)
+    sio_server.start() #start the socket.io server greenlets
+
+    logging.info("Starting up socket.io server (chat feed)...")
+    sio_server = socketio_server.SocketIOServer(
+        (config.SOCKETIO_CHAT_HOST, config.SOCKETIO_CHAT_PORT),
+        SocketIOChatFeedServer(config.mongo_db),
+        resource="socket.io", policy_server=False)
+    sio_server.start() #start the socket.io server greenlets

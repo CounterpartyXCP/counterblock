@@ -1,14 +1,15 @@
-from lib import util, config, util_bitcoin, blockfeed, events, api
-from lib.components import assets, betting
 import logging
 import pymongo
 import sys
-import decimal
 import gevent
+import decimal
 D = decimal.Decimal 
-from processor import MessageProcessor
 
-@MessageProcessor.subscribe(priority=72)
+from lib import util, config, blockchain, blockfeed, messages
+from lib.components import assets, betting
+from . import MessageProcessor, CORE_FIRST_PRIORITY, CORE_LAST_PRIORITY, api
+
+@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 0)
 def handle_exceptional(msg, msg_data): 
     if msg['message_index'] != config.LAST_MESSAGE_INDEX + 1 and config.LAST_MESSAGE_INDEX != -1:
         logging.error("BUG: MESSAGE RECEIVED NOT WHAT WE EXPECTED. EXPECTED: %s, GOT: %s: %s (ALL MSGS IN get_messages PAYLOAD: %s)..." % (
@@ -20,22 +21,22 @@ def handle_exceptional(msg, msg_data):
         logging.warn("BUG: IGNORED old RAW message %s: %s ..." % (msg['message_index'], msg))
         return 'continue'
 
-@MessageProcessor.subscribe(priority=71)
+@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 1)
 def handle_invalid(msg, msg_data): 
-    logging.info("Received message %s: %s ..." % (msg['message_index'], msg))
+    logging.debug("Received message %s: %s ..." % (msg['message_index'], msg))
     
     #don't process invalid messages, but do forward them along to clients
     status = msg_data.get('status', 'valid').lower()
     if status.startswith('invalid'):
     #(but don't forward along while we're catching up)
         if config.state['last_processed_block']['block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
-            event = util.decorate_message_for_feed(msg, msg_data=msg_data)
+            event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
             config.ZMQ_PUBLISHER_EVENTFEED.send_json(event)
         config.LAST_MESSAGE_INDEX = msg['message_index']
         return 'continue'
                     
 #track message types, for compiling of statistics
-@MessageProcessor.subscribe(priority=70)
+@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 2)
 def parse_insert(msg, msg_data): 
     if msg['command'] == 'insert' \
        and msg['category'] not in ["debits", "credits", "order_matches", "bet_matches",
@@ -50,7 +51,7 @@ def parse_insert(msg, msg_data):
     
 #HANDLE REORGS
 #Works exactly as the original - note the original may not be correctly implemented
-@MessageProcessor.subscribe(priority=69)
+@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 3)
 def handle_reorg(msg, msg_data):
     if msg['command'] == 'reorg':
         logging.warn("Blockchain reorginization at block %s" % msg_data['block_index'])
@@ -65,17 +66,16 @@ def handle_reorg(msg, msg_data):
         #send out the message to listening clients (but don't forward along while we're catching up)
         if config.state['last_processed_block']['block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
             msg_data['_last_message_index'] = config.LAST_MESSAGE_INDEX
-            event = util.decorate_message_for_feed(msg, msg_data=msg_data)
+            event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
             config.ZMQ_PUBLISHER_EVENTFEED.send_json(event)
         return 'break' #break out of inner loop
     
-    #track assets
-@MessageProcessor.subscribe(priority=68)
+@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 4)
 def parse_issuance(msg, msg_data):
     if msg['category'] == 'issuances':
         assets.parse_issuance(config.mongo_db, msg_data, config.state['cur_block']['block_index'], config.state['cur_block'])
     
-@MessageProcessor.subscribe(priority=67)
+@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 5)
 def parse_balance_change(msg, msg_data): 
     #track balance changes for each address
     bal_change = None
@@ -87,7 +87,7 @@ def parse_balance_change(msg, msg_data):
             logging.warn("Credit/debit of %s where asset ('%s') does not exist. Ignoring..." % (msg_data['quantity'], msg_data['asset']))
             return 'continue'
         quantity = msg_data['quantity'] if msg['category'] == 'credits' else -msg_data['quantity']
-        quantity_normalized = util_bitcoin.normalize_quantity(quantity, asset_info['divisible'])
+        quantity_normalized = blockchain.normalize_quantity(quantity, asset_info['divisible'])
 
         #look up the previous balance to go off of
         last_bal_change = config.mongo_db.balance_changes.find_one({
@@ -119,7 +119,7 @@ def parse_balance_change(msg, msg_data):
             config.mongo_db.balance_changes.insert(bal_change)
             logging.info("Procesed %s bal change from tx %s :: %s" % (actionName, msg['message_index'], bal_change))
     
-@MessageProcessor.subscribe(priority=66)
+@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 6)
 def parse_trade_book(msg, msg_data):
     #book trades
     if (msg['category'] == 'order_matches'
@@ -151,8 +151,8 @@ def parse_trade_book(msg, msg_data):
             return 'continue'
 
         #take divisible trade quantities to floating point
-        forward_quantity = util_bitcoin.normalize_quantity(order_match['forward_quantity'], forward_asset_info['divisible'])
-        backward_quantity = util_bitcoin.normalize_quantity(order_match['backward_quantity'], backward_asset_info['divisible'])
+        forward_quantity = blockchain.normalize_quantity(order_match['forward_quantity'], forward_asset_info['divisible'])
+        backward_quantity = blockchain.normalize_quantity(order_match['backward_quantity'], backward_asset_info['divisible'])
         
         #compose trade
         trade = {
@@ -181,19 +181,18 @@ def parse_trade_book(msg, msg_data):
         config.mongo_db.trades.insert(trade)
         logging.info("Procesed Trade from tx %s :: %s" % (msg['message_index'], trade))
         
-#broadcast
-@MessageProcessor.subscribe(priority=65)
+@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 7)
 def parse_broadcast(msg,msg_data): 
     if msg['category'] == 'broadcasts':
         betting.parse_broadcast(config.mongo_db, msg_data)
 
-@MessageProcessor.subscribe(priority=64)
+@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 8)
 def parse_for_socketio(msg, msg_data):
     #if we're catching up beyond MAX_REORG_NUM_BLOCKS blocks out, make sure not to send out any socket.io
     # events, as to not flood on a resync (as we may give a 525 to kick the logged in clients out, but we
     # can't guarantee that the socket.io connection will always be severed as well??)
     if config.state['last_processed_block']['block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
         #send out the message to listening clients
-        event = util.decorate_message_for_feed(msg, msg_data=msg_data)
+        event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
         config.ZMQ_PUBLISHER_EVENTFEED.send_json(event)
 
