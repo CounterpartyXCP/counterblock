@@ -1,19 +1,69 @@
-'''
-bitcoind fork of jmcorgan, branch addrindex-0.9.2:
-https://github.com/jmcorgan/bitcoin/tree/addrindex-0.9.2
-'''
+import os
+import re
 import logging
 import binascii
 import hashlib
 import json
+import datetime
+import decimal
+
 from repoze.lru import lru_cache
 import bitcoin as bitcoinlib
 import bitcoin.rpc as bitcoin_rpc
-from decimal import Decimal as D
+from pycoin import encoding
 
+from lib import config, util
 
-from lib import config, util, util_bitcoin
+D = decimal.Decimal
+decimal.getcontext().prec = 8
 
+def round_out(num):
+    """round out to 8 decimal places"""
+    return float(D(num))        
+
+def normalize_quantity(quantity, divisible=True):
+    """Goes from satoshis to normal human readable format"""
+    if divisible:
+        return float((D(quantity) / D(config.UNIT))) 
+    else: return quantity
+
+def denormalize_quantity(quantity, divisible=True):
+    """Goes from normal human readable format to satoshis"""
+    if divisible:
+        return int(quantity * config.UNIT)
+    else: return quantity
+
+def get_btc_supply(normalize=False, at_block_index=None):
+    """returns the total supply of BTC (based on what bitcoind says the current block height is)"""
+    block_count = config.CURRENT_BLOCK_INDEX if at_block_index is None else at_block_index
+    blocks_remaining = block_count
+    total_supply = 0 
+    reward = 50.0
+    while blocks_remaining > 0:
+        if blocks_remaining >= 210000:
+            blocks_remaining -= 210000
+            total_supply += 210000 * reward
+            reward /= 2
+        else:
+            total_supply += (blocks_remaining * reward)
+            blocks_remaining = 0
+            
+    return total_supply if normalize else int(total_supply * config.UNIT)
+
+def pubkey_to_address(pubkey_hex):
+    sec = binascii.unhexlify(pubkey_hex)
+    compressed = encoding.is_sec_compressed(sec)
+    public_pair = encoding.sec_to_public_pair(sec)
+    address_prefix = b'\x6f' if config.TESTNET else b'\x00'
+    return encoding.public_pair_to_bitcoin_address(public_pair, compressed=compressed, address_prefix=address_prefix)
+
+def bitcoind_rpc(command, params):
+    return util.call_jsonrpc_api(command, 
+                            params = params,
+                            endpoint = config.BACKEND_RPC, 
+                            auth = config.BACKEND_AUTH, 
+                            abort_on_error = True)['result']
+                            
 def is_multisig(address):
     array = address.split('_')
     return (len(array) > 1)
@@ -24,7 +74,7 @@ def get_btc_balance(address, confirmed=True):
     return sum(out['amount'] for out in unspent)
 
 def get_block_count():
-    return int(util.bitcoind_rpc('getblockcount', None))
+    return int(bitcoind_rpc('getblockcount', None))
 
 def check():
     pass
@@ -109,7 +159,7 @@ def get_pubkey_from_transactions(address, raw_transactions):
             asm = scriptsig['asm'].split(' ')
             pubkey_hex = asm[1]
             try:
-                if util_bitcoin.pubkey_to_address(pubkey_hex) == address:
+                if pubkey_to_address(pubkey_hex) == address:
                     return pubkey_hex
             except:
                 pass

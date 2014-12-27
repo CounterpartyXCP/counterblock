@@ -7,6 +7,7 @@
 
 appdirs==1.2.0
 #helps locate OS-specific directories (user data dir, etc)
+#beaware that newer versions of appdirs use ~/.local/share instead of ~/.config
 
 prettytable==0.7.2
 
@@ -29,6 +30,8 @@ pymongo==2.7.1
 
 https://github.com/surfly/gevent/archive/5f17846ec78d2c3439fb30fb304e0a99268e507e.zip#egg=gevent
 #^ 1.0.1 is a bit old. this is an up to date master that has some good bug fixes...
+
+gevent-websocket==0.9.3
 
 gevent-socketio==0.3.6
 
@@ -61,5 +64,7 @@ aniso8601==0.82
 pygeoip==0.3.1
 
 colorama==0.3.1
+
+configobj==5.0.5
 
 repoze.lru==0.6

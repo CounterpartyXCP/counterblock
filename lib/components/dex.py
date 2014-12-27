@@ -5,7 +5,7 @@ import base64
 import json
 import time
 
-from lib import config, util
+from lib import cache, config, util
 
 decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
 D = decimal.Decimal
@@ -152,7 +152,7 @@ def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None, include_
 
     return all_pairs
 
-@util.block_cache
+@cache.block_cache
 def get_users_pairs(addresses=[], max_pairs=12, quote_assets=config.MARKET_LIST_QUOTE_ASSETS):
     
     top_pairs = []
@@ -216,7 +216,7 @@ def merge_same_price_orders(orders):
     else:
         return orders
 
-@util.block_cache
+@cache.block_cache
 def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provided=0.95, max_fee_required=0.95):
 
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
@@ -313,7 +313,7 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
 
     return market_orders
 
-@util.block_cache
+@cache.block_cache
 def get_market_trades(asset1, asset2, addresses=[], limit=50, supplies=None):
     limit = min(limit, 100)
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
@@ -467,7 +467,7 @@ def get_price_movement(base_asset, quote_asset, supplies=None):
 
     return price, trend, price24h, progression
 
-@util.block_cache
+@cache.block_cache
 def get_markets_list(mongo_db=None, quote_asset=None, order_by=None):
     
     yesterday = int(time.time() - (24*60*60))
@@ -524,7 +524,7 @@ def get_markets_list(mongo_db=None, quote_asset=None, order_by=None):
 
     return markets
 
-@util.block_cache
+@cache.block_cache
 def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95, mongo_db=None):
 
     yesterday = int(time.time() - (24*60*60))

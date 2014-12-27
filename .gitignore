@@ -1,8 +1,6 @@
 *.py[cod]
-
 # C extensions
 *.so
-
 # Packages
 *.egg
 *.egg-info
@@ -45,3 +43,4 @@ schema.py
 
 #Docs 
 docs/_build
+
