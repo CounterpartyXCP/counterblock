@@ -1325,7 +1325,7 @@ def serve_api(mongo_db, redis_client):
             if result:
                 try:
                     result = json.loads(result)
-                except Exception, e:
+                except Exception as e:
                     logging.warn("Error loading JSON from cache: %s, cached data: '%s'" % (e, result))
                     result = None #skip from reading from cache and just make the API call
         
@@ -1505,7 +1505,7 @@ def serve_api(mongo_db, redis_client):
                 data_json = flask.request.get_data().decode('utf-8')
                 data = json.loads(data_json)
                 assert 'csp-report' in data
-            except Exception, e:
+            except Exception as e:
                 obj_error = jsonrpc.exceptions.JSONRPCInvalidRequest(data="Invalid JSON-RPC 2.0 request format")
                 return flask.Response(obj_error.json.encode(), 200, mimetype='application/json')
             
@@ -1535,7 +1535,7 @@ def serve_api(mongo_db, redis_client):
             url = URL("http://127.0.0.1:%s/api/" % config.RPC_PORT)
             client = HTTPClient.from_url(url)
             r = client.post(url.request_uri, body=json.dumps(payload), headers={'content-type': 'application/json'})
-        except Exception, e:
+        except Exception as e:
             cbd_result_valid = False
             cbd_result_error_code = "GOT EXCEPTION: %s" % e
         else:
@@ -1606,7 +1606,7 @@ def serve_api(mongo_db, redis_client):
         try:
             assert 'method' in request_data
             tx_logger.info("TRANSACTION --- %s ||| REQUEST: %s ||| RESPONSE: %s" % (request_data['method'], request_json, rpc_response_json))
-        except Exception, e:
+        except Exception as e:
             logging.info("Could not log transaction: Invalid format: %s" % e)
             
         response = flask.Response(rpc_response_json, 200, mimetype='application/json')
