@@ -11,7 +11,11 @@ import cgi
 import itertools
 import StringIO
 import subprocess
+import calendar
+import hashlib
+import socket
 
+import dateutil.parser
 import gevent
 import gevent.pool
 import gevent.ssl
@@ -22,17 +26,13 @@ from geventhttpclient.url import URL
 import lxml.html
 from PIL import Image
 
-import dateutil.parser
-import calendar
-import hashlib
-
 from jsonschema import FormatChecker, Draft4Validator, FormatError
 # not needed here but to ensure that installed
 import strict_rfc3339, rfc3987, aniso8601
 
 from lib import config
 
-JSONRPC_API_REQUEST_TIMEOUT = 10 #in seconds 
+JSONRPC_API_REQUEST_TIMEOUT = 120 #in seconds
 D = decimal.Decimal
 
 def sanitize_eliteness(text):
@@ -75,11 +75,28 @@ def assets_to_asset_pair(asset1, asset2):
         
     return (base, quote)
 
+def jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False, max_retry=10, retry_interval=3):
+    retry = 0
+    while retry < max_retry or max_retry == 0:
+        try:
+            result = call_jsonrpc_api(method, params=params, endpoint=endpoint, auth=auth, abort_on_error=abort_on_error)
+            if 'result' not in result:
+                raise AssertionError("Could not contact counterpartyd")
+            return result
+        except Exception, e:
+            retry += 1
+            logging.warn(str(e) + " -- Waiting {} seconds before trying again...".format(retry_interval))
+            time.sleep(retry_interval)
+            continue
+
 def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False):
-    if not endpoint: endpoint = config.COUNTERPARTYD_RPC
+    socket.setdefaulttimeout(JSONRPC_API_REQUEST_TIMEOUT)
+    if not endpoint:
+        endpoint = config.COUNTERPARTYD_RPC
     if not auth: 
         auth = config.COUNTERPARTYD_AUTH
-    if not params: params = {}
+    if not params:
+        params = {}
     
     payload = {
         "id": 0,
@@ -93,8 +110,7 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
         'Content-Type': 'application/json',
         'Connection':'close', #no keepalive
     }
-    if auth:
-        #auth should be a (username, password) tuple, if specified
+    if auth: #auth should be a (username, password) tuple, if specified 
         headers['Authorization'] = http_basic_auth_str(auth[0], auth[1])
     try:
         u = URL(endpoint)
@@ -112,16 +128,27 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
 
     if abort_on_error and 'error' in result and result['error'] is not None:
         raise Exception("Got back error from server: %s" % result['error'])
+
     return result
 
-def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5):
+def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5, auth=None, post_data=None):
+    """
+    @param post_data: If not None, do a POST request, with the passed data (which should be in the correct string format already)
+    """
     headers = { 'Connection':'close', } #no keepalive
+    if auth:
+        #auth should be a (username, password) tuple, if specified
+        headers['Authorization'] = http_basic_auth_str(auth[0], auth[1])
+        
     try:
         u = URL(url)
         client_kwargs = {'connection_timeout': fetch_timeout, 'network_timeout': fetch_timeout, 'insecure': True}
         if u.scheme == "https": client_kwargs['ssl_options'] = {'cert_reqs': gevent.ssl.CERT_NONE}
         client = HTTPClient.from_url(u, **client_kwargs)
-        r = client.get(u.request_uri, headers=headers)
+        if post_data is not None:
+            r = client.post(u.request_uri, body=post_data, headers=headers)
+        else:
+            r = client.get(u.request_uri, headers=headers)
     except Exception, e:
         raise Exception("Got get_url request error: %s" % e)
     else:
@@ -131,20 +158,6 @@ def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5):
     finally:
         client.close()
     return result
-
-def get_address_cols_for_entity(entity):
-    if entity in ['debits', 'credits']:
-        return ['address',]
-    elif entity in ['issuances',]:
-        return ['issuer',]
-    elif entity in ['sends', 'dividends', 'bets', 'cancels', 'callbacks', 'orders', 'burns', 'broadcasts', 'btcpays']:
-        return ['source',]
-    #elif entity in ['order_matches', 'bet_matches']:
-    elif entity in ['order_matches', 'order_expirations', 'order_match_expirations',
-                    'bet_matches', 'bet_expirations', 'bet_match_expirations']:
-        return ['tx0_address', 'tx1_address']
-    else:
-        raise Exception("Unknown entity type: %s" % entity)
 
 def grouper(n, iterable, fillmissing=False, fillvalue=None):
     #Modified from http://stackoverflow.com/a/1625013

@@ -43,7 +43,7 @@ def decorate_message(message, for_txn_history=False):
              or ('backward_asset' in message and message['backward_asset'] == config.BTC and message['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF)
         )
 
-    if message['_category'] in ['dividends', 'sends', 'callbacks']:
+    if message['_category'] in ['dividends', 'sends',]:
         asset_info = config.mongo_db.tracked_assets.find_one({'asset': message['asset']})
         message['_divisible'] = asset_info['divisible'] if asset_info else None
     
@@ -66,3 +66,17 @@ def decorate_message_for_feed(msg, msg_data=None):
     message['_status'] = msg_data.get('status', 'valid')
     message = decorate_message(message)
     return message
+
+def get_address_cols_for_entity(entity):
+    if entity in ['debits', 'credits']:
+        return ['address',]
+    elif entity in ['issuances',]:
+        return ['issuer',]
+    elif entity in ['sends', 'dividends', 'bets', 'cancels', 'orders', 'burns', 'broadcasts', 'btcpays']:
+        return ['source',]
+    #elif entity in ['order_matches', 'bet_matches']:
+    elif entity in ['order_matches', 'order_expirations', 'order_match_expirations',
+                    'bet_matches', 'bet_expirations', 'bet_match_expirations']:
+        return ['tx0_address', 'tx1_address']
+    else:
+        raise Exception("Unknown entity type: %s" % entity)

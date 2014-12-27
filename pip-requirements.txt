@@ -19,6 +19,8 @@ json-rpc==1.6.0
 
 pytest==2.5.1
 
+python-bitcoinlib==0.2.1
+
 #############
 #counterblockd specific deps
 
@@ -28,6 +30,8 @@ pymongo==2.7.1
 
 https://github.com/surfly/gevent/archive/5f17846ec78d2c3439fb30fb304e0a99268e507e.zip#egg=gevent
 #^ 1.0.1 is a bit old. this is an up to date master that has some good bug fixes...
+
+gevent-websocket==0.9.3
 
 gevent-socketio==0.3.6
 
@@ -62,3 +66,5 @@ pygeoip==0.3.1
 colorama==0.3.1
 
 configobj==5.0.5
+
+repoze.lru==0.6

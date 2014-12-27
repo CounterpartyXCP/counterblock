@@ -16,7 +16,7 @@ import itertools
 import pymongo
 import gevent
 
-from lib import config, util, blockchain, cache
+from lib import config, util, blockchain, cache, database
 
 D = decimal.Decimal 
 
@@ -86,72 +86,25 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
     #enabled processor functions
     logging.debug("Enabled Message Processor Functions {0}".format(MessageProcessor.active_functions()))
     logging.debug("Enabled Block Processor Functions {0}".format(BlockProcessor.active_functions()))
-
-    def blow_away_db():
-        """boom! blow away all applicable collections in mongo"""
-        mongo_db.processed_blocks.drop()
-        mongo_db.tracked_assets.drop()
-        mongo_db.trades.drop()
-        mongo_db.balance_changes.drop()
-        mongo_db.asset_market_info.drop()
-        mongo_db.asset_marketcap_history.drop()
-        mongo_db.pair_market_info.drop()
-        mongo_db.btc_open_orders.drop()
-        mongo_db.asset_extended_info.drop()
-        mongo_db.transaction_stats.drop()
-        mongo_db.feeds.drop()
-        mongo_db.wallet_stats.drop()
-        
-        #create/update default app_config object
-        mongo_db.app_config.update({}, {
-        'db_version': config.DB_VERSION, #counterblockd database version
-        'running_testnet': config.TESTNET,
-        'counterpartyd_db_version_major': None,
-        'counterpartyd_db_version_minor': None,
-        'counterpartyd_running_testnet': None,
-        'last_block_assets_compiled': config.BLOCK_FIRST, #for asset data compilation in tasks.py (resets on reparse as well)
-        }, upsert=True)
-        app_config = mongo_db.app_config.find()[0]
-        
-        #DO NOT DELETE preferences and chat_handles and chat_history
-        
-        #create XCP and BTC assets in tracked_assets
-        for asset in [config.XCP, config.BTC]:
-            base_asset = {
-                'asset': asset,
-                'owner': None,
-                'divisible': True,
-                'locked': False,
-                'total_issued': None,
-                '_at_block': config.BLOCK_FIRST, #the block ID this asset is current for
-                '_history': [] #to allow for block rollbacks
-            }
-            mongo_db.tracked_assets.insert(base_asset)
-            
-        #reinitialize some internal counters
-        config.CURRENT_BLOCK_INDEX = 0
-        config.LAST_MESSAGE_INDEX = -1
-        
-        return app_config
-        
+    
     def publish_mempool_tx():
         """fetch new tx from mempool"""
         tx_hashes = []
-        mempool_txs = mongo_db.mempool.find(fields={'tx_hash': True})
+        mempool_txs = config.mongo_db.mempool.find(fields={'tx_hash': True})
         for mempool_tx in mempool_txs:
             tx_hashes.append(str(mempool_tx['tx_hash']))
-
+    
         params = None
         if len(tx_hashes) > 0:
             params = {
                 'filters': [
                     {'field':'tx_hash', 'op': 'NOT IN', 'value': tx_hashes},
-                    {'field':'category', 'op': 'IN', 'value': ['sends', 'btcpays', 'issuances', 'dividends', 'callbacks']}
+                    {'field':'category', 'op': 'IN', 'value': ['sends', 'btcpays', 'issuances', 'dividends']}
                 ],
                 'filterop': 'AND'
             }
-        new_txs = util.call_jsonrpc_api("get_mempool", params, abort_on_error=True)
-
+        new_txs = util.jsonrpc_api("get_mempool", params, abort_on_error=True)
+    
         for new_tx in new_txs['result']:
             tx = {
                 'tx_hash': new_tx['tx_hash'],
@@ -162,7 +115,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 'viewed_in_block': config.CURRENT_BLOCK_INDEX
             }
             
-            mongo_db.mempool.insert(tx)
+            config.mongo_db.mempool.insert(tx)
             del(tx['_id'])
             tx['_category'] = tx['category']
             tx['_message_index'] = 'mempool'
@@ -171,11 +124,14 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             
     def clean_mempool_tx():
         """clean mempool transactions older than MAX_REORG_NUM_BLOCKS blocks"""
-        mongo_db.mempool.remove({"viewed_in_block": {"$lt": config.CURRENT_BLOCK_INDEX - config.MAX_REORG_NUM_BLOCKS}})
-    
-    #New Message Handling
+        config.mongo_db.mempool.remove({"viewed_in_block": {"$lt": config.CURRENT_BLOCK_INDEX - config.MAX_REORG_NUM_BLOCKS}})
+
     def parse_message(msg): 
         msg_data = json.loads(msg['bindings'])
+        logging.debug("Received message %s: %s ..." % (msg['message_index'], msg))
+        
+        #out of order messages should not happen (anymore), but just to be sure
+        assert msg['message_index'] == config.LAST_MESSAGE_INDEX + 1 or config.LAST_MESSAGE_INDEX == -1
         
         for function in MessageProcessor.active_functions():
             logging.debug('starting {}'.format(function['function']))
@@ -186,12 +142,12 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             
         config.LAST_MESSAGE_INDEX = msg['message_index']
 
-    #New Block Handling
     def parse_block(block_data): 
         config.state['cur_block']['block_time_obj'] = datetime.datetime.utcfromtimestamp(config.state['cur_block']['block_time'])
         config.state['cur_block']['block_time_str'] = config.state['cur_block']['block_time_obj'].isoformat()
         config.state['block_data'] = block_data
         cmd = None
+        
         for msg in config.state['block_data']: 
             cmd = parse_message(msg)
             if cmd == 'break': break
@@ -218,7 +174,8 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             config.BLOCKCHAIN_SERVICE_LAST_BLOCK if config.BLOCKCHAIN_SERVICE_LAST_BLOCK else '???',
             config.LAST_MESSAGE_INDEX if config.LAST_MESSAGE_INDEX != -1 else '???'))
 
-        clean_mempool_tx()
+        if last_processed_block['block_index'] - cur_block_index < config.MAX_REORG_NUM_BLOCKS: #only when we are near the tip
+            clean_mempool_tx()
     
     #grab our stored preferences, and rebuild the database if necessary
     app_config = mongo_db.app_config.find()
@@ -232,7 +189,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 app_config[0]['db_version'], config.DB_VERSION, app_config[0]['running_testnet'], config.TESTNET, config.REPARSE_FORCED))
         else:
             logging.warn("counterblockd database app_config collection doesn't exist. BUILDING FROM SCRATCH...")
-        app_config = blow_away_db()
+        app_config = database.reset_db_state()
         config.state['my_latest_block'] = config.LATEST_BLOCK_INIT
     else:
         app_config = app_config[0]
@@ -249,23 +206,8 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
     #start polling counterpartyd for new blocks
     while True:
         if not autopilot or autopilot_runner == 0:
-            try:
-                running_info = util.call_jsonrpc_api("get_running_info", abort_on_error=True)
-                if 'result' not in running_info:
-                    raise AssertionError("Could not contact counterpartyd")
-                running_info = running_info['result']
-            except Exception, e:
-                logging.warn(str(e) + " -- Waiting 3 seconds before trying again...")
-                time.sleep(3)
-                continue
-            if running_info['last_message_index'] == -1: #last_message_index not set yet (due to no messages in counterpartyd DB yet)
-                logging.warn("No last_message_index returned. Waiting until counterpartyd has messages...")
-                time.sleep(10)
-                continue
-
-            #set the last block processed by counterpartyd
-            config.state['last_processed_block'] = running_info['last_block']
-         
+            running_info = util.jsonrpc_api("get_running_info", abort_on_error=True)['result']
+        
         #wipe our state data if necessary, if counterpartyd has moved on to a new DB version
         wipeState = False
         updatePrefs = False
@@ -298,10 +240,8 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             app_config['counterpartyd_db_version_minor'] = running_info['version_minor']
             app_config['counterpartyd_running_testnet'] = running_info['running_testnet']
             mongo_db.app_config.update({}, app_config)
-            
-            
             #reset my latest block record
-            config.state['my_latest_block'] = config.LATEST_BLOCK_INIT #Also Redudant see #L229,  L223
+            config.state['my_latest_block'] = config.LATEST_BLOCK_INIT
             config.CAUGHT_UP = False #You've Come a Long Way, Baby
             
         if config.state['last_processed_block']['block_index'] is None:
@@ -328,12 +268,14 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 logging.warn(str(e) + " Waiting 3 seconds before trying again...")
                 time.sleep(3)
                 continue
-            config.state['cur_block'] = block_data
-            parse_block(block_data['_messages'])
             
-            #What's this for, if it's not general to blockfeed it should be in BlockProcessor
+            config.state['cur_block'] = block_data
+            
+            # clean api cache
             if config.state['last_processed_block']['block_index'] - cur_block_index <= config.MAX_REORG_NUM_BLOCKS: #only when we are near the tip
                 cache.clean_block_cache(cur_block_index)
+
+            parse_block(block_data['_messages'])
 
         elif config.state['my_latest_block']['block_index'] > config.state['last_processed_block']['block_index']:
             # should get a reorg message. Just to be on the safe side, prune back MAX_REORG_NUM_BLOCKS blocks
@@ -359,5 +301,6 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 
                 config.CAUGHT_UP_STARTED_EVENTS = True
 
+            blockchain.update_unconfirmed_addrindex()
             publish_mempool_tx()
             time.sleep(2) #counterblockd itself is at least caught up, wait a bit to query again for the latest block from cpd

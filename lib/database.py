@@ -2,7 +2,7 @@ import os
 import logging
 import pymongo
 
-from lib import config
+from lib import config, util
 
 def get_connection():
     """Connect to mongodb, returning a connection object"""
@@ -115,19 +115,18 @@ def init_base_indexes(mongo_db):
 def get_block_indexes_for_dates(start_dt=None, end_dt=None):
     """Returns a 2 tuple (start_block, end_block) result for the block range that encompasses the given start_date
     and end_date unix timestamps"""
-    mongo_db = config.mongo_db
     if start_dt is None:
         start_block_index = config.BLOCK_FIRST
     else:
-        start_block = mongo_db.processed_blocks.find_one({"block_time": {"$lte": start_dt} }, sort=[("block_time", pymongo.DESCENDING)])
+        start_block = config.mongo_db.processed_blocks.find_one({"block_time": {"$lte": start_dt} }, sort=[("block_time", pymongo.DESCENDING)])
         start_block_index = config.BLOCK_FIRST if not start_block else start_block['block_index']
     
     if end_dt is None:
         end_block_index = config.CURRENT_BLOCK_INDEX
     else:
-        end_block = mongo_db.processed_blocks.find_one({"block_time": {"$gte": end_dt} }, sort=[("block_time", pymongo.ASCENDING)])
+        end_block = config.mongo_db.processed_blocks.find_one({"block_time": {"$gte": end_dt} }, sort=[("block_time", pymongo.ASCENDING)])
         if not end_block:
-            end_block_index = mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)])['block_index']
+            end_block_index = config.mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)])['block_index']
         else:
             end_block_index = end_block['block_index']
     return (start_block_index, end_block_index)
@@ -137,3 +136,51 @@ def get_block_time(block_index):
     block = config.mongo_db.processed_blocks.find_one({"block_index": block_index })
     if not block: return None
     return block['block_time']
+
+def reset_db_state():
+    """boom! blow away all applicable collections in mongo"""
+    config.mongo_db.processed_blocks.drop()
+    config.mongo_db.tracked_assets.drop()
+    config.mongo_db.trades.drop()
+    config.mongo_db.balance_changes.drop()
+    config.mongo_db.asset_market_info.drop()
+    config.mongo_db.asset_marketcap_history.drop()
+    config.mongo_db.pair_market_info.drop()
+    config.mongo_db.btc_open_orders.drop()
+    config.mongo_db.asset_extended_info.drop()
+    config.mongo_db.transaction_stats.drop()
+    config.mongo_db.feeds.drop()
+    config.mongo_db.wallet_stats.drop()
+    
+    #create/update default app_config object
+    config.mongo_db.app_config.update({}, {
+    'db_version': config.DB_VERSION, #counterblockd database version
+    'running_testnet': config.TESTNET,
+    'counterpartyd_db_version_major': None,
+    'counterpartyd_db_version_minor': None,
+    'counterpartyd_running_testnet': None,
+    'last_block_assets_compiled': config.BLOCK_FIRST, #for asset data compilation in tasks.py (resets on reparse as well)
+    }, upsert=True)
+    app_config = config.mongo_db.app_config.find()[0]
+    
+    #DO NOT DELETE preferences and chat_handles and chat_history
+    
+    #create XCP and BTC assets in tracked_assets
+    for asset in [config.XCP, config.BTC]:
+        base_asset = {
+            'asset': asset,
+            'owner': None,
+            'divisible': True,
+            'locked': False,
+            'total_issued': None,
+            '_at_block': config.BLOCK_FIRST, #the block ID this asset is current for
+            '_history': [] #to allow for block rollbacks
+        }
+        config.mongo_db.tracked_assets.insert(base_asset)
+        
+    #reinitialize some internal counters
+    config.CURRENT_BLOCK_INDEX = 0
+    config.LAST_MESSAGE_INDEX = -1
+    
+    return app_config
+

@@ -23,8 +23,6 @@ def handle_exceptional(msg, msg_data):
 
 @MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 1)
 def handle_invalid(msg, msg_data): 
-    logging.debug("Received message %s: %s ..." % (msg['message_index'], msg))
-    
     #don't process invalid messages, but do forward them along to clients
     status = msg_data.get('status', 'valid').lower()
     if status.startswith('invalid'):
@@ -40,8 +38,7 @@ def handle_invalid(msg, msg_data):
 def parse_insert(msg, msg_data): 
     if msg['command'] == 'insert' \
        and msg['category'] not in ["debits", "credits", "order_matches", "bet_matches",
-           "order_expirations", "bet_expirations", "order_match_expirations", "bet_match_expirations",
-           "rps_matches", "rps_expirations", "rps_match_expirations", "bet_match_resolutions"]:
+           "order_expirations", "bet_expirations", "order_match_expirations", "bet_match_expirations", "bet_match_resolutions"]:
         config.mongo_db.transaction_stats.insert({
             'block_index': config.state['cur_block']['block_index'],
             'block_time': config.state['cur_block']['block_time_obj'],
@@ -60,7 +57,7 @@ def handle_reorg(msg, msg_data):
         config.CURRENT_BLOCK_INDEX = msg_data['block_index'] - 1
 
         #for the current last_message_index (which could have gone down after the reorg), query counterpartyd
-        running_info = util.call_jsonrpc_api("get_running_info", abort_on_error=True)['result']
+        running_info = util.jsonrpc_api("get_running_info", abort_on_error=True)['result']
         config.LAST_MESSAGE_INDEX = running_info['last_message_index']
         
         #send out the message to listening clients (but don't forward along while we're catching up)
@@ -128,13 +125,13 @@ def parse_trade_book(msg, msg_data):
 
         if msg['command'] == 'update' and msg_data['status'] == 'completed':
             #an order is being updated to a completed status (i.e. a BTCpay has completed)
-            tx0_hash, tx1_hash = msg_data['order_match_id'][:64], msg_data['order_match_id'][64:] 
+            tx0_hash, tx1_hash = msg_data['order_match_id'][:64], msg_data['order_match_id'][65:]
             #get the order_match this btcpay settles
-            order_match = util.call_jsonrpc_api("get_order_matches",
+            order_match = util.jsonrpc_api("get_order_matches",
                 {'filters': [
                  {'field': 'tx0_hash', 'op': '==', 'value': tx0_hash},
                  {'field': 'tx1_hash', 'op': '==', 'value': tx1_hash}]
-                }, abort_on_error=True)['result'][0]
+                }, abort_on_error=False)['result'][0]
         else:
             assert msg_data['status'] == 'completed' #should not enter a pending state for non BTC matches
             order_match = msg_data
@@ -159,7 +156,7 @@ def parse_trade_book(msg, msg_data):
             'block_index': config.state['cur_block']['block_index'],
             'block_time': config.state['cur_block']['block_time_obj'],
             'message_index': msg['message_index'], #secondary temporaral ordering off of when
-            'order_match_id': order_match['tx0_hash'] + order_match['tx1_hash'],
+            'order_match_id': order_match['tx0_hash'] + '_' + order_match['tx1_hash'],
             'order_match_tx0_index': order_match['tx0_index'],
             'order_match_tx1_index': order_match['tx1_index'],
             'order_match_tx0_address': order_match['tx0_address'],

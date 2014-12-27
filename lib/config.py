@@ -139,6 +139,9 @@ def load(args):
 
     global BACKEND_AUTH
     BACKEND_AUTH = (BACKEND_RPC_USER, BACKEND_RPC_PASSWORD) if (BACKEND_RPC_USER and BACKEND_RPC_PASSWORD) else None
+    
+    global BACKEND_RPC_URL
+    BACKEND_RPC_URL = 'http://' + BACKEND_RPC_USER + ':' + BACKEND_RPC_PASSWORD + '@' + BACKEND_RPC_CONNECT + ':' + str(BACKEND_RPC_PORT)
 
     # counterpartyd RPC connection
     global COUNTERPARTYD_RPC_CONNECT
