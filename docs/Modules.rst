@@ -1,8 +1,9 @@
-Modular Functionality
-=============================
+counterblockd Plugin Module Functionality
+=============================================
 
-Counterblockd allows the default set of processors and/or event handlers to be disabled or re-prioritized.
-Additional processors and/or event handlers can also be added. 
+``counterblockd`` allows the default set of processors and/or event handlers to be disabled or re-prioritized.
+Additional processors and/or event handlers can also be added. This allows developers to easily extend the
+capabilities of ``counterblockd``, as well as deactivate unused portions of the system as necessary.
 
 configuration file
 ----------------------
@@ -35,7 +36,7 @@ To change priority and enable:
     parse_issuance = 5, True 
     parse_issuance = True, 5
 
-Commandline functions
+Command-line functions
 -----------------------------
 
 To enable a custom module in ``counterblockd``:
