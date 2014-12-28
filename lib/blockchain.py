@@ -180,7 +180,7 @@ OLD_MEMPOOL = []
 
 @lru_cache(maxsize=4096)
 def get_cached_raw_transaction(tx_hash):
-    return util.bitcoind_rpc('getrawtransaction', [tx_hash, 1])
+    return bitcoind_rpc('getrawtransaction', [tx_hash, 1])
 
 @lru_cache(maxsize=8192)
 def get_cached_batch_raw_transactions(tx_hashes):
@@ -290,7 +290,7 @@ def update_unconfirmed_addrindex():
 def search_raw_transactions(address):
     unconfirmed = unconfirmed_transactions(address)
     try:
-        rawtransactions = util.bitcoind_rpc('searchrawtransactions', [address, 1, 0, 9999999])
+        rawtransactions = bitcoind_rpc('searchrawtransactions', [address, 1, 0, 9999999])
     except Exception, e:
         if str(e).find('404') != -1:
             raise Exception('Unknown RPC command: searchrawtransactions. Switch to jmcorgan.')

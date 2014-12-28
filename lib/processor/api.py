@@ -1608,7 +1608,7 @@ def serve_api():
             _set_cors_headers(response)
             return response
         
-        rpc_response = jsonrpc.JSONRPCResponseManager.handle(request_json, dispatcher)
+        rpc_response = jsonrpc.JSONRPCResponseManager.handle(request_json, API)
         rpc_response_json = json.dumps(rpc_response.data, default=util.json_dthandler).encode()
         
         #log the request data
