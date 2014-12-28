@@ -11,13 +11,14 @@ from . import MessageProcessor, CORE_FIRST_PRIORITY, CORE_LAST_PRIORITY, api
 
 @MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 0)
 def handle_exceptional(msg, msg_data): 
-    if msg['message_index'] != config.LAST_MESSAGE_INDEX + 1 and config.LAST_MESSAGE_INDEX != -1:
+    if msg['message_index'] != config.state['last_message_index'] + 1 and config.state['last_message_index'] != -1:
         logging.error("BUG: MESSAGE RECEIVED NOT WHAT WE EXPECTED. EXPECTED: %s, GOT: %s: %s (ALL MSGS IN get_messages PAYLOAD: %s)..." % (
-            config.LAST_MESSAGE_INDEX + 1, msg['message_index'], msg, [m['message_index'] for m in config.state['block_data']]))
+            config.state['last_message_index'] + 1, msg['message_index'], msg,
+            [m['message_index'] for m in config.state['cur_block']['_messages']]))
         sys.exit(1) #FOR NOW
     
     #BUG: sometimes counterpartyd seems to return OLD messages out of the message feed. deal with those
-    if msg['message_index'] <= config.LAST_MESSAGE_INDEX:
+    if msg['message_index'] <= config.state['last_message_index']:
         logging.warn("BUG: IGNORED old RAW message %s: %s ..." % (msg['message_index'], msg))
         return 'continue'
 
@@ -27,10 +28,10 @@ def handle_invalid(msg, msg_data):
     status = msg_data.get('status', 'valid').lower()
     if status.startswith('invalid'):
     #(but don't forward along while we're catching up)
-        if config.state['last_processed_block']['block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
+        if config.state['cpd_latest_block']['block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
             event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
             config.ZMQ_PUBLISHER_EVENTFEED.send_json(event)
-        config.LAST_MESSAGE_INDEX = msg['message_index']
+        config.state['last_message_index'] = msg['message_index']
         return 'continue'
                     
 #track message types, for compiling of statistics
@@ -54,15 +55,16 @@ def handle_reorg(msg, msg_data):
         logging.warn("Blockchain reorginization at block %s" % msg_data['block_index'])
         #prune back to and including the specified message_index
         my_latest_block = blockfeed.prune_my_stale_blocks(msg_data['block_index'] - 1)
-        config.CURRENT_BLOCK_INDEX = msg_data['block_index'] - 1
+        config.state['my_latest_block'] = my_latest_block
+        assert config.state['my_latest_block']['block_index'] == msg_data['block_index'] - 1
 
         #for the current last_message_index (which could have gone down after the reorg), query counterpartyd
         running_info = util.jsonrpc_api("get_running_info", abort_on_error=True)['result']
-        config.LAST_MESSAGE_INDEX = running_info['last_message_index']
+        config.state['last_message_index'] = running_info['last_message_index']
         
         #send out the message to listening clients (but don't forward along while we're catching up)
-        if config.state['last_processed_block']['block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
-            msg_data['_last_message_index'] = config.LAST_MESSAGE_INDEX
+        if config.state['cpd_latest_block']['block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
+            msg_data['_last_message_index'] = config.state['last_message_index']
             event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
             config.ZMQ_PUBLISHER_EVENTFEED.send_json(event)
         return 'break' #break out of inner loop
@@ -188,7 +190,7 @@ def parse_for_socketio(msg, msg_data):
     #if we're catching up beyond MAX_REORG_NUM_BLOCKS blocks out, make sure not to send out any socket.io
     # events, as to not flood on a resync (as we may give a 525 to kick the logged in clients out, but we
     # can't guarantee that the socket.io connection will always be severed as well??)
-    if config.state['last_processed_block']['block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
+    if config.state['cpd_latest_block']['block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
         #send out the message to listening clients
         event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
         config.ZMQ_PUBLISHER_EVENTFEED.send_json(event)

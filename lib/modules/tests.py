@@ -26,12 +26,12 @@ if __name__ != '__main__':
 
     @processor.CaughtUpProcessor.subscribe(priority=90, enabled=False)
     def reparse_timer_stop(): 
-        msg = "Caught up To Blockchain" if config.CAUGHT_UP else "Timer stopped at %i, Counterpartyd is at %i" %(config.state['my_latest_block']['block_index'], config.state['last_processed_block']['block_index'])
+        msg = "Caught up To Blockchain" if config.state['caught_up'] else "Timer stopped at %i, Counterpartyd is at %i" %(config.state['my_latest_block']['block_index'], config.state['cpd_latest_block']['block_index'])
         logging.warn("%s, time elapsed %s" %(msg, time.time() - config.state['timer']))
 
     @processor.BlockProcessor.subscribe()
     def stop_counterblockd(): 
-        if (config.state['my_latest_block']['block_index'] == early_exit_block) or (early_exit_block is None and config.CAUGHT_UP): 
+        if (config.state['my_latest_block']['block_index'] == early_exit_block) or (early_exit_block is None and config.state['caught_up']): 
             if early_exit_block:
                 logging.warn("exitting at %s..." %config.state['my_latest_block']['block_index'])
             log_database_hashes() 

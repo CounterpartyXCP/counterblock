@@ -51,13 +51,12 @@ def serve_api():
         If the server is NOT caught up, a 525 error will be returned actually before hitting this point. Thus,
         if we actually return data from this function, it should always be true. (may change this behaviour later)"""
 
-        blockchainInfo = blockchain.getinfo()
         ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
         country = config.GEOIP.country_code_by_addr(ip)
         return {
             'caught_up': blockfeed.is_caught_up_well_enough_for_government_work(),
-            'last_message_index': config.LAST_MESSAGE_INDEX,
-            'block_height': blockchainInfo['info']['blocks'],
+            'last_message_index': config.state['last_message_index'],
+            'block_height': config.state['cpd_backend_block_height'],
             'testnet': config.TESTNET,
             'ip': ip,
             'country': country,
@@ -86,9 +85,8 @@ def serve_api():
 
     @API.add_method
     def get_chain_block_height():
-        #DEPRECATED 1.5
-        data = blockchain.getinfo()
-        return data['info']['blocks']
+        #DEPRECIATED 1.5
+        return config.state['cpd_backend_block_height']
         
     @API.add_method
     def get_insight_block_info(block_hash):
@@ -96,14 +94,11 @@ def serve_api():
         return info
         
     @API.add_method
-    def get_chain_address_info(addresses, with_uxtos=True, with_last_txn_hashes=4, with_block_height=False):
+    def get_chain_address_info(addresses, with_uxtos=True, with_last_txn_hashes=4):
         if not isinstance(addresses, list):
             raise Exception("addresses must be a list of addresses, even if it just contains one address")
         results = []
 
-        if with_block_height:
-            block_height_response = blockchain.getinfo()
-            block_height = block_height_response['info']['blocks'] if block_height_response else None
         for address in addresses:
             info = blockchain.getaddressinfo(address)
             txns = info['transactions']
@@ -111,7 +106,7 @@ def serve_api():
             result = {}
             result['addr'] = address
             result['info'] = info
-            if with_block_height: result['block_height'] = block_height
+            result['block_height'] = config.state['cpd_backend_block_height']
             #^ yeah, hacky...it will be the same block height for each address (we do this to avoid an extra API call to get_block_height)
             if with_uxtos:
               result['uxtos'] = blockchain.listunspent(address)
@@ -348,7 +343,7 @@ def serve_api():
     def get_last_n_messages(count=100):
         if count > 1000:
             raise Exception("The count is too damn high")
-        message_indexes = range(max(config.LAST_MESSAGE_INDEX - count, 0) + 1, config.LAST_MESSAGE_INDEX+1)
+        message_indexes = range(max(config.state['last_message_index'] - count, 0) + 1, config.state['last_message_index'] + 1)
         messages = util.call_jsonrpc_api("get_messages_by_index",
             { 'message_indexes': message_indexes }, abort_on_error=True)['result']
         for i in xrange(len(messages)):

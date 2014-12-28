@@ -122,7 +122,7 @@ def get_block_indexes_for_dates(start_dt=None, end_dt=None):
         start_block_index = config.BLOCK_FIRST if not start_block else start_block['block_index']
     
     if end_dt is None:
-        end_block_index = config.CURRENT_BLOCK_INDEX
+        end_block_index = config.state['my_latest_block']['block_index']
     else:
         end_block = config.mongo_db.processed_blocks.find_one({"block_time": {"$gte": end_dt} }, sort=[("block_time", pymongo.ASCENDING)])
         if not end_block:
@@ -179,8 +179,8 @@ def reset_db_state():
         config.mongo_db.tracked_assets.insert(base_asset)
         
     #reinitialize some internal counters
-    config.CURRENT_BLOCK_INDEX = 0
-    config.LAST_MESSAGE_INDEX = -1
+    config.state['my_latest_block'] = {'block_index': 0}
+    config.state['last_message_index'] = -1
     
     return app_config
 

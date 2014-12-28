@@ -32,7 +32,7 @@ import strict_rfc3339, rfc3987, aniso8601
 
 from lib import config
 
-JSONRPC_API_REQUEST_TIMEOUT = 120 #in seconds
+JSONRPC_API_REQUEST_TIMEOUT = 50 #in seconds
 D = decimal.Decimal
 
 def sanitize_eliteness(text):

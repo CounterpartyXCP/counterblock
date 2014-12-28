@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
+
+##
+## CONSTANTS
+##
 VERSION = "1.5.0" #should keep up with the counterwallet version it works with (for now at least)
 
 DB_VERSION = 22 #a db version increment will cause counterblockd to rebuild its database off of counterpartyd 
-
-CAUGHT_UP = False #atomic state variable, set to True when counterpartyd AND counterblockd are caught up
 
 UNIT = 100000000
 
@@ -18,12 +20,8 @@ REGULAR_DUST_SIZE = 5430
 MULTISIG_DUST_SIZE = 5430 * 2
 ORDER_BTC_DUST_LIMIT_CUTOFF = MULTISIG_DUST_SIZE
 
-mongo_db = None #will be set on server init
-
 BTC = 'BTC'
 XCP = 'XCP'
-
-state = {}
 
 MAX_REORG_NUM_BLOCKS = 10 #max reorg we'd likely ever see
 MAX_FORCED_REORG_NUM_BLOCKS = 20 #but let us go deeper when messages are out of sync
@@ -38,6 +36,19 @@ DEFAULT_BACKEND_RPC_PORT_TESTNET = 18332
 DEFAULT_BACKEND_RPC_PORT = 8332
 
 
+##
+## STATE
+##
+mongo_db = None #will be set on server init
+state = {
+    'caught_up': False #atomic state variable, set to True when counterpartyd AND counterblockd are caught up
+    #the rest of this is added dynamically
+}
+
+
+##
+## METHODS
+##
 def init_data_dir(args):
     import os
     import appdirs

@@ -35,7 +35,7 @@ def denormalize_quantity(quantity, divisible=True):
 
 def get_btc_supply(normalize=False, at_block_index=None):
     """returns the total supply of BTC (based on what bitcoind says the current block height is)"""
-    block_count = config.CURRENT_BLOCK_INDEX if at_block_index is None else at_block_index
+    block_count = config.state['my_latest_block']['block_index'] if at_block_index is None else at_block_index
     blocks_remaining = block_count
     total_supply = 0 
     reward = 50.0
@@ -73,18 +73,8 @@ def get_btc_balance(address, confirmed=True):
     unspent = confirmed_unspent if confirmed else all_unspent
     return sum(out['amount'] for out in unspent)
 
-def get_block_count():
-    return int(bitcoind_rpc('getblockcount', None))
-
 def check():
     pass
-
-def getinfo():
-    return {
-        "info": {
-            "blocks": get_block_count()
-        }
-    }
 
 def listunspent(address):
     outputs = get_unspent_txouts(address)
@@ -274,7 +264,7 @@ def unconfirmed_transactions(address):
 def update_unconfirmed_addrindex():
     global OLD_MEMPOOL
 
-    new_mempool = util.bitcoind_rpc('getrawmempool', [])
+    new_mempool = bitcoind_rpc('getrawmempool', [])
 
     # remove confirmed txs
     for tx_hash in OLD_MEMPOOL:

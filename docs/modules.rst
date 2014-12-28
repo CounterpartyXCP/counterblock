@@ -88,7 +88,7 @@ A number of changing variables that a module may need to access are stored in ``
 .. code-block:: python
     @BlockProcessor.subscribe() 
     def my_custom_block_event(): 
-        if not (config.state['last_processed_block']['block_index'] - config.state['my_latest_block']['block_index']) == 1: 
+        if not (config.state['cpd_latest_block']['block_index'] - config.state['my_latest_block']['block_index']) == 1: 
             return
         #Do stuff here
     

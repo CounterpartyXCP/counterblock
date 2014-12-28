@@ -460,14 +460,13 @@ Debugging/Server Functions
 Blockchain Functions
 ^^^^^^^^^^^^^^^^^^^^
 
-.. function:: get_chain_address_info(addresses, with_uxtos=True, with_last_txn_hashes=4, with_block_height=False)
+.. function:: get_chain_address_info(addresses, with_uxtos=True, with_last_txn_hashes=4)
 
   Get info for one or more addresses
 
   :parameter list addresses: Address to query
   :parameter boolean with_uxtos: Include Unspent
   :parameter int with_last_txn_hashes: Include n recent confirmed transactions
-  :param boolean with_block_height: Include block height
   :return: Address info
   :rtype: [{'addr', 'info',('uxto'),('last_txns'),('block_height')}]
 

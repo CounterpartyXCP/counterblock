@@ -521,15 +521,15 @@ def compile_asset_market_info():
     """Run through all assets and compose and store market ranking information."""
     mongo_db = config.mongo_db
     
-    if not config.CAUGHT_UP:
-        logging.warn("Not updating asset market info as CAUGHT_UP is false.")
+    if not config.state['caught_up']:
+        logging.warn("Not updating asset market info as counterblockd is not caught up.")
         return False
     
     #grab the last block # we processed assets data off of
     last_block_assets_compiled = mongo_db.app_config.find_one()['last_block_assets_compiled']
     last_block_time_assets_compiled = database.get_block_time(last_block_assets_compiled)
     #logging.debug("Comping info for assets traded since block %i" % last_block_assets_compiled)
-    current_block_index = config.CURRENT_BLOCK_INDEX #store now as it may change as we are compiling asset data :)
+    current_block_index = config.state['my_latest_block']['block_index'] #store now as it may change as we are compiling asset data :)
     current_block_time = database.get_block_time(current_block_index)
 
     if current_block_index == last_block_assets_compiled:
