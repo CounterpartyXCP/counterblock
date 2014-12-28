@@ -2,7 +2,7 @@ import os
 import logging
 import pymongo
 
-from lib import config, util
+from lib import config, cache, util
 
 def get_connection():
     """Connect to mongodb, returning a connection object"""
@@ -184,3 +184,45 @@ def reset_db_state():
     
     return app_config
 
+def prune_my_stale_blocks(max_block_index):
+    """called if there are any records for blocks higher than this in the database? If so, they were impartially created
+       and we should get rid of them
+    
+    NOTE: after calling this function, you should always trigger a "continue" statement to reiterate the processing loop
+    (which will get a new cpd_latest_block from counterpartyd and resume as appropriate)   
+    """
+    logging.warn("Pruning to block %i ..." % (max_block_index))        
+    config.mongo_db.processed_blocks.remove({"block_index": {"$gt": max_block_index}})
+    config.mongo_db.balance_changes.remove({"block_index": {"$gt": max_block_index}})
+    config.mongo_db.trades.remove({"block_index": {"$gt": max_block_index}})
+    config.mongo_db.asset_marketcap_history.remove({"block_index": {"$gt": max_block_index}})
+    config.mongo_db.transaction_stats.remove({"block_index": {"$gt": max_block_index}})
+    
+    #to roll back the state of the tracked asset, dive into the history object for each asset that has
+    # been updated on or after the block that we are pruning back to
+    assets_to_prune = config.mongo_db.tracked_assets.find({'_at_block': {"$gt": max_block_index}})
+    for asset in assets_to_prune:
+        logging.info("Pruning asset %s (last modified @ block %i, pruning to state at block %i)" % (
+            asset['asset'], asset['_at_block'], max_block_index))
+        prev_ver = None
+        while len(asset['_history']):
+            prev_ver = asset['_history'].pop()
+            if prev_ver['_at_block'] <= max_block_index:
+                break
+        if prev_ver:
+            if prev_ver['_at_block'] > max_block_index:
+                #even the first history version is newer than max_block_index.
+                #in this case, just remove the asset tracking record itself
+                config.mongo_db.tracked_assets.remove({'asset': asset['asset']})
+            else:
+                #if here, we were able to find a previous version that was saved at or before max_block_index
+                # (which should be prev_ver ... restore asset's values to its values
+                prev_ver['_id'] = asset['_id']
+                prev_ver['_history'] = asset['_history']
+                config.mongo_db.tracked_assets.save(prev_ver)
+    
+    config.state['last_message_index'] = -1
+    config.state['caught_up'] = False
+    cache.blockinfo_cache.clear()
+    latest_block = config.mongo_db.processed_blocks.find_one({"block_index": max_block_index}) or config.LATEST_BLOCK_INIT
+    return latest_block

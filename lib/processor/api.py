@@ -54,7 +54,7 @@ def serve_api():
         ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
         country = config.GEOIP.country_code_by_addr(ip)
         return {
-            'caught_up': blockfeed.is_caught_up_well_enough_for_government_work(),
+            'caught_up': blockfeed.fuzzy_is_caught_up(),
             'last_message_index': config.state['last_message_index'],
             'block_height': config.state['cpd_backend_block_height'],
             'testnet': config.TESTNET,
@@ -1582,7 +1582,7 @@ def serve_api():
     @app.route('/api/', methods=["POST",])
     def handle_post():
         #don't do anything if we're not caught up
-        if not blockfeed.is_caught_up_well_enough_for_government_work():
+        if not blockfeed.fuzzy_is_caught_up():
             obj_error = jsonrpc.exceptions.JSONRPCServerError(data="Server is not caught up. Please try again later.")
             response = flask.Response(obj_error.json.encode(), 525, mimetype='application/json')
             #^ 525 is a custom response code we use for this one purpose

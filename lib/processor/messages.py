@@ -5,7 +5,7 @@ import gevent
 import decimal
 D = decimal.Decimal 
 
-from lib import util, config, blockchain, blockfeed, messages
+from lib import util, config, blockchain, blockfeed, database, messages
 from lib.components import assets, betting
 from . import MessageProcessor, CORE_FIRST_PRIORITY, CORE_LAST_PRIORITY, api
 
@@ -54,7 +54,7 @@ def handle_reorg(msg, msg_data):
     if msg['command'] == 'reorg':
         logging.warn("Blockchain reorginization at block %s" % msg_data['block_index'])
         #prune back to and including the specified message_index
-        my_latest_block = blockfeed.prune_my_stale_blocks(msg_data['block_index'] - 1)
+        my_latest_block = database.prune_my_stale_blocks(msg_data['block_index'] - 1)
         config.state['my_latest_block'] = my_latest_block
         assert config.state['my_latest_block']['block_index'] == msg_data['block_index'] - 1
 
