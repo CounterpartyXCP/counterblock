@@ -5,7 +5,7 @@ import time
 import logging
 import gevent
 
-from lib import blockfeed, config, cache, siofeeds, database
+from lib import blockfeed, config, cache, siofeeds, database, util
 from . import StartUpProcessor, CORE_FIRST_PRIORITY, CORE_LAST_PRIORITY, api, tasks
 
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 0)
