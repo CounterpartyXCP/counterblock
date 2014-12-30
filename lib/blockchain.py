@@ -86,7 +86,7 @@ def listunspent(address):
             'vout': txo['vout'],
             'ts': 0,
             'scriptPubKey': txo['scriptPubKey'],
-            'amount': float(txo['amount']),
+            'amount': str(txo['amount']),
             'confirmations': txo['confirmations'],
             'confirmationsFromCache': False
         }
@@ -113,9 +113,9 @@ def getaddressinfo(address):
     return {
         'addrStr': address,
         'balance': balance,
-        'balanceSat': balance * config.UNIT,
-        'unconfirmedBalance': unconfirmed_balance,
-        'unconfirmedBalanceSat': unconfirmed_balance * config.UNIT,
+        'balanceSat': str(balance * config.UNIT),
+        'unconfirmedBalance': str(unconfirmed_balance),
+        'unconfirmedBalanceSat': str(unconfirmed_balance * config.UNIT),
         'transactions': transactions
     }
     
