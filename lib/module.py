@@ -1,4 +1,5 @@
 import os
+import sys
 import imp
 import logging
 from configobj import ConfigObj
@@ -8,12 +9,15 @@ from lib import config
 def load_all():
     """Loads 3rd party plugin modules (note that this does not yet run startup processors, etc)
     """
-    def module_setup(module_path): 
-        logging.debug('Loading Plugin Module %s' % module_path)
-        f, fl, dsc = imp.find_module(module_path)
+    def load_module(module_path): 
+        logging.info('Loading Plugin Module %s' % module_path)
+        module_path_only = os.path.join(*module_path.split('/')[:-1])
+        module_path_full = os.path.join(os.path.dirname(
+            os.path.abspath(os.path.join(__file__, os.pardir))), module_path_only)
         module_name = module_path.split('/')[-1]
-        imp.load_module(module_name, f, fl, dsc) 
-        logging.info('Plugin Module Loaded %s' % module_name)
+        f, fl, dsc = imp.find_module(module_name, [module_path_full,])
+        imp.load_module(module_name, f, fl, dsc)
+        logging.debug('Plugin Module Loaded %s' % module_name)
         
     def get_mod_params_dict(params):
         if not isinstance(params, list):
@@ -40,7 +44,7 @@ def load_all():
                 try:
                     params = get_mod_params_dict(user_settings)
                     if params['enabled'] is True:
-                        module_setup(module) 
+                        load_module(module) 
                 except:
                     logging.warn("Failed to load Module %s" % module)
         elif 'Processor' in key:
@@ -65,7 +69,7 @@ def toggle(mod, enabled=True):
     try:
         imp.find_module(mod)
     except: 
-        print("Unable to find module %s" %mod)
+        print("Unable to find module %s"  % mod)
         return
     mod_config_path = os.path.join(config.DATA_DIR, 'counterblockd_module.conf')
     module_conf = ConfigObj(mod_config_path)

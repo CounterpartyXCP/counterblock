@@ -16,7 +16,8 @@ import datetime
 import time
 
 from lib import config, log, blockfeed, util, module
-from lib.processor import StartUpProcessor, messages, caughtup, startup
+from lib.processor import messages, caughtup, startup #to kick off processors
+from lib.processor import StartUpProcessor
 
 if __name__ == '__main__':
     # Parse command-line arguments.
@@ -104,6 +105,9 @@ if __name__ == '__main__':
 
     log.set_up(args.verbose)
     logging.info("counterblock Version %s starting ..." % config.VERSION)
+    
+    #load any 3rd party modules
+    module.load_all()
     
     #Run Startup Functions
     StartUpProcessor.run_active_functions()

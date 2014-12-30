@@ -5,7 +5,7 @@ import time
 import logging
 import gevent
 
-from lib import blockfeed, config, module, cache, siofeeds, database
+from lib import blockfeed, config, cache, siofeeds, database
 from . import StartUpProcessor, CORE_FIRST_PRIORITY, CORE_LAST_PRIORITY, api, tasks
 
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 0)
@@ -24,10 +24,6 @@ def load_counterwallet_config_settings():
     except Exception, e:
         logging.error("Exception loading counterwallet config: %s" % e)
         
-@StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 1)
-def load_modules():
-    module.load_all()
-    
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 2)
 def init_geoip():
     import pygeoip

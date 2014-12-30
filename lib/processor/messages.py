@@ -27,8 +27,8 @@ def handle_invalid(msg, msg_data):
     #don't process invalid messages, but do forward them along to clients
     status = msg_data.get('status', 'valid').lower()
     if status.startswith('invalid'):
-    #(but don't forward along while we're catching up)
         if config.state['cpd_latest_block']['block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
+            #forward along via message feed, except while we're catching up
             event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
             config.ZMQ_PUBLISHER_EVENTFEED.send_json(event)
         config.state['last_message_index'] = msg['message_index']

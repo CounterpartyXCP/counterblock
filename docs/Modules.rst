@@ -61,21 +61,28 @@ For Adding custom methods to built in Counterblockd processors. The general synt
 
 If not specified, the defaults are ``enabled=true, priority=0``.
 When a processor is triggered methods are run in order of priority from the highest.
-*Please note that any priority less than ``0`` or greater than ``1000`` is reserved for internal ``counterblock`` functionality, and custom plugins should only utilize priority settings under this number.*
+*Please note that any priority less than ``0`` or greater than ``1000`` is reserved for internal ``counterblock``
+functionality, and custom plugins should only utilize priority settings under this number.*
 
 .. code-block:: python
     @<Processor>.subscribe()
 
-``MessageProcessor`` runs once for each message as obtained from `counterpartyd`, ``msg`` will pass the message in the same format as the ``get_messages`` counterpartyd api method, msg_data corresponds to ``json.loads(msg['bindings'])``. 
+``MessageProcessor`` runs once for each message as obtained from `counterpartyd`, ``msg`` will pass the message
+ in the same format as the ``get_messages`` counterpartyd api method, msg_data corresponds to ``json.loads(msg['bindings'])``. 
 
 .. code-block:: python
     @MessageProcessor.subscribe(enabled=True, priority=90) 
     def custom_received_xcp_alert(msg, msg_data):
-        if msg and not msg['category'] == 'sends': return
+        if msg['category'] != 'sends': return
+        if message['status'] != 'valid': return
         if not msg_data['destination'] in MY_ADDRESS_LIST: return
         if not msg_data['asset'] == 'XCP': return 
-        print('Received %s XCP at My Address %s from %s' %((float(msg_data['quantity'])/10**8), msg_data['destination'], msg_data['source']))
+        print('Received %s XCP at My Address %s from %s' %(
+        	(float(msg_data['quantity'])/10**8), msg_data['destination'], msg_data['source']))
         return
+
+Note that with ``MessageProcessor`` handlers, you can return ``'continue'`` to prevent the running of further MessageProcessors (i.e.
+of lesser priority than the current one) for the message being currently processed.
 
 ``BlockProcessor`` run once per new block, after all ``MessageProcessor`` functions have completed. 
 
@@ -84,7 +91,8 @@ When a processor is triggered methods are run in order of priority from the high
     def alertBlock(): 
         print('Finished processing messages for this block') 
 
-A number of changing variables that a module may need to access are stored in ``config.state`` - For example if you want to run a process for every new block (but not when counterblockd is catching up). 
+A number of changing variables that a module may need to access are stored in ``config.state`` - For example if you
+want to run a process for every new block (but not when counterblockd is catching up). 
 
 .. code-block:: python
     @BlockProcessor.subscribe() 

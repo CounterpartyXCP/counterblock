@@ -33,9 +33,9 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
     zmq_publisher_eventfeed = config.ZMQ_PUBLISHER_EVENTFEED
     
     #initialize state
-    config.state['cur_block'] = {'block_index': 0, }
-    config.state['cpd_latest_block'] = {'block_index': 0, }
-    config.state['my_latest_block'] = {'block_index': 0 } #initialize (last processed block index -- i.e. currently active block)
+    config.state['cur_block'] = {'block_index': 0, } #block being currently processed
+    config.state['cpd_latest_block'] = {'block_index': 0, } #last block that was successfully processed by counterparty
+    config.state['my_latest_block'] = {'block_index': 0 } #last block that was successfully processed by counterblockd
     config.state['last_message_index'] = -1 #initialize (last processed message index)
     config.state['cpd_backend_block_height'] = 0 #the latest block height as reported by the cpd blockchain backend
     config.state['caught_up_started_events'] = False

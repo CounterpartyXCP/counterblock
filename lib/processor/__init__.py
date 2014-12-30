@@ -78,8 +78,10 @@ class Processor(Dispatcher):
     def subscribe(self, name=None, priority=0, enabled=True):
         def inner(f): 
             default = f.__name__
-            if f.__module__ not in ['lib.processor.messages', 'lib.processor.startup', 'lib.processor.caughtup', 'lib.processor.blocks' ]: default = "{0}.{1}".format(f.__module__, f.__name__)
-            self.method_map[name or default] = {'function': f, 'priority': priority, 'enabled': enabled, 'name': name or default}
+            if f.__module__ not in ['lib.processor.messages', 'lib.processor.startup',
+                'lib.processor.caughtup', 'lib.processor.blocks' ]: default = "{0}.{1}".format(f.__module__, f.__name__)
+            self.method_map[name or default] = {
+                'function': f, 'priority': priority, 'enabled': enabled, 'name': name or default}
             return f
         return inner
     
