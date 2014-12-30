@@ -256,3 +256,45 @@ def get_escrowed_balances(addresses):
         escrowed_balances[order['address']][order['asset']] += order['quantity']
 
     return escrowed_balances
+
+def get_assets_info(db, assets):
+    if not isinstance(assets, list):
+        raise Exception("assets must be a list of asset names, even if it just contains one entry")
+    assetsInfo = []
+    for asset in assets:
+
+        # BTC and XCP.
+        if asset in [config.BTC, config.XCP]:
+            if asset == config.BTC:
+                supply = blockchain.get_btc_supply(self.proxy, normalize=False)
+            else:
+                supply = util.call_jsonrpc_api("get_xcp_supply", abort_on_error=True)['result']
+
+            assetsInfo.append({
+                'asset': asset,
+                'owner': None,
+                'divisible': True,
+                'locked': False,
+                'supply': supply,
+                'description': '',
+                'issuer': None
+            })
+            continue
+
+        # User-created asset.
+        tracked_asset = db.tracked_assets.find_one({'asset': asset}, {'_id': 0, '_history': 0})
+        if not tracked_asset:
+            continue #asset not found, most likely
+        assetsInfo.append({
+            'asset': asset,
+            'owner': tracked_asset['owner'],
+            'divisible': tracked_asset['divisible'],
+            'locked': tracked_asset['locked'],
+            'supply': tracked_asset['total_issued'],
+            'description': tracked_asset['description'],
+            'issuer': tracked_asset['owner']})
+    return assetsInfo
+
+
+
+

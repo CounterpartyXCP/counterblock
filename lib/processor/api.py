@@ -1493,6 +1493,10 @@ def serve_api():
           return tx['vout'][vout_index]
         return None
 
+    @API.add_method
+    def get_assets_info(assetsList):
+        return assets.get_assets_info(mongo_db, assetsList)
+
     def _set_cors_headers(response):
         if config.RPC_ALLOW_CORS:
             response.headers['Access-Control-Allow-Origin'] = '*'
