@@ -146,6 +146,8 @@ def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5, auth=None,
         if u.scheme == "https": client_kwargs['ssl_options'] = {'cert_reqs': gevent.ssl.CERT_NONE}
         client = HTTPClient.from_url(u, **client_kwargs)
         if post_data is not None:
+            if is_json:
+                headers['content-type'] = 'application/json'
             r = client.post(u.request_uri, body=post_data, headers=headers)
         else:
             r = client.get(u.request_uri, headers=headers)
