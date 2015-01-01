@@ -3,6 +3,7 @@ import logging
 import pymongo
 
 from lib import config, cache, util
+from lib.processor import RollbackProcessor
 
 def get_connection():
     """Connect to mongodb, returning a connection object"""
@@ -184,13 +185,17 @@ def reset_db_state():
     
     return app_config
 
-def prune_my_stale_blocks(max_block_index):
+def rollback(max_block_index):
     """called if there are any records for blocks higher than this in the database? If so, they were impartially created
        and we should get rid of them
     
     NOTE: after calling this function, you should always trigger a "continue" statement to reiterate the processing loop
     (which will get a new cpd_latest_block from counterpartyd and resume as appropriate)   
     """
+    assert isinstance(max_block_index, (int, long)) and max_block_index > 0
+    if not config.mongo_db.processed_blocks.find_one({"block_index": max_block_index}):
+        raise Exception("Can't roll back to specified block index: %i doesn't exist in database" % max_block_index)
+    
     logging.warn("Pruning to block %i ..." % (max_block_index))        
     config.mongo_db.processed_blocks.remove({"block_index": {"$gt": max_block_index}})
     config.mongo_db.balance_changes.remove({"block_index": {"$gt": max_block_index}})
@@ -220,6 +225,9 @@ def prune_my_stale_blocks(max_block_index):
                 prev_ver['_id'] = asset['_id']
                 prev_ver['_history'] = asset['_history']
                 config.mongo_db.tracked_assets.save(prev_ver)
+    
+    #call any rollback processors for any extension modules
+    RollbackProcessor.run_active_functions(max_block_index)
     
     config.state['last_message_index'] = -1
     config.state['caught_up'] = False

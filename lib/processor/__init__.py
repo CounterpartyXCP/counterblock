@@ -95,13 +95,14 @@ class Processor(Dispatcher):
     def active_functions(self): 
         return sorted((func for func in self.values() if func['enabled']), key=lambda x: x['priority'], reverse=True)
     
-    def run_active_functions(self): 
+    def run_active_functions(self, *args, **kwargs): 
         for func in self.active_functions(): 
             logging.debug('starting {}'.format(func['name']))
-            func['function']()
+            func['function'](*args, **kwargs)
             
 MessageProcessor = Processor()
 BlockProcessor = Processor()
 StartUpProcessor= Processor()
 CaughtUpProcessor = Processor()                
+RollbackProcessor = Processor()   
 API = Dispatcher() 

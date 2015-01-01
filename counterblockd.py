@@ -15,24 +15,17 @@ import logging
 import datetime
 import time
 
-from lib import config, log, blockfeed, util, module
+from lib import config, log, blockfeed, util, module, database
 from lib.processor import messages, caughtup, startup #to kick off processors
 from lib.processor import StartUpProcessor
 
 if __name__ == '__main__':
     # Parse command-line arguments.
     parser = argparse.ArgumentParser(prog='counterblockd', description='Counterwallet daemon. Works with counterpartyd')
-    subparsers = parser.add_subparsers(dest='action', help='the action to be taken')
-    parser_server = subparsers.add_parser('server', help='Run Counterblockd')
-    
-    parser_dismod = subparsers.add_parser('dismod', help='Disable a module')
-    parser_dismod.add_argument('module_path', type=str, help='Path of module to Disable relative to Counterblockd directory')
-    parser_enmod = subparsers.add_parser('enmod', help='Enable a module')
-    parser_enmod.add_argument('module_path', type=str, help='Full Path of module to Enable relative to Counterblockd directory')
-    parser_listmod = subparsers.add_parser('listmod', help='Display Module Config')
+
+    #args
     parser.add_argument('-V', '--version', action='version', version="counterblockd v%s" % config.VERSION)
     parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', default=False, help='sets log level to DEBUG instead of WARNING')
-    parser.add_argument('--enmod', type=str, help='Enable a module')
     parser.add_argument('--reparse', action='store_true', default=False, help='force full re-initialization of the counterblockd database')
     parser.add_argument('--testnet', action='store_true', default=False, help='use Bitcoin testnet addresses and block numbers')
     parser.add_argument('--data-dir', help='specify to explicitly override the directory in which to keep the config file and log file')
@@ -77,37 +70,56 @@ if __name__ == '__main__':
     parser.add_argument('--socketio-chat-host', help='the interface on which to host the counterblockd socket.io chat API')
     parser.add_argument('--socketio-chat-port', type=int, help='port on which to provide the counterblockd socket.io chat API')
 
-    if len(sys.argv) < 2: sys.argv.append('server')
-    if not [i for i in sys.argv if i in ('server', 'enmod', 'dismod', 'listmod')]: sys.argv.append('server')
-
     parser.add_argument('--support-email', help='the email address where support requests should go')
     parser.add_argument('--email-server', help='the email server to send support requests out from. Defaults to \'localhost\'')
-    args = parser.parse_args()
     
-    config.init(args)
+    #actions
+    subparsers = parser.add_subparsers(dest='action', help='the action to be taken')
+    parser_server = subparsers.add_parser('server', help='Run Counterblockd')
+    parser_enmod = subparsers.add_parser('enmod', help='Enable a module')
+    parser_enmod.add_argument('module_path', type=str, help='Full Path of module to Enable relative to Counterblockd directory')
+    parser_dismod = subparsers.add_parser('dismod', help='Disable a module')
+    parser_dismod.add_argument('module_path', type=str, help='Path of module to Disable relative to Counterblockd directory')
+    parser_listmod = subparsers.add_parser('listmod', help='Display Module Config')
+    parser_rollback = subparsers.add_parser('rollback', help='Rollback to a specific block number')
+    parser_rollback.add_argument('block_index', type=int, help='Block index to roll back to')
 
-    #Do Module Args Actions
-    if args.action == 'enmod':
-        module.toggle(args.module_path, True)
-        sys.exit(0)
-    if args.action == 'dismod': 
-        module.toggle(args.module_path, False)
-        sys.exit(0)
-    if args.action == 'listmod':
-        module.list_all()
-        sys.exit(0)
-        
+    #default to server arg
+    if len(sys.argv) < 2: sys.argv.append('server')
+    if not [i for i in sys.argv if i in ('server', 'enmod', 'dismod', 'listmod', 'rollback')]:
+        sys.argv.append('server')
+
+    args = parser.parse_args()
+
+    config.init(args)
+    log.set_up(args.verbose)
+
     #Create/update pid file
     pid = str(os.getpid())
     pidf = open(config.PID, 'w')
     pidf.write(pid)
     pidf.close()    
 
-    log.set_up(args.verbose)
-    logging.info("counterblock Version %s starting ..." % config.VERSION)
-    
     #load any 3rd party modules
     module.load_all()
+
+    #Handle arguments
+    if args.action == 'enmod':
+        module.toggle(args.module_path, True)
+        sys.exit(0)
+    elif args.action == 'dismod': 
+        module.toggle(args.module_path, False)
+        sys.exit(0)
+    elif args.action == 'listmod':
+        module.list_all()
+        sys.exit(0)
+    elif args.action == 'rollback':
+        assert args.block_index >= 1
+        startup.init_mongo()
+        database.rollback(args.block_index)
+        sys.exit(0)
+        
+    logging.info("counterblock Version %s starting ..." % config.VERSION)
     
     #Run Startup Functions
     StartUpProcessor.run_active_functions()

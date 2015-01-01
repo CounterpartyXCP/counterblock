@@ -155,7 +155,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         my_latest_block = config.mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)]) or config.LATEST_BLOCK_INIT
         #remove any data we have for blocks higher than this (would happen if counterblockd or mongo died
         # or errored out while processing a block)
-        config.state['my_latest_block'] = database.prune_my_stale_blocks(my_latest_block['block_index'])
+        config.state['my_latest_block'] = database.rollback(my_latest_block['block_index'])
     
     #avoid contacting counterpartyd (on reparse, to speed up)
     autopilot = False
@@ -247,7 +247,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             # before what counterpartyd is saying if we see this
             logging.error("Very odd: Ahead of counterpartyd with block indexes! Pruning back %s blocks to be safe."
                 % config.MAX_REORG_NUM_BLOCKS)
-            config.state['my_latest_block'] = database.prune_my_stale_blocks(
+            config.state['my_latest_block'] = database.rollback(
                 config.state['cpd_latest_block']['block_index'] - config.MAX_REORG_NUM_BLOCKS)
         else:
             #...we may be caught up (to counterpartyd), but counterpartyd may not be (to the blockchain). And if it isn't, we aren't
