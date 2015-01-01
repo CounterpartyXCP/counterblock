@@ -9,6 +9,7 @@ from lib import config, util, blockchain
 
 ASSET_MAX_RETRY = 3
 D = decimal.Decimal
+logger = logging.getLogger(__name__)
 
 def parse_issuance(db, message, cur_block_index, cur_block):
     if message['status'] != 'valid':
@@ -50,7 +51,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                 'locked': True,
              },
              "$push": {'_history': tracked_asset } }, upsert=False)
-        logging.info("Locking asset %s" % (message['asset'],))
+        logger.info("Locking asset %s" % (message['asset'],))
     elif message['transfer']: #transfer asset
         assert tracked_asset is not None
         db.tracked_assets.update(
@@ -62,7 +63,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                 'owner': message['issuer'],
              },
              "$push": {'_history': tracked_asset } }, upsert=False)
-        logging.info("Transferring asset %s to address %s" % (message['asset'], message['issuer']))
+        logger.info("Transferring asset %s to address %s" % (message['asset'], message['issuer']))
     elif message['quantity'] == 0 and tracked_asset is not None: #change description
         db.tracked_assets.update(
             {'asset': message['asset']},
@@ -74,7 +75,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
              },
              "$push": {'_history': tracked_asset } }, upsert=False)
         modify_extended_asset_info(message['asset'], message['description'])
-        logging.info("Changing description for asset %s to '%s'" % (message['asset'], message['description']))
+        logger.info("Changing description for asset %s to '%s'" % (message['asset'], message['description']))
     else: #issue new asset or issue addition qty of an asset
         if not tracked_asset: #new issuance
             tracked_asset = {
@@ -94,7 +95,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                 '_history': [] #to allow for block rollbacks
             }
             db.tracked_assets.insert(tracked_asset)
-            logging.info("Tracking new asset: %s" % message['asset'])
+            logger.info("Tracking new asset: %s" % message['asset'])
             modify_extended_asset_info(message['asset'], message['description'])
         else: #issuing additional of existing asset
             assert tracked_asset is not None
@@ -110,7 +111,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                      'total_issued_normalized': blockchain.normalize_quantity(message['quantity'], message['divisible'])
                  },
                  "$push": {'_history': tracked_asset} }, upsert=False)
-            logging.info("Adding additional %s quantity for asset %s" % (
+            logger.info("Adding additional %s quantity for asset %s" % (
                 blockchain.normalize_quantity(message['quantity'], message['divisible']), message['asset']))
     return True
 
@@ -162,30 +163,30 @@ def fetch_all_asset_info(db):
     asset_info_urls = []
 
     def asset_fetch_complete_hook(urls_data):
-        logging.info("Enhanced asset info fetching complete. %s unique URLs fetched. Processing..." % len(urls_data))
+        logger.info("Enhanced asset info fetching complete. %s unique URLs fetched. Processing..." % len(urls_data))
         for asset in assets:
-            logging.debug("Looking at asset %s: %s" % (asset, asset['info_url']))
+            logger.debug("Looking at asset %s: %s" % (asset, asset['info_url']))
             if asset['info_url']:
                 info_url = ('http://' + asset['info_url']) \
                     if not asset['info_url'].startswith('http://') and not asset['info_url'].startswith('https://') else asset['info_url']
                 assert info_url in urls_data
                 if not urls_data[info_url][0]: #request was not successful
                     inc_fetch_retry(db, asset, max_retry=ASSET_MAX_RETRY, errors=[urls_data[info_url][1]])
-                    logging.warn("Fetch for asset at %s not successful: %s (try %i of %i)" % (
+                    logger.warn("Fetch for asset at %s not successful: %s (try %i of %i)" % (
                         info_url, urls_data[info_url][1], asset['fetch_info_retry'], ASSET_MAX_RETRY))
                 else:
                     result = process_asset_info(db, asset, urls_data[info_url][1])
                     if not result[0]:
-                        logging.info("Processing for asset %s at %s not successful: %s" % (asset['asset'], info_url, result[1]))
+                        logger.info("Processing for asset %s at %s not successful: %s" % (asset['asset'], info_url, result[1]))
                     else:
-                        logging.info("Processing for asset %s at %s successful" % (asset['asset'], info_url))
+                        logger.info("Processing for asset %s at %s successful" % (asset['asset'], info_url))
         
     #compose and fetch all info URLs in all assets with them
     for asset in assets:
         if not asset['info_url']: continue
         
         if asset.get('disabled', False):
-            logging.info("ExtendedAssetInfo: Skipping disabled asset %s" % asset['asset'])
+            logger.info("ExtendedAssetInfo: Skipping disabled asset %s" % asset['asset'])
             continue
 
         #may or may not end with .json. may or may not start with http:// or https://
@@ -195,10 +196,10 @@ def fetch_all_asset_info(db):
     asset_info_urls_str = ', '.join(asset_info_urls)
     asset_info_urls_str = (asset_info_urls_str[:2000] + ' ...') if len(asset_info_urls_str) > 2000 else asset_info_urls_str #truncate if necessary
     if len(asset_info_urls):
-        logging.info('Fetching enhanced asset info for %i assets: %s' % (len(asset_info_urls), asset_info_urls_str))
+        logger.info('Fetching enhanced asset info for %i assets: %s' % (len(asset_info_urls), asset_info_urls_str))
         util.stream_fetch(asset_info_urls, asset_fetch_complete_hook,
             fetch_timeout=10, max_fetch_size=4*1024, urls_group_size=20, urls_group_time_spacing=20,
-            per_request_complete_callback=lambda url, data: logging.debug("Asset info URL %s retrieved, result: %s" % (url, data)))
+            per_request_complete_callback=lambda url, data: logger.debug("Asset info URL %s retrieved, result: %s" % (url, data)))
 
 
 def get_escrowed_balances(addresses):

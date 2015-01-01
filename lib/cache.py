@@ -9,11 +9,13 @@ redis.connection.socket = gevent.socket #make redis play well with gevent
 
 from lib import config, util
 
+logger = logging.getLogger(__name__)
+
 ##
 ## REDIS-RELATED
 ##
 def get_redis_connection():
-    logging.info("Connecting to redis @ %s" % config.REDIS_CONNECT)
+    logger.info("Connecting to redis @ %s" % config.REDIS_CONNECT)
     return redis.StrictRedis(host=config.REDIS_CONNECT, port=config.REDIS_PORT, db=config.REDIS_DATABASE)
 
 ##
@@ -44,7 +46,7 @@ def block_cache(func):
         cached_result = config.mongo_db.counterblockd_cache.find_one({'block_index': block_index, 'function': function_signature})
 
         if not cached_result or config.TESTNET:
-            #logging.info("generate cache ({}, {}, {})".format(func.__name__, block_index, function_signature))
+            #logger.info("generate cache ({}, {}, {})".format(func.__name__, block_index, function_signature))
             try:
                 result = func(*args, **kwargs)
                 config.mongo_db.counterblockd_cache.insert({
@@ -54,9 +56,9 @@ def block_cache(func):
                 })
                 return result
             except Exception, e:
-                logging.exception(e)
+                logger.exception(e)
         else:
-            #logging.info("result from cache ({}, {}, {})".format(func.__name__, block_index, function_signature))
+            #logger.info("result from cache ({}, {}, {})".format(func.__name__, block_index, function_signature))
             result = json.loads(cached_result['result'])
             return result
             
@@ -64,5 +66,5 @@ def block_cache(func):
 
 
 def clean_block_cache(block_index):
-    #logging.info("clean block cache lower than {}".format(block_index))
+    #logger.info("clean block cache lower than {}".format(block_index))
     config.mongo_db.counterblockd_cache.remove({'block_index': {'$lt': block_index}})

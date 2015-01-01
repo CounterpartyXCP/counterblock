@@ -9,7 +9,7 @@ from lib import cache, config, util
 
 decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
 D = decimal.Decimal
-
+logger = logging.getLogger(__name__)
 
 def calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divisibility, order_type = None):
     if not base_divisibility:

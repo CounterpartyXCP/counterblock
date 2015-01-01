@@ -5,9 +5,11 @@ import pymongo
 from lib import config, cache, util
 from lib.processor import RollbackProcessor
 
+logger = logging.getLogger(__name__)
+
 def get_connection():
     """Connect to mongodb, returning a connection object"""
-    logging.info("Connecting to mongoDB backend ...")
+    logger.info("Connecting to mongoDB backend ...")
     mongo_client = pymongo.MongoClient(config.MONGODB_CONNECT, config.MONGODB_PORT)
     mongo_db = mongo_client[config.MONGODB_DATABASE] #will create if it doesn't exist
     if config.MONGODB_USER and config.MONGODB_PASSWORD:
@@ -196,7 +198,7 @@ def rollback(max_block_index):
     if not config.mongo_db.processed_blocks.find_one({"block_index": max_block_index}):
         raise Exception("Can't roll back to specified block index: %i doesn't exist in database" % max_block_index)
     
-    logging.warn("Pruning to block %i ..." % (max_block_index))        
+    logger.warn("Pruning to block %i ..." % (max_block_index))        
     config.mongo_db.processed_blocks.remove({"block_index": {"$gt": max_block_index}})
     config.mongo_db.balance_changes.remove({"block_index": {"$gt": max_block_index}})
     config.mongo_db.trades.remove({"block_index": {"$gt": max_block_index}})
@@ -207,7 +209,7 @@ def rollback(max_block_index):
     # been updated on or after the block that we are pruning back to
     assets_to_prune = config.mongo_db.tracked_assets.find({'_at_block': {"$gt": max_block_index}})
     for asset in assets_to_prune:
-        logging.info("Pruning asset %s (last modified @ block %i, pruning to state at block %i)" % (
+        logger.info("Pruning asset %s (last modified @ block %i, pruning to state at block %i)" % (
             asset['asset'], asset['_at_block'], max_block_index))
         prev_ver = None
         while len(asset['_history']):

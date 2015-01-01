@@ -18,14 +18,14 @@ def set_up(verbose):
     #Console logging
     console = logging.StreamHandler()
     console.setLevel(logging.DEBUG if verbose else logging.INFO)
-    formatter = logging.Formatter('%(asctime)s :: %(levelname)s :: %(message)s')
+    formatter = logging.Formatter('%(levelname)s:%(module)s: %(message)s')
     console.setFormatter(formatter)
     logger.addHandler(console)
     
     #File logging (rotated)
     fileh = logging.handlers.RotatingFileHandler(config.LOG, maxBytes=MAX_LOG_SIZE, backupCount=MAX_LOG_COUNT)
     fileh.setLevel(logging.DEBUG if verbose else logging.INFO)
-    formatter = logging.Formatter('%(asctime)s %(message)s', '%Y-%m-%d-T%H:%M:%S%z')
+    formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(module)s:%(message)s', '%Y-%m-%d-T%H:%M:%S%z')
     fileh.setFormatter(formatter)
     logger.addHandler(fileh)
     
@@ -39,7 +39,7 @@ def set_up(verbose):
     tx_logger.setLevel(logging.DEBUG if verbose else logging.INFO)
     tx_fileh = logging.handlers.RotatingFileHandler(config.TX_LOG, maxBytes=MAX_LOG_SIZE, backupCount=MAX_LOG_COUNT)
     tx_fileh.setLevel(logging.DEBUG if verbose else logging.INFO)
-    tx_formatter = logging.Formatter('%(asctime)s %(message)s', '%Y-%m-%d-T%H:%M:%S%z')
+    tx_formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(module)s:%(message)s', '%Y-%m-%d-T%H:%M:%S%z')
     tx_fileh.setFormatter(tx_formatter)
     tx_logger.addHandler(tx_fileh)
     tx_logger.propagate = False

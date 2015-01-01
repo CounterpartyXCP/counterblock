@@ -32,6 +32,7 @@ API_MAX_LOG_COUNT = 10
 
 decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
 D = decimal.Decimal
+logger = logging.getLogger(__name__)
 
 def serve_api():
     # Preferneces are just JSON objects... since we don't force a specific form to the wallet on
@@ -1620,7 +1621,7 @@ def serve_api():
             assert 'method' in request_data
             tx_logger.info("TRANSACTION --- %s ||| REQUEST: %s ||| RESPONSE: %s" % (request_data['method'], request_json, rpc_response_json))
         except Exception, e:
-            logging.info("Could not log transaction: Invalid format: %s" % e)
+            logger.info("Could not log transaction: Invalid format: %s" % e)
             
         response = flask.Response(rpc_response_json, 200, mimetype='application/json')
         _set_cors_headers(response)
@@ -1628,7 +1629,9 @@ def serve_api():
     
     #make a new RotatingFileHandler for the access log.
     api_logger = logging.getLogger("api_log")
-    h = logging_handlers.RotatingFileHandler(os.path.join(config.DATA_DIR, "api.access.log"), 'a', API_MAX_LOG_SIZE, API_MAX_LOG_COUNT)
+    h = logging_handlers.RotatingFileHandler(
+        os.path.join(config.DATA_DIR, "api.access.log"),
+        'a', API_MAX_LOG_SIZE, API_MAX_LOG_COUNT)
     api_logger.setLevel(logging.INFO)
     api_logger.addHandler(h)
     api_logger.propagate = False

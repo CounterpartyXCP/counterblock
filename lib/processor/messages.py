@@ -9,17 +9,19 @@ from lib import util, config, blockchain, blockfeed, database, messages
 from lib.components import assets, betting
 from . import MessageProcessor, CORE_FIRST_PRIORITY, CORE_LAST_PRIORITY, api
 
+logger = logging.getLogger(__name__)
+
 @MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 0)
 def handle_exceptional(msg, msg_data): 
     if msg['message_index'] != config.state['last_message_index'] + 1 and config.state['last_message_index'] != -1:
-        logging.error("BUG: MESSAGE RECEIVED NOT WHAT WE EXPECTED. EXPECTED: %s, GOT: %s: %s (ALL MSGS IN get_messages PAYLOAD: %s)..." % (
+        logger.error("BUG: MESSAGE RECEIVED NOT WHAT WE EXPECTED. EXPECTED: %s, GOT: %s: %s (ALL MSGS IN get_messages PAYLOAD: %s)..." % (
             config.state['last_message_index'] + 1, msg['message_index'], msg,
             [m['message_index'] for m in config.state['cur_block']['_messages']]))
         sys.exit(1) #FOR NOW
     
     #BUG: sometimes counterpartyd seems to return OLD messages out of the message feed. deal with those
     if msg['message_index'] <= config.state['last_message_index']:
-        logging.warn("BUG: IGNORED old RAW message %s: %s ..." % (msg['message_index'], msg))
+        logger.warn("BUG: IGNORED old RAW message %s: %s ..." % (msg['message_index'], msg))
         return 'continue'
 
 @MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 1)
@@ -52,7 +54,7 @@ def parse_insert(msg, msg_data):
 @MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 3)
 def handle_reorg(msg, msg_data):
     if msg['command'] == 'reorg':
-        logging.warn("Blockchain reorginization at block %s" % msg_data['block_index'])
+        logger.warn("Blockchain reorginization at block %s" % msg_data['block_index'])
         #prune back to and including the specified message_index
         my_latest_block = database.rollback(msg_data['block_index'] - 1)
         config.state['my_latest_block'] = my_latest_block
@@ -83,7 +85,7 @@ def parse_balance_change(msg, msg_data):
         address = msg_data['address']
         asset_info = config.mongo_db.tracked_assets.find_one({ 'asset': msg_data['asset'] })
         if asset_info is None:
-            logging.warn("Credit/debit of %s where asset ('%s') does not exist. Ignoring..." % (msg_data['quantity'], msg_data['asset']))
+            logger.warn("Credit/debit of %s where asset ('%s') does not exist. Ignoring..." % (msg_data['quantity'], msg_data['asset']))
             return 'continue'
         quantity = msg_data['quantity'] if msg['category'] == 'credits' else -msg_data['quantity']
         quantity_normalized = blockchain.normalize_quantity(quantity, asset_info['divisible'])
@@ -102,7 +104,7 @@ def parse_balance_change(msg, msg_data):
             last_bal_change['new_balance'] += quantity
             last_bal_change['new_balance_normalized'] += quantity_normalized
             config.mongo_db.balance_changes.save(last_bal_change)
-            logging.info("Procesed %s bal change (UPDATED) from tx %s :: %s" % (actionName, msg['message_index'], last_bal_change))
+            logger.info("Procesed %s bal change (UPDATED) from tx %s :: %s" % (actionName, msg['message_index'], last_bal_change))
             bal_change = last_bal_change
         else: #new balance change record for this block
             bal_change = {
@@ -116,7 +118,7 @@ def parse_balance_change(msg, msg_data):
                 'new_balance_normalized': last_bal_change['new_balance_normalized'] + quantity_normalized if last_bal_change else quantity_normalized,
             }
             config.mongo_db.balance_changes.insert(bal_change)
-            logging.info("Procesed %s bal change from tx %s :: %s" % (actionName, msg['message_index'], bal_change))
+            logger.info("Procesed %s bal change from tx %s :: %s" % (actionName, msg['message_index'], bal_change))
     
 @MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 6)
 def parse_trade_book(msg, msg_data):
@@ -146,7 +148,7 @@ def parse_trade_book(msg, msg_data):
         #don't create trade records from order matches with BTC that are under the dust limit
         if    (order_match['forward_asset'] == config.BTC and order_match['forward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF) \
            or (order_match['backward_asset'] == config.BTC and order_match['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF):
-            logging.debug("Order match %s ignored due to %s under dust limit." % (order_match['tx0_hash'] + order_match['tx1_hash'], config.BTC))
+            logger.debug("Order match %s ignored due to %s under dust limit." % (order_match['tx0_hash'] + order_match['tx1_hash'], config.BTC))
             return 'continue'
 
         #take divisible trade quantities to floating point
@@ -178,7 +180,7 @@ def parse_trade_book(msg, msg_data):
                 D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
 
         config.mongo_db.trades.insert(trade)
-        logging.info("Procesed Trade from tx %s :: %s" % (msg['message_index'], trade))
+        logger.info("Procesed Trade from tx %s :: %s" % (msg['message_index'], trade))
         
 @MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 7)
 def parse_broadcast(msg,msg_data): 

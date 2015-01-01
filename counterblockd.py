@@ -19,6 +19,8 @@ from lib import config, log, blockfeed, util, module, database
 from lib.processor import messages, caughtup, startup #to kick off processors
 from lib.processor import StartUpProcessor
 
+logger = logging.getLogger(__name__)
+
 if __name__ == '__main__':
     # Parse command-line arguments.
     parser = argparse.ArgumentParser(prog='counterblockd', description='Counterwallet daemon. Works with counterpartyd')
@@ -119,7 +121,7 @@ if __name__ == '__main__':
         database.rollback(args.block_index)
         sys.exit(0)
         
-    logging.info("counterblock Version %s starting ..." % config.VERSION)
+    logger.info("counterblock Version %s starting ..." % config.VERSION)
     
     #Run Startup Functions
     StartUpProcessor.run_active_functions()
