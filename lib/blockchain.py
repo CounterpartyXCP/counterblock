@@ -352,8 +352,10 @@ def scriptpubkey_to_canonical_address(scriptpubkey):
         signatures_required = asm[0]
         signatures_possible = len(asm) - 3
         return "_".join([str(signatures_required)] + sorted(scriptpubkey['addresses']) + [str(signatures_possible)])
-    else:
+    elif 'addresses' in scriptpubkey:
         return scriptpubkey['addresses'][0]
+    else:
+        return None
 
 
 def get_unspent_txouts(source, return_confirmed=False):
