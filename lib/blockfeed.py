@@ -19,6 +19,7 @@ from lib import config, util, blockchain, cache, database
 from lib.processor import MessageProcessor, BlockProcessor, CaughtUpProcessor
 
 D = decimal.Decimal 
+logger = logging.getLogger(__name__)
 
 def fuzzy_is_caught_up():
     """We don't want to give users 525 errors or login errors if counterblockd/counterpartyd is in the process of
@@ -42,8 +43,8 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
     #^ set after we are caught up and start up the recurring events that depend on us being caught up with the blockchain 
     
     #enabled processor functions
-    logging.debug("Enabled Message Processor Functions {0}".format(MessageProcessor.active_functions()))
-    logging.debug("Enabled Block Processor Functions {0}".format(BlockProcessor.active_functions()))
+    logger.debug("Enabled Message Processor Functions {0}".format(MessageProcessor.active_functions()))
+    logger.debug("Enabled Block Processor Functions {0}".format(BlockProcessor.active_functions()))
     
     def publish_mempool_tx():
         """fetch new tx from mempool"""
@@ -77,7 +78,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             del(tx['_id'])
             tx['_category'] = tx['category']
             tx['_message_index'] = 'mempool'
-            logging.debug("Spotted mempool tx: %s" % tx)
+            logger.debug("Spotted mempool tx: %s" % tx)
             zmq_publisher_eventfeed.send_json(tx)
             
     def clean_mempool_tx():
@@ -87,13 +88,13 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
 
     def parse_message(msg): 
         msg_data = json.loads(msg['bindings'])
-        logging.debug("Received message %s: %s ..." % (msg['message_index'], msg))
+        logger.debug("Received message %s: %s ..." % (msg['message_index'], msg))
         
         #out of order messages should not happen (anymore), but just to be sure
         assert msg['message_index'] == config.state['last_message_index'] + 1 or config.state['last_message_index'] == -1
         
         for function in MessageProcessor.active_functions():
-            logging.debug('starting {}'.format(function['function']))
+            logger.debug('starting {}'.format(function['function']))
             cmd = function['function'](msg, msg_data) or None
             #break or *return* (?) depends on whether we want config.last_message_index to be updated
             if cmd == 'continue': break
@@ -111,7 +112,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         for msg in config.state['cur_block']['_messages']: 
             cmd = parse_message(msg)
             if cmd == 'break': break
-        #logging.debug("*config.state* {}".format(config.state))
+        #logger.debug("*config.state* {}".format(config.state))
         
         #Run Block Processor Functions
         BlockProcessor.run_active_functions()
@@ -125,7 +126,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         
         config.state['my_latest_block'] = new_block 
 
-        logging.info("Block: %i of %i [message height=%s]" % (
+        logger.info("Block: %i of %i [message height=%s]" % (
             config.state['my_latest_block']['block_index'],
             config.state['cpd_backend_block_height'] \
                 if config.state['cpd_backend_block_height'] else '???',
@@ -142,11 +143,11 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         or app_config[0]['db_version'] != config.DB_VERSION
         or app_config[0]['running_testnet'] != config.TESTNET):
         if app_config.count():
-            logging.warn("counterblockd database version UPDATED (from %i to %i) or testnet setting changed (from %s to %s), or REINIT forced (%s). REBUILDING FROM SCRATCH ..." % (
+            logger.warn("counterblockd database version UPDATED (from %i to %i) or testnet setting changed (from %s to %s), or REINIT forced (%s). REBUILDING FROM SCRATCH ..." % (
                 app_config[0]['db_version'], config.DB_VERSION, app_config[0]['running_testnet'],
                 config.TESTNET, config.REPARSE_FORCED))
         else:
-            logging.warn("counterblockd database app_config collection doesn't exist. BUILDING FROM SCRATCH...")
+            logger.warn("counterblockd database app_config collection doesn't exist. BUILDING FROM SCRATCH...")
         app_config = database.reset_db_state()
         config.state['my_latest_block'] = config.LATEST_BLOCK_INIT
     else:
@@ -155,7 +156,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         my_latest_block = config.mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)]) or config.LATEST_BLOCK_INIT
         #remove any data we have for blocks higher than this (would happen if counterblockd or mongo died
         # or errored out while processing a block)
-        config.state['my_latest_block'] = database.prune_my_stale_blocks(my_latest_block['block_index'])
+        config.state['my_latest_block'] = database.rollback(my_latest_block['block_index'])
     
     #avoid contacting counterpartyd (on reparse, to speed up)
     autopilot = False
@@ -176,20 +177,20 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
            or app_config['counterpartyd_running_testnet'] is None:
             updatePrefs = True
         elif cpd_running_info['version_major'] != app_config['counterpartyd_db_version_major']:
-            logging.warn("counterpartyd MAJOR DB version change (we built from %s, counterpartyd is at %s)."
+            logger.warn("counterpartyd MAJOR DB version change (we built from %s, counterpartyd is at %s)."
                 + " Wiping our state data." % (
                     app_config['counterpartyd_db_version_major'], cpd_running_info['version_major']))
             wipeState = True
             updatePrefs = True
         elif cpd_running_info['version_minor'] != app_config['counterpartyd_db_version_minor']:
-            logging.warn("counterpartyd MINOR DB version change (we built from %s.%s, counterpartyd is at %s.%s)."
+            logger.warn("counterpartyd MINOR DB version change (we built from %s.%s, counterpartyd is at %s.%s)."
                 + " Wiping our state data." % (
                 app_config['counterpartyd_db_version_major'], app_config['counterpartyd_db_version_minor'],
                 cpd_running_info['version_major'], cpd_running_info['version_minor']))
             wipeState = True
             updatePrefs = True
         elif cpd_running_info.get('running_testnet', False) != app_config['counterpartyd_running_testnet']:
-            logging.warn("counterpartyd testnet setting change (from %s to %s). Wiping our state data." % (
+            logger.warn("counterpartyd testnet setting change (from %s to %s). Wiping our state data." % (
                 app_config['counterpartyd_running_testnet'], cpd_running_info['running_testnet']))
             wipeState = True
             updatePrefs = True
@@ -209,7 +210,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         config.state['cpd_backend_block_height'] = cpd_running_info['bitcoin_block_count']
         
         if not config.state['cpd_latest_block']['block_index']:
-            logging.warn("counterpartyd has no last processed block (probably is reparsing or was just restarted)."
+            logger.warn("counterpartyd has no last processed block (probably is reparsing or was just restarted)."
                 + " Waiting 3 seconds before trying again...")
             time.sleep(3)
             continue
@@ -232,7 +233,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                 block_data = cache.get_block_info(cur_block_index,
                     min(100, (config.state['cpd_latest_block']['block_index'] - config.state['my_latest_block']['block_index'])))
             except Exception, e:
-                logging.warn(str(e) + " Waiting 3 seconds before trying again...")
+                logger.warn(str(e) + " Waiting 3 seconds before trying again...")
                 time.sleep(3)
                 continue
             
@@ -245,9 +246,9 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         elif config.state['my_latest_block']['block_index'] > config.state['cpd_latest_block']['block_index']:
             # should get a reorg message. Just to be on the safe side, prune back MAX_REORG_NUM_BLOCKS blocks
             # before what counterpartyd is saying if we see this
-            logging.error("Very odd: Ahead of counterpartyd with block indexes! Pruning back %s blocks to be safe."
+            logger.error("Very odd: Ahead of counterpartyd with block indexes! Pruning back %s blocks to be safe."
                 % config.MAX_REORG_NUM_BLOCKS)
-            config.state['my_latest_block'] = database.prune_my_stale_blocks(
+            config.state['my_latest_block'] = database.rollback(
                 config.state['cpd_latest_block']['block_index'] - config.MAX_REORG_NUM_BLOCKS)
         else:
             #...we may be caught up (to counterpartyd), but counterpartyd may not be (to the blockchain). And if it isn't, we aren't
@@ -261,7 +262,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
                     config.state['last_message_index'] = cpd_running_info['last_message_index']
                 if config.state['my_latest_block']['block_index'] == 0:
                     config.state['my_latest_block']['block_index'] = cpd_running_info['last_block']['block_index']
-                logging.info("Detected blocks caught up on startup. Setting last message idx to %s, current block index to %s ..." % (
+                logger.info("Detected blocks caught up on startup. Setting last message idx to %s, current block index to %s ..." % (
                     config.state['last_message_index'], config.state['my_latest_block']['block_index']))
             
             if config.state['caught_up'] and not config.state['caught_up_started_events']:

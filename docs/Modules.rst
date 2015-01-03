@@ -14,7 +14,7 @@ the `counterblockd base-dir`. i.e.
     [LoadModule]
     'lib/vendor' = True
     
-To change the default behavior for Counterblockd modules/events, change the corresponding processor config.
+To change the default behavior for ``counterblockd`` modules/events, change the corresponding processor config.
 (Note: function names must be exact.) 
 
 To disable a processor:
@@ -53,7 +53,7 @@ To list loaded modules and processors:
 
 Adding Custom Methods
 -----------------------------------
-For Adding custom methods to built in Counterblockd processors. The general syntax is:
+For Adding custom methods to built in ``counterblockd`` processors. The general syntax is:
 
 .. code-block:: python
     from lib.processor import <processor_name> 
@@ -101,19 +101,27 @@ want to run a process for every new block (but not when counterblockd is catchin
             return
         #Do stuff here
     
-``StartUpProcessor`` runs once on Counterblockd startup. 
+``StartUpProcessor`` runs once on ``counterblockd`` startup. 
 
 .. code-block:: python
     @StartUpProcessor.subscribe()
     def my_db_config(): 
         config.my_db = pymongo.Connection()['my_db'] 
 
-``CaughtUpProcessor`` runs once when Counterblockd catches up to the latest Counterpartyd block. 
+``CaughtUpProcessor`` runs once when ``counterblockd`` catches up to the latest Counterpartyd block. 
 
 .. code-block:: python
     @CaughtUpProcessor.subscribe()
     def caughtUpAlert(): 
-        print('Counterblockd is now caught up to Counterpartyd!') 
+        print('counterblockd is now caught up to Counterpartyd!') 
+
+``RollbackProcessor`` runs whenever the ``counterblockd`` database is rolled back (either due to a blockchain
+reorg, or an explicit rollback command being specified to ``counterblockd`` via the command line). 
+
+.. code-block:: python
+    @RollbackProcessor.subscribe()
+    def rollbackAlert(max_block_index): 
+        print('counterblockd block database rolled back! Anything newer than block index %i removed!' % max_block_index) 
 
 To add a method from a module to the API dispatcher: 
 

@@ -14,6 +14,7 @@ from socketio.namespace import BaseNamespace
 
 from lib import config, util
 
+logger = logging.getLogger(__name__)
 onlineClients = {} #key = walletID, value = datetime when connected
 #^ tracks "online status" via the chat feed
 
@@ -37,7 +38,7 @@ class MessagesFeedServerNamespace(BaseNamespace):
             socks = poller.poll(2500) #wait *up to* 2.5 seconds for events to arrive
             if socks:
                 event = socks[0][0].recv_json() #only one sock we're polling
-                #logging.info("socket.io: Sending message ID %s -- %s:%s" % (
+                #logger.info("socket.io: Sending message ID %s -- %s:%s" % (
                 #    event['_message_index'], event['_category'], event['_command']))
                 self.emit(event['_category'], event)
 
@@ -82,7 +83,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
         """Triggered when the client disconnects (e.g. client closes their browser)"""
         #record the client as offline
         if 'wallet_id' not in self.socket.session:
-            logging.warn("wallet_id not found in socket session: %s" % socket.session)
+            logger.warn("wallet_id not found in socket session: %s" % socket.session)
             return super(ChatFeedServerNamespace, self).disconnect(silent=silent)
         if self.socket.session['wallet_id'] in onlineClients:
             del onlineClients[self.socket.session['wallet_id']]
@@ -343,14 +344,14 @@ def set_up():
     #set event feed for shared access
     config.ZMQ_PUBLISHER_EVENTFEED = zmq_publisher_eventfeed
 
-    logging.info("Starting up socket.io server (block event feed)...")
+    logger.info("Starting up socket.io server (block event feed)...")
     sio_server = socketio_server.SocketIOServer(
         (config.SOCKETIO_HOST, config.SOCKETIO_PORT),
         SocketIOMessagesFeedServer(zmq_context),
         resource="socket.io", policy_server=False)
     sio_server.start() #start the socket.io server greenlets
 
-    logging.info("Starting up socket.io server (chat feed)...")
+    logger.info("Starting up socket.io server (chat feed)...")
     sio_server = socketio_server.SocketIOServer(
         (config.SOCKETIO_CHAT_HOST, config.SOCKETIO_CHAT_PORT),
         SocketIOChatFeedServer(config.mongo_db),

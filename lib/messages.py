@@ -1,8 +1,11 @@
 import json
 import copy
+import logging
 import pymongo
 
 from lib import config, blockchain, database
+
+logger = logging.getLogger(__name__)
 
 def decorate_message(message, for_txn_history=False):
     #insert custom fields in certain events...

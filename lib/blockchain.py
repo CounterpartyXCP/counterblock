@@ -16,6 +16,7 @@ from lib import config, util
 
 D = decimal.Decimal
 decimal.getcontext().prec = 8
+logger = logging.getLogger(__name__)
 
 def round_out(num):
     """round out to 8 decimal places"""

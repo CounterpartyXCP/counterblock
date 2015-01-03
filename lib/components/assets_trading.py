@@ -15,6 +15,7 @@ import pymongo
 from lib import config, database, util, blockchain
 
 D = decimal.Decimal
+logger = logging.getLogger(__name__)
 
 def get_market_price(price_data, vol_data):
     assert len(price_data) == len(vol_data)
@@ -515,20 +516,20 @@ def compile_asset_pair_market_info():
         
     #remove any old pairs that were not just updated
     mongo_db.asset_pair_market_info.remove({'last_updated': {'$lt': end_dt}})
-    logging.info("Recomposed 24h trade statistics for %i asset pairs: %s" % (len(pair_data), ', '.join(pair_data.keys())))
+    logger.info("Recomposed 24h trade statistics for %i asset pairs: %s" % (len(pair_data), ', '.join(pair_data.keys())))
 
 def compile_asset_market_info():
     """Run through all assets and compose and store market ranking information."""
     mongo_db = config.mongo_db
     
     if not config.state['caught_up']:
-        logging.warn("Not updating asset market info as counterblockd is not caught up.")
+        logger.warn("Not updating asset market info as counterblockd is not caught up.")
         return False
     
     #grab the last block # we processed assets data off of
     last_block_assets_compiled = mongo_db.app_config.find_one()['last_block_assets_compiled']
     last_block_time_assets_compiled = database.get_block_time(last_block_assets_compiled)
-    #logging.debug("Comping info for assets traded since block %i" % last_block_assets_compiled)
+    #logger.debug("Comping info for assets traded since block %i" % last_block_assets_compiled)
     current_block_index = config.state['my_latest_block']['block_index'] #store now as it may change as we are compiling asset data :)
     current_block_time = database.get_block_time(current_block_index)
 
@@ -560,7 +561,7 @@ def compile_asset_market_info():
             '24h_vol_price_change_in_{}'.format(config.XCP.lower()): None,
             '24h_vol_price_change_in_{}'.format(config.BTC.lower()): None,
     }}, multi=True)
-    logging.info("Block: %s -- Calculated 24h stats for: %s" % (current_block_index, ', '.join(assets)))
+    logger.info("Block: %s -- Calculated 24h stats for: %s" % (current_block_index, ', '.join(assets)))
     
     #######################
     #get a list of all assets with a trade within the last 7d up against XCP and BTC
@@ -577,7 +578,7 @@ def compile_asset_market_info():
             '7d_history_in_{}'.format(config.XCP.lower()): [],
             '7d_history_in_{}'.format(config.BTC.lower()): [],
     }}, multi=True)
-    logging.info("Block: %s -- Calculated 7d stats for: %s" % (current_block_index, ', '.join(assets)))
+    logger.info("Block: %s -- Calculated 7d stats for: %s" % (current_block_index, ', '.join(assets)))
 
     #######################
     #update summary market data for assets traded since last_block_assets_compiled
@@ -588,7 +589,7 @@ def compile_asset_market_info():
     ))
     #update our storage of the latest market info in mongo
     for asset in assets:
-        logging.info("Block: %s -- Updating asset market info for %s ..." % (current_block_index, asset))
+        logger.info("Block: %s -- Updating asset market info for %s ..." % (current_block_index, asset))
         summary_info = compile_summary_market_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price)
         mongo_db.asset_market_info.update( {'asset': asset}, {"$set": summary_info}, upsert=True)
 
@@ -652,7 +653,7 @@ def compile_asset_market_info():
                             'market_cap': market_cap,
                             'market_cap_as': market_cap_as,
                         })
-                        logging.info("Block %i -- Calculated market cap history point for %s as %s (mID: %s)" % (t['block_index'], asset, market_cap_as, t['message_index']))
+                        logger.info("Block %i -- Calculated market cap history point for %s as %s (mID: %s)" % (t['block_index'], asset, market_cap_as, t['message_index']))
     
     mongo_db.app_config.update({}, {'$set': {'last_block_assets_compiled': current_block_index}})
     return True

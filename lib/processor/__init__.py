@@ -3,6 +3,7 @@ import collections
 
 CORE_FIRST_PRIORITY = 65535 #arbitrary, must be > 1000, as custom plugins utilize the range of <= 1000
 CORE_LAST_PRIORITY = -1 #arbitrary, must be < 0
+logger = logging.getLogger(__name__)
 
 class Dispatcher(collections.MutableMapping):
     """ API Method dispatcher.
@@ -95,13 +96,14 @@ class Processor(Dispatcher):
     def active_functions(self): 
         return sorted((func for func in self.values() if func['enabled']), key=lambda x: x['priority'], reverse=True)
     
-    def run_active_functions(self): 
+    def run_active_functions(self, *args, **kwargs): 
         for func in self.active_functions(): 
-            logging.debug('starting {}'.format(func['name']))
-            func['function']()
+            logger.debug('starting {}'.format(func['name']))
+            func['function'](*args, **kwargs)
             
 MessageProcessor = Processor()
 BlockProcessor = Processor()
 StartUpProcessor= Processor()
 CaughtUpProcessor = Processor()                
+RollbackProcessor = Processor()   
 API = Dispatcher() 

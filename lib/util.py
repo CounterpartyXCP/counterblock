@@ -5,7 +5,6 @@ import base64
 import logging
 import datetime
 import time
-import copy
 import decimal
 import cgi
 import itertools
@@ -25,15 +24,15 @@ from geventhttpclient import HTTPClient
 from geventhttpclient.url import URL
 import lxml.html
 from PIL import Image
-
 from jsonschema import FormatChecker, Draft4Validator, FormatError
-# not needed here but to ensure that installed
-import strict_rfc3339, rfc3987, aniso8601
+import strict_rfc3339, rfc3987, aniso8601 # not needed here but to ensure that installed
 
 from lib import config
 
 JSONRPC_API_REQUEST_TIMEOUT = 50 #in seconds
+
 D = decimal.Decimal
+logger = logging.getLogger(__name__)
 
 def sanitize_eliteness(text):
     #strip out html data to avoid XSS-vectors
@@ -85,7 +84,7 @@ def jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=Fa
             return result
         except Exception, e:
             retry += 1
-            logging.warn(str(e) + " -- Waiting {} seconds before trying again...".format(retry_interval))
+            logger.warn(str(e) + " -- Waiting {} seconds before trying again...".format(retry_interval))
             time.sleep(retry_interval)
             continue
 
@@ -146,6 +145,8 @@ def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5, auth=None,
         if u.scheme == "https": client_kwargs['ssl_options'] = {'cert_reqs': gevent.ssl.CERT_NONE}
         client = HTTPClient.from_url(u, **client_kwargs)
         if post_data is not None:
+            if is_json:
+                headers['content-type'] = 'application/json'
             r = client.post(u.request_uri, body=post_data, headers=headers)
         else:
             r = client.get(u.request_uri, headers=headers)
@@ -266,7 +267,7 @@ fetch_timeout=1, is_json=True, per_request_complete_callback=None):
     urls = list(set(urls)) #remove duplicates (so we only fetch any given URL, once)
     groups = grouper(urls_group_size, urls)
     for i in xrange(len(groups)):
-        #logging.debug("Stream fetching group %i of %i..." % (i, len(groups)))
+        #logger.debug("Stream fetching group %i of %i..." % (i, len(groups)))
         group = groups[i]
         if urls_group_time_spacing and i != 0:
             gevent.spawn_later(urls_group_time_spacing * i, process_group, group)
@@ -312,7 +313,7 @@ def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimens
         os.system("exiftool -q -overwrite_original -all= %s" % imagePath) #strip all metadata, just in case
         return True
     except Exception, e:
-        logging.warn(e)
+        logger.warn(e)
         return False
 
 def date_param(strDate):

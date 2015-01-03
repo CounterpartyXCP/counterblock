@@ -6,18 +6,20 @@ from configobj import ConfigObj
 
 from lib import config
 
+logger = logging.getLogger(__name__)
+
 def load_all():
     """Loads 3rd party plugin modules (note that this does not yet run startup processors, etc)
     """
     def load_module(module_path): 
-        logging.info('Loading Plugin Module %s' % module_path)
+        logger.info('Loading Plugin Module %s' % module_path)
         module_path_only = os.path.join(*module_path.split('/')[:-1])
         module_path_full = os.path.join(os.path.dirname(
             os.path.abspath(os.path.join(__file__, os.pardir))), module_path_only)
         module_name = module_path.split('/')[-1]
         f, fl, dsc = imp.find_module(module_name, [module_path_full,])
         imp.load_module(module_name, f, fl, dsc)
-        logging.debug('Plugin Module Loaded %s' % module_name)
+        logger.debug('Plugin Module Loaded %s' % module_name)
         
     def get_mod_params_dict(params):
         if not isinstance(params, list):
@@ -45,13 +47,13 @@ def load_all():
                     params = get_mod_params_dict(user_settings)
                     if params['enabled'] is True:
                         load_module(module) 
-                except:
-                    logging.warn("Failed to load Module %s" % module)
+                except Exception as e:
+                    logger.warn("Failed to load Module %s. Reason: %s" % (module, e))
         elif 'Processor' in key:
             try:
                 processor_functions = processor.__dict__[key]
             except: 
-                logging.warn("Invalid config header %s in counterblockd_module.conf" % key)
+                logger.warn("Invalid config header %s in counterblockd_module.conf" % key)
                 continue
             #print(processor_functions)
             for func_name, user_settings in container.items(): 
@@ -62,8 +64,8 @@ def load_all():
                     for param_name, param_value in params.items(): 
                         processor_functions[func_name][param_name] = param_value
                 else:
-                    logging.warn("Attempted to configure a non-existent processor %s" %func_name)
-            logging.debug(processor_functions)
+                    logger.warn("Attempted to configure a non-existent processor %s" %func_name)
+            logger.debug(processor_functions)
 
 def toggle(mod, enabled=True):
     try:

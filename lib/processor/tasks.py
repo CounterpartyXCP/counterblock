@@ -16,9 +16,11 @@ from PIL import Image
 from lib import config, util, blockchain
 from lib.components import assets, assets_trading, betting
 
-D = decimal.Decimal
 COMPILE_MARKET_PAIR_INFO_PERIOD = 10 * 60 #in seconds (this is every 10 minutes currently)
 COMPILE_ASSET_MARKET_INFO_PERIOD = 30 * 60 #in seconds (this is every 30 minutes currently)
+
+D = decimal.Decimal
+logger = logging.getLogger(__name__)
 
 def check_blockchain_service():
     try:
@@ -37,7 +39,7 @@ def expire_stale_prefs():
     
     num_stale_records = config.mongo_db.preferences.find({'last_touched': {'$lt': min_last_updated}}).count()
     mongo_db.preferences.remove({'last_touched': {'$lt': min_last_updated}})
-    if num_stale_records: logging.warn("REMOVED %i stale preferences objects" % num_stale_records)
+    if num_stale_records: logger.warn("REMOVED %i stale preferences objects" % num_stale_records)
     
     #call again in 1 day
     gevent.spawn_later(86400, expire_stale_prefs)
@@ -48,7 +50,7 @@ def expire_stale_btc_open_order_records():
     
     num_stale_records = config.mongo_db.btc_open_orders.find({'when_created': {'$lt': min_when_created}}).count()
     mongo_db.btc_open_orders.remove({'when_created': {'$lt': min_when_created}})
-    if num_stale_records: logging.warn("REMOVED %i stale BTC open order objects" % num_stale_records)
+    if num_stale_records: logger.warn("REMOVED %i stale BTC open order objects" % num_stale_records)
     
     #call again in 1 day
     gevent.spawn_later(86400, expire_stale_btc_open_order_records)
@@ -154,15 +156,15 @@ def generate_wallet_stats():
                 del new_entries[updated_entry_ts]
                 assert updated_entry['when'] == latest_stat['when']
                 del updated_entry['when'] #not required for the upsert
-                logging.info("Revised wallet statistics for partial day %s-%s-%s: %s" % (
+                logger.info("Revised wallet statistics for partial day %s-%s-%s: %s" % (
                     latest_stat['when'].year, latest_stat['when'].month, latest_stat['when'].day, updated_entry))
                 mongo_db.wallet_stats.update({'when': latest_stat['when']},
                     {"$set": updated_entry}, upsert=True)
         
         if new_entries: #insert the rest
-            #logging.info("Stats, new entries: %s" % new_entries.values())
+            #logger.info("Stats, new entries: %s" % new_entries.values())
             mongo_db.wallet_stats.insert(new_entries.values())
-            logging.info("Added wallet statistics for %i full days" % len(new_entries.values()))
+            logger.info("Added wallet statistics for %i full days" % len(new_entries.values()))
         
     gen_stats_for_network('mainnet')
     gen_stats_for_network('testnet')

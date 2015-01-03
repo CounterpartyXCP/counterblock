@@ -11,6 +11,7 @@ default_dbhash_file = None
         
 standard_collections = [u'asset_pair_market_info', u'tracked_assets', u'balance_changes', u'transaction_stats', u'trades', u'processed_blocks']
 early_exit_block = 313000
+logger = logging.getLogger(__name__)
 
 if __name__ != '__main__':
     from lib import config
@@ -22,18 +23,18 @@ if __name__ != '__main__':
         config.REPARSE_FORCED = True
         config.state['timer'] = time.time()
         msg = ", Early exit set to %i" %early_exit_block if early_exit_block else ", Early exit is turned Off"
-        logging.info("Started reparse timer%s" %msg)
+        logger.info("Started reparse timer%s" %msg)
 
     @processor.CaughtUpProcessor.subscribe(priority=90, enabled=False)
     def reparse_timer_stop(): 
         msg = "Caught up To Blockchain" if config.state['caught_up'] else "Timer stopped at %i, Counterpartyd is at %i" %(config.state['my_latest_block']['block_index'], config.state['cpd_latest_block']['block_index'])
-        logging.warn("%s, time elapsed %s" %(msg, time.time() - config.state['timer']))
+        logger.warn("%s, time elapsed %s" %(msg, time.time() - config.state['timer']))
 
     @processor.BlockProcessor.subscribe()
     def stop_counterblockd(): 
         if (config.state['my_latest_block']['block_index'] == early_exit_block) or (early_exit_block is None and config.state['caught_up']): 
             if early_exit_block:
-                logging.warn("exitting at %s..." %config.state['my_latest_block']['block_index'])
+                logger.warn("exitting at %s..." %config.state['my_latest_block']['block_index'])
             log_database_hashes() 
             reparse_timer_stop()
             sys.exit(1)
@@ -57,7 +58,7 @@ if __name__ != '__main__':
         if infoErr: raise Exception(infoErr)
         db_info = get_db_info_from_file()
         db_info[head_label] = cur_hash
-        logging.info("storing db hashes to file for Head %s" %head_label)
+        logger.info("storing db hashes to file for Head %s" %head_label)
         with open(os.path.join(config.DATA_DIR, "dbhashes.txt"), 'w') as wfile: 
             json.dump(db_info, wfile)
         
