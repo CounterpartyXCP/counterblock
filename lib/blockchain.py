@@ -70,7 +70,7 @@ def is_multisig(address):
     return (len(array) > 1)
 
 def get_btc_balance(address, confirmed=True):
-    all_unspent, confirmed_unspent = get_unspent_txouts(address, return_confirmed=confirmed)
+    all_unspent, confirmed_unspent = get_unspent_txouts(address, return_confirmed=True)
     unspent = confirmed_unspent if confirmed else all_unspent
     return sum(out['amount'] for out in unspent)
 
