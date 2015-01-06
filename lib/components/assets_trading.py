@@ -12,9 +12,10 @@ import cgi
 import numpy
 import pymongo
 
-from lib import config, util, util_bitcoin
+from lib import config, database, util, blockchain
 
 D = decimal.Decimal
+logger = logging.getLogger(__name__)
 
 def get_market_price(price_data, vol_data):
     assert len(price_data) == len(vol_data)
@@ -107,18 +108,18 @@ def get_asset_info(asset, at_dt=None):
     #modify some of the properties of the returned asset_info for BTC and XCP
     if asset == config.BTC:
         if at_dt:
-            start_block_index, end_block_index = util.get_block_indexes_for_dates(end_dt=at_dt)
-            asset_info['total_issued'] = util_bitcoin.get_btc_supply(normalize=False, at_block_index=end_block_index)
-            asset_info['total_issued_normalized'] = util_bitcoin.normalize_quantity(asset_info['total_issued'])
+            start_block_index, end_block_index = database.get_block_indexes_for_dates(end_dt=at_dt)
+            asset_info['total_issued'] = blockchain.get_btc_supply(normalize=False, at_block_index=end_block_index)
+            asset_info['total_issued_normalized'] = blockchain.normalize_quantity(asset_info['total_issued'])
         else:
-            asset_info['total_issued'] = util_bitcoin.get_btc_supply(normalize=False)
-            asset_info['total_issued_normalized'] = util_bitcoin.normalize_quantity(asset_info['total_issued'])
+            asset_info['total_issued'] = blockchain.get_btc_supply(normalize=False)
+            asset_info['total_issued_normalized'] = blockchain.normalize_quantity(asset_info['total_issued'])
     elif asset == config.XCP:
         #BUG: this does not take end_dt (if specified) into account. however, the deviation won't be too big
         # as XCP doesn't deflate quickly at all, and shouldn't matter that much since there weren't any/much trades
         # before the end of the burn period (which is what is involved with how we use at_dt with currently)
         asset_info['total_issued'] = util.call_jsonrpc_api("get_xcp_supply", abort_on_error=True)['result']
-        asset_info['total_issued_normalized'] = util_bitcoin.normalize_quantity(asset_info['total_issued'])
+        asset_info['total_issued_normalized'] = blockchain.normalize_quantity(asset_info['total_issued'])
     if not asset_info:
         raise Exception("Invalid asset: %s" % asset)
     return asset_info
@@ -391,7 +392,7 @@ def compile_asset_pair_market_info():
     mongo_db = config.mongo_db
     end_dt = datetime.datetime.utcnow()
     start_dt = end_dt - datetime.timedelta(days=1)
-    start_block_index, end_block_index = util.get_block_indexes_for_dates(start_dt=start_dt, end_dt=end_dt)
+    start_block_index, end_block_index = database.get_block_indexes_for_dates(start_dt=start_dt, end_dt=end_dt)
     open_orders = util.call_jsonrpc_api("get_orders",
         { 'filters': [
             {'field': 'give_remaining', 'op': '>', 'value': 0},
@@ -423,8 +424,8 @@ def compile_asset_pair_market_info():
         #^ we also initialize completed_trades_count, vol_base, vol_quote because every pair inited here may
         # not have cooresponding data out of the trades_data_by_pair aggregation below
         pair_data[pair]['open_orders_count'] += 1
-        base_quantity_normalized = util_bitcoin.normalize_quantity(o['give_quantity'] if base_asset == o['give_asset'] else o['get_quantity'], base_asset_info['divisible'])
-        quote_quantity_normalized = util_bitcoin.normalize_quantity(o['give_quantity'] if quote_asset == o['give_asset'] else o['get_quantity'], quote_asset_info['divisible'])
+        base_quantity_normalized = blockchain.normalize_quantity(o['give_quantity'] if base_asset == o['give_asset'] else o['get_quantity'], base_asset_info['divisible'])
+        quote_quantity_normalized = blockchain.normalize_quantity(o['give_quantity'] if quote_asset == o['give_asset'] else o['get_quantity'], quote_asset_info['divisible'])
         order_price = get_price(base_quantity_normalized, quote_quantity_normalized)
         if base_asset == o['give_asset']: #selling base
             if pair_data[pair]['lowest_ask'] is None or order_price < pair_data[pair]['lowest_ask']: 
@@ -470,26 +471,26 @@ def compile_asset_pair_market_info():
         #derive asset price data, expressed in BTC and XCP, for the given volumes
         if base_asset == config.XCP:
             _24h_vol_in_xcp = e['vol_base']
-            _24h_vol_in_btc = util_bitcoin.round_out(e['vol_base'] * xcp_btc_price) if xcp_btc_price else 0
+            _24h_vol_in_btc = blockchain.round_out(e['vol_base'] * xcp_btc_price) if xcp_btc_price else 0
         elif base_asset == config.BTC:
-            _24h_vol_in_xcp = util_bitcoin.round_out(e['vol_base'] * btc_xcp_price) if btc_xcp_price else 0
+            _24h_vol_in_xcp = blockchain.round_out(e['vol_base'] * btc_xcp_price) if btc_xcp_price else 0
             _24h_vol_in_btc = e['vol_base']
         else: #base is not XCP or BTC
             price_summary_in_xcp, price_summary_in_btc, price_in_xcp, price_in_btc, aggregated_price_in_xcp, aggregated_price_in_btc = \
                 get_xcp_btc_price_info(base_asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price, with_last_trades=0, start_dt=start_dt, end_dt=end_dt)
             if price_in_xcp:
-                _24h_vol_in_xcp = util_bitcoin.round_out(e['vol_base'] * price_in_xcp)
+                _24h_vol_in_xcp = blockchain.round_out(e['vol_base'] * price_in_xcp)
             if price_in_btc:
-                _24h_vol_in_btc = util_bitcoin.round_out(e['vol_base'] * price_in_btc)
+                _24h_vol_in_btc = blockchain.round_out(e['vol_base'] * price_in_btc)
             
             if _24h_vol_in_xcp is None or _24h_vol_in_btc is None:
                 #the base asset didn't have price data against BTC or XCP, or both...try against the quote asset instead
                 price_summary_in_xcp, price_summary_in_btc, price_in_xcp, price_in_btc, aggregated_price_in_xcp, aggregated_price_in_btc = \
                     get_xcp_btc_price_info(quote_asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price, with_last_trades=0, start_dt=start_dt, end_dt=end_dt)
                 if _24h_vol_in_xcp is None and price_in_xcp:
-                    _24h_vol_in_xcp = util_bitcoin.round_out(e['vol_quote'] * price_in_xcp)
+                    _24h_vol_in_xcp = blockchain.round_out(e['vol_quote'] * price_in_xcp)
                 if _24h_vol_in_btc is None and price_in_btc:
-                    _24h_vol_in_btc = util_bitcoin.round_out(e['vol_quote'] * price_in_btc)
+                    _24h_vol_in_btc = blockchain.round_out(e['vol_quote'] * price_in_btc)
             pair_data[pair]['24h_vol_in_{}'.format(config.XCP.lower())] = _24h_vol_in_xcp #might still be None
             pair_data[pair]['24h_vol_in_{}'.format(config.BTC.lower())] = _24h_vol_in_btc #might still be None
         
@@ -515,22 +516,22 @@ def compile_asset_pair_market_info():
         
     #remove any old pairs that were not just updated
     mongo_db.asset_pair_market_info.remove({'last_updated': {'$lt': end_dt}})
-    logging.info("Recomposed 24h trade statistics for %i asset pairs: %s" % (len(pair_data), ', '.join(pair_data.keys())))
+    logger.info("Recomposed 24h trade statistics for %i asset pairs: %s" % (len(pair_data), ', '.join(pair_data.keys())))
 
 def compile_asset_market_info():
     """Run through all assets and compose and store market ranking information."""
     mongo_db = config.mongo_db
     
-    if not config.CAUGHT_UP:
-        logging.warn("Not updating asset market info as CAUGHT_UP is false.")
+    if not config.state['caught_up']:
+        logger.warn("Not updating asset market info as counterblockd is not caught up.")
         return False
     
     #grab the last block # we processed assets data off of
     last_block_assets_compiled = mongo_db.app_config.find_one()['last_block_assets_compiled']
-    last_block_time_assets_compiled = util.get_block_time(last_block_assets_compiled)
-    #logging.debug("Comping info for assets traded since block %i" % last_block_assets_compiled)
-    current_block_index = config.CURRENT_BLOCK_INDEX #store now as it may change as we are compiling asset data :)
-    current_block_time = util.get_block_time(current_block_index)
+    last_block_time_assets_compiled = database.get_block_time(last_block_assets_compiled)
+    #logger.debug("Comping info for assets traded since block %i" % last_block_assets_compiled)
+    current_block_index = config.state['my_latest_block']['block_index'] #store now as it may change as we are compiling asset data :)
+    current_block_time = database.get_block_time(current_block_index)
 
     if current_block_index == last_block_assets_compiled:
         #all caught up -- call again in 10 minutes
@@ -560,7 +561,7 @@ def compile_asset_market_info():
             '24h_vol_price_change_in_{}'.format(config.XCP.lower()): None,
             '24h_vol_price_change_in_{}'.format(config.BTC.lower()): None,
     }}, multi=True)
-    logging.info("Block: %s -- Calculated 24h stats for: %s" % (current_block_index, ', '.join(assets)))
+    logger.info("Block: %s -- Calculated 24h stats for: %s" % (current_block_index, ', '.join(assets)))
     
     #######################
     #get a list of all assets with a trade within the last 7d up against XCP and BTC
@@ -577,7 +578,7 @@ def compile_asset_market_info():
             '7d_history_in_{}'.format(config.XCP.lower()): [],
             '7d_history_in_{}'.format(config.BTC.lower()): [],
     }}, multi=True)
-    logging.info("Block: %s -- Calculated 7d stats for: %s" % (current_block_index, ', '.join(assets)))
+    logger.info("Block: %s -- Calculated 7d stats for: %s" % (current_block_index, ', '.join(assets)))
 
     #######################
     #update summary market data for assets traded since last_block_assets_compiled
@@ -588,7 +589,7 @@ def compile_asset_market_info():
     ))
     #update our storage of the latest market info in mongo
     for asset in assets:
-        logging.info("Block: %s -- Updating asset market info for %s ..." % (current_block_index, asset))
+        logger.info("Block: %s -- Updating asset market info for %s ..." % (current_block_index, asset))
         summary_info = compile_summary_market_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price)
         mongo_db.asset_market_info.update( {'asset': asset}, {"$set": summary_info}, upsert=True)
 
@@ -652,7 +653,7 @@ def compile_asset_market_info():
                             'market_cap': market_cap,
                             'market_cap_as': market_cap_as,
                         })
-                        logging.info("Block %i -- Calculated market cap history point for %s as %s (mID: %s)" % (t['block_index'], asset, market_cap_as, t['message_index']))
+                        logger.info("Block %i -- Calculated market cap history point for %s as %s (mID: %s)" % (t['block_index'], asset, market_cap_as, t['message_index']))
     
     mongo_db.app_config.update({}, {'$set': {'last_block_assets_compiled': current_block_index}})
     return True

@@ -11,20 +11,20 @@ import copy
 import uuid
 import urllib
 import functools
-
 from logging import handlers as logging_handlers
+
 from gevent import wsgi
 from geventhttpclient import HTTPClient
 from geventhttpclient.url import URL
 import flask
 import jsonrpc
-from jsonrpc import dispatcher
 import pymongo
 from bson import json_util
 from bson.son import SON
 
-from lib import config, siofeeds, util, blockchain, util_bitcoin
-from lib.components import betting, rps, assets, assets_trading, dex
+from lib import config, database, siofeeds, util, blockchain, blockfeed, messages
+from lib.components import betting, assets, assets_trading, dex
+from . import API
 
 PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
 API_MAX_LOG_SIZE = 10 * 1024 * 1024 #max log size of 20 MB before rotation (make configurable later)
@@ -32,8 +32,9 @@ API_MAX_LOG_COUNT = 10
 
 decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
 D = decimal.Decimal
+logger = logging.getLogger(__name__)
 
-def serve_api(mongo_db, redis_client):
+def serve_api():
     # Preferneces are just JSON objects... since we don't force a specific form to the wallet on
     # the server side, this makes it easier for 3rd party wallets (i.e. not Counterwallet) to fully be able to
     # use counterblockd to not only pull useful data, but also load and store their own preferences, containing
@@ -41,21 +42,22 @@ def serve_api(mongo_db, redis_client):
     
     DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD = 60 #in seconds
     app = flask.Flask(__name__)
+    assert config.mongo_db
+    mongo_db = config.mongo_db
     tx_logger = logging.getLogger("transaction_log") #get transaction logger
 
-    @dispatcher.add_method
+    @API.add_method
     def is_ready():
         """this method used by the client to check if the server is alive, caught up, and ready to accept requests.
         If the server is NOT caught up, a 525 error will be returned actually before hitting this point. Thus,
         if we actually return data from this function, it should always be true. (may change this behaviour later)"""
 
-        blockchainInfo = blockchain.getinfo()
         ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
         country = config.GEOIP.country_code_by_addr(ip)
         return {
-            'caught_up': util.is_caught_up_well_enough_for_government_work(),
-            'last_message_index': config.LAST_MESSAGE_INDEX,
-            'block_height': blockchainInfo['info']['blocks'],
+            'caught_up': blockfeed.fuzzy_is_caught_up(),
+            'last_message_index': config.state['last_message_index'],
+            'block_height': config.state['cpd_backend_block_height'],
             'testnet': config.TESTNET,
             'ip': ip,
             'country': country,
@@ -63,7 +65,7 @@ def serve_api(mongo_db, redis_client):
             'quick_buy_enable': True if config.VENDING_MACHINE_PROVIDER is not None else False
         }
 
-    @dispatcher.add_method
+    @API.add_method
     def get_reflected_host_info():
         """Allows the requesting host to get some info about itself, such as its IP. Used for troubleshooting."""
         ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
@@ -74,29 +76,30 @@ def serve_api(mongo_db, redis_client):
             'country': country
         }
     
-    @dispatcher.add_method
+    @API.add_method
     def get_messagefeed_messages_by_index(message_indexes):
         messages = util.call_jsonrpc_api("get_messages_by_index", {'message_indexes': message_indexes}, abort_on_error=True)['result']
         events = []
         for m in messages:
-            events.append(util.decorate_message_for_feed(m))
+            events.append(messages.decorate_message_for_feed(m))
         return events
 
-    @dispatcher.add_method
+    @API.add_method
     def get_chain_block_height():
-        #DEPRECATED 1.5
-        data = blockchain.getinfo()
-        return data['info']['blocks']
-
-    @dispatcher.add_method
-    def get_chain_address_info(addresses, with_uxtos=True, with_last_txn_hashes=4, with_block_height=False):
+        #DEPRECIATED 1.5
+        return config.state['cpd_backend_block_height']
+        
+    @API.add_method
+    def get_insight_block_info(block_hash):
+        info = blockchain.getBlockInfo(block_hash) #('/api/block/' + block_hash + '/', abort_on_error=True)
+        return info
+        
+    @API.add_method
+    def get_chain_address_info(addresses, with_uxtos=True, with_last_txn_hashes=4):
         if not isinstance(addresses, list):
             raise Exception("addresses must be a list of addresses, even if it just contains one address")
         results = []
 
-        if with_block_height:
-            block_height_response = blockchain.getinfo()
-            block_height = block_height_response['info']['blocks'] if block_height_response else None
         for address in addresses:
             info = blockchain.getaddressinfo(address)
             txns = info['transactions']
@@ -104,17 +107,17 @@ def serve_api(mongo_db, redis_client):
             result = {}
             result['addr'] = address
             result['info'] = info
-            if with_block_height: result['block_height'] = block_height
+            result['block_height'] = config.state['cpd_backend_block_height']
             #^ yeah, hacky...it will be the same block height for each address (we do this to avoid an extra API call to get_block_height)
             if with_uxtos:
-                result['uxtos'] = blockchain.listunspent(address)
+              result['uxtos'] = blockchain.listunspent(address)
             if with_last_txn_hashes:
-                result['last_txns'] = txns
+              result['last_txns'] = txns
             results.append(result)
 
         return results
 
-    @dispatcher.add_method
+    @API.add_method
     def get_chain_txns_status(txn_hashes):
         if not isinstance(txn_hashes, list):
             raise Exception("txn_hashes must be a list of txn hashes, even if it just contains one hash")
@@ -131,7 +134,7 @@ def serve_api(mongo_db, redis_client):
                 })
         return results
 
-    @dispatcher.add_method
+    @API.add_method
     def get_normalized_balances(addresses):
         """
         This call augments counterpartyd's get_balances with a normalized_quantity field. It also will include any owned
@@ -161,7 +164,7 @@ def serve_api(mongo_db, redis_client):
             if not d['quantity'] and ((d['address'] + d['asset']) not in isowner):
                 continue #don't include balances with a zero asset value
             asset_info = mongo_db.tracked_assets.find_one({'asset': d['asset']})
-            d['normalized_quantity'] = util_bitcoin.normalize_quantity(d['quantity'], asset_info['divisible'])
+            d['normalized_quantity'] = blockchain.normalize_quantity(d['quantity'], asset_info['divisible'])
             d['owner'] = (d['address'] + d['asset']) in isowner
             mappings[d['address'] + d['asset']] = d
             data.append(d)
@@ -180,7 +183,7 @@ def serve_api(mongo_db, redis_client):
 
         return data
 
-    @dispatcher.add_method
+    @API.add_method
     def get_escrowed_balances(addresses):
         return assets.get_escrowed_balances(addresses)
 
@@ -301,14 +304,6 @@ def serve_api(mongo_db, redis_client):
               'end_block': end_block,
             }, abort_on_error=True)['result']
     
-        address_dict['callbacks'] = util.call_jsonrpc_api("get_callbacks",
-            { 'filters': [{'field': 'source', 'op': '==', 'value': address},],
-              'order_by': 'block_index',
-              'order_dir': 'asc',
-              'start_block': start_block,
-              'end_block': end_block,
-            }, abort_on_error=True)['result']
-    
         address_dict['bet_expirations'] = util.call_jsonrpc_api("get_bet_expirations",
             { 'filters': [{'field': 'source', 'op': '==', 'value': address},],
               'order_by': 'block_index',
@@ -345,18 +340,18 @@ def serve_api(mongo_db, redis_client):
     
         return address_dict
 
-    @dispatcher.add_method
+    @API.add_method
     def get_last_n_messages(count=100):
         if count > 1000:
             raise Exception("The count is too damn high")
-        message_indexes = range(max(config.LAST_MESSAGE_INDEX - count, 0) + 1, config.LAST_MESSAGE_INDEX+1)
+        message_indexes = range(max(config.state['last_message_index'] - count, 0) + 1, config.state['last_message_index'] + 1)
         messages = util.call_jsonrpc_api("get_messages_by_index",
             { 'message_indexes': message_indexes }, abort_on_error=True)['result']
         for i in xrange(len(messages)):
-            messages[i] = util.decorate_message_for_feed(messages[i])
+            messages[i] = messages.decorate_message_for_feed(messages[i])
         return messages
 
-    @dispatcher.add_method
+    @API.add_method
     def get_raw_transactions(address, start_ts=None, end_ts=None, limit=500):
         """Gets raw transactions for a particular address
         
@@ -380,7 +375,7 @@ def serve_api(mongo_db, redis_client):
             end_ts = now_ts
         if not start_ts: #default to 60 days before the end date
             start_ts = end_ts - (60 * 24 * 60 * 60)
-        start_block_index, end_block_index = util.get_block_indexes_for_dates(
+        start_block_index, end_block_index = database.get_block_indexes_for_dates(
             start_dt=datetime.datetime.utcfromtimestamp(start_ts),
             end_dt=datetime.datetime.utcfromtimestamp(end_ts) if now_ts != end_ts else None)
         
@@ -393,7 +388,7 @@ def serve_api(mongo_db, redis_client):
                 continue
             for e in entries:
                 e['_category'] = category
-                e = util.decorate_message(e, for_txn_history=True) #DRY
+                e = messages.decorate_message(e, for_txn_history=True) #DRY
             txns += entries
         txns = util.multikeysort(txns, ['-_block_time', '-_tx_index'])
         txns = txns[0:limit] #TODO: we can trunk before sorting. check if we can use the messages table and use sql order and limit
@@ -401,7 +396,7 @@ def serve_api(mongo_db, redis_client):
         #txns.sort(key=operator.itemgetter('block_index'))
         return txns 
 
-    @dispatcher.add_method
+    @API.add_method
     def get_base_quote_asset(asset1, asset2):
         """Given two arbitrary assets, returns the base asset and the quote asset.
         """
@@ -420,14 +415,14 @@ def serve_api(mongo_db, redis_client):
             'pair_name': pair_name
         }
 
-    @dispatcher.add_method
+    @API.add_method
     def get_market_price_summary(asset1, asset2, with_last_trades=0):
         #DEPRECATED 1.5
         result = assets_trading.get_market_price_summary(asset1, asset2, with_last_trades)
         return result if result is not None else False
         #^ due to current bug in our jsonrpc stack, just return False if None is returned
 
-    @dispatcher.add_method
+    @API.add_method
     def get_market_cap_history(start_ts=None, end_ts=None):
         now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not end_ts: #default to current datetime
@@ -476,7 +471,7 @@ def serve_api(mongo_db, redis_client):
                     'data': sorted(data[market_cap_as][asset], key=operator.itemgetter(0))})
         return results 
 
-    @dispatcher.add_method
+    @API.add_method
     def get_market_info(assets):
         assets_market_info = list(mongo_db.asset_market_info.find({'asset': {'$in': assets}}, {'_id': 0}))
         extended_asset_info = mongo_db.asset_extended_info.find({'asset': {'$in': assets}})
@@ -495,7 +490,7 @@ def serve_api(mongo_db, redis_client):
                 a['extended_image'] = a['extended_description'] = a['extended_website'] = a['extended_pgpsig'] = ''
         return assets_market_info
 
-    @dispatcher.add_method
+    @API.add_method
     def get_market_info_leaderboard(limit=100):
         """returns market leaderboard data for both the XCP and BTC markets"""
         #do two queries because we limit by our sorted results, and we might miss an asset with a high BTC trading value
@@ -526,7 +521,7 @@ def serve_api(mongo_db, redis_client):
                     a['extended_image'] = a['extended_description'] = a['extended_website'] = ''
         return assets_market_info
 
-    @dispatcher.add_method
+    @API.add_method
     def get_market_price_history(asset1, asset2, start_ts=None, end_ts=None, as_dict=False):
         """Return block-by-block aggregated market history data for the specified asset pair, within the specified date range.
         @returns List of lists (or list of dicts, if as_dict is specified).
@@ -597,7 +592,7 @@ def serve_api(mongo_db, redis_client):
                 ])
             return list_result
     
-    @dispatcher.add_method
+    @API.add_method
     def get_trade_history(asset1=None, asset2=None, start_ts=None, end_ts=None, limit=50):
         """
         Gets last N of trades within a specific date range (normally, for a specified asset pair, but this can
@@ -729,18 +724,18 @@ def serve_api(mongo_db, redis_client):
                     if base_asset == config.BTC and o['give_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF:
                         continue #filter dust orders, if necessary
                     
-                    give_quantity = util_bitcoin.normalize_quantity(o['give_quantity'], base_asset_info['divisible'])
-                    get_quantity = util_bitcoin.normalize_quantity(o['get_quantity'], quote_asset_info['divisible'])
+                    give_quantity = blockchain.normalize_quantity(o['give_quantity'], base_asset_info['divisible'])
+                    get_quantity = blockchain.normalize_quantity(o['get_quantity'], quote_asset_info['divisible'])
                     unit_price = float(( D(get_quantity) / D(give_quantity) ))
-                    remaining = util_bitcoin.normalize_quantity(o['give_remaining'], base_asset_info['divisible'])
+                    remaining = blockchain.normalize_quantity(o['give_remaining'], base_asset_info['divisible'])
                 else:
                     if quote_asset == config.BTC and o['give_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF:
                         continue #filter dust orders, if necessary
 
-                    give_quantity = util_bitcoin.normalize_quantity(o['give_quantity'], quote_asset_info['divisible'])
-                    get_quantity = util_bitcoin.normalize_quantity(o['get_quantity'], base_asset_info['divisible'])
+                    give_quantity = blockchain.normalize_quantity(o['give_quantity'], quote_asset_info['divisible'])
+                    get_quantity = blockchain.normalize_quantity(o['get_quantity'], base_asset_info['divisible'])
                     unit_price = float(( D(give_quantity) / D(get_quantity) ))
-                    remaining = util_bitcoin.normalize_quantity(o['get_remaining'], base_asset_info['divisible'])
+                    remaining = blockchain.normalize_quantity(o['get_remaining'], base_asset_info['divisible'])
                 id = "%s_%s_%s" % (base_asset, quote_asset, unit_price)
                 #^ key = {base}_{bid}_{unit_price}, values ref entries in book
                 book.setdefault(id, {'unit_price': unit_price, 'quantity': 0, 'count': 0})
@@ -806,7 +801,7 @@ def serve_api(mongo_db, redis_client):
         }
         return result
     
-    @dispatcher.add_method
+    @API.add_method
     def get_order_book_simple(asset1, asset2, min_pct_fee_provided=None, max_pct_fee_required=None):
         #DEPRECATED 1.5
         base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
@@ -817,7 +812,7 @@ def serve_api(mongo_db, redis_client):
             ask_book_max_pct_fee_required=max_pct_fee_required)
         return result
 
-    @dispatcher.add_method
+    @API.add_method
         #DEPRECATED 1.5
     def get_order_book_buysell(buy_asset, sell_asset, pct_fee_provided=None, pct_fee_required=None):
         base_asset, quote_asset = util.assets_to_asset_pair(buy_asset, sell_asset)
@@ -871,7 +866,7 @@ def serve_api(mongo_db, redis_client):
         result['raw_orders'] = open_sell_orders
         return result
     
-    @dispatcher.add_method
+    @API.add_method
     def get_transaction_stats(start_ts=None, end_ts=None):
         now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not end_ts: #default to current datetime
@@ -922,7 +917,7 @@ def serve_api(mongo_db, redis_client):
             categories_list.append({'name': k, 'data': v})
         return categories_list
     
-    @dispatcher.add_method
+    @API.add_method
     def get_wallet_stats(start_ts=None, end_ts=None):
         now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not end_ts: #default to current datetime
@@ -966,7 +961,7 @@ def serve_api(mongo_db, redis_client):
             'num_wallets_unknown': num_wallets_unknown,
             'wallet_stats': wallet_stats}
     
-    @dispatcher.add_method
+    @API.add_method
     def get_owned_assets(addresses):
         """Gets a list of owned assets for one or more addresses"""
         result = mongo_db.tracked_assets.find({
@@ -974,7 +969,7 @@ def serve_api(mongo_db, redis_client):
         }, {"_id":0}).sort("asset", pymongo.ASCENDING)
         return list(result)
     
-    @dispatcher.add_method
+    @API.add_method
     def get_asset_pair_market_info(asset1=None, asset2=None, limit=50):
         """Given two arbitrary assets, returns the base asset and the quote asset.
         """
@@ -988,12 +983,12 @@ def serve_api(mongo_db, redis_client):
             #^ sort by this for now, may want to sort by a market_cap value in the future
         return list(pair_info) or []
 
-    @dispatcher.add_method
+    @API.add_method
     def get_asset_extended_info(asset):
         ext_info = mongo_db.asset_extended_info.find_one({'asset': asset}, {'_id': 0})
         return ext_info or False
     
-    @dispatcher.add_method
+    @API.add_method
     def get_asset_history(asset, reverse=False):
         """
         Returns a list of changes for the specified asset, from its inception to the current time.
@@ -1086,30 +1081,11 @@ def serve_api(mongo_db, redis_client):
                 })
             prev = raw[i]
         
-        #get callbacks externally via the cpd API, and merge in with the asset history we composed
-        callbacks = util.call_jsonrpc_api("get_callbacks",
-            {'filters': {'field': 'asset', 'op': '==', 'value': asset['asset']}}, abort_on_error=True)['result']
-        final_history = []
-        if len(callbacks):
-            for e in history: #history goes from earliest to latest
-                if callbacks[0]['block_index'] < e['at_block']: #throw the callback entry in before this one
-                    block_time = util.get_block_time(callbacks[0]['block_index'])
-                    assert block_time
-                    final_history.append({
-                        'type': 'called_back',
-                        'at_block': callbacks[0]['block_index'],
-                        'at_block_time': time.mktime(block_time.timetuple()) * 1000,
-                        'percentage': callbacks[0]['fraction'] * 100,
-                    })
-                    callbacks.pop(0)
-                else:
-                    final_history.append(e)
-        else:
-            final_history = history
+        final_history = history
         if reverse: final_history.reverse()
         return final_history
 
-    @dispatcher.add_method
+    @API.add_method
     def record_btc_open_order(wallet_id, order_tx_hash):
         """Records an association between a wallet ID and order TX ID for a trade where BTC is being SOLD, to allow
         buyers to see which sellers of the BTC are "online" (which can lead to a better result as a BTCpay will be required
@@ -1125,14 +1101,14 @@ def serve_api(mongo_db, redis_client):
         })
         return True
 
-    @dispatcher.add_method
+    @API.add_method
     def cancel_btc_open_order(wallet_id, order_tx_hash):
         #DEPRECATED 1.5
         mongo_db.btc_open_orders.remove({'order_tx_hash': order_tx_hash, 'wallet_id': wallet_id})
         #^ wallet_id is used more for security here so random folks can't remove orders from this collection just by tx hash
         return True
     
-    @dispatcher.add_method
+    @API.add_method
     def get_balance_history(asset, addresses, normalize=True, start_ts=None, end_ts=None):
         """Retrieves the ordered balance history for a given address (or list of addresses) and asset pair, within the specified date range
         @param normalize: If set to True, return quantities that (if the asset is divisible) have been divided by 100M (satoshi). 
@@ -1173,18 +1149,18 @@ def serve_api(mongo_db, redis_client):
             results.append(entry)
         return results
 
-    @dispatcher.add_method
+    @API.add_method
     def get_num_users_online():
         #gets the current number of users attached to the server's chat feed
         return len(siofeeds.onlineClients) 
 
-    @dispatcher.add_method
+    @API.add_method
     def is_chat_handle_in_use(handle):
         #DEPRECATED 1.5
         results = mongo_db.chat_handles.find({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
         return True if results.count() else False 
 
-    @dispatcher.add_method
+    @API.add_method
     def get_chat_handle(wallet_id):
         result = mongo_db.chat_handles.find_one({"wallet_id": wallet_id})
         if not result: return False #doesn't exist
@@ -1202,7 +1178,7 @@ def serve_api(mongo_db, redis_client):
             data['banned_until'] = banned_until #-1 or None
         return data
 
-    @dispatcher.add_method
+    @API.add_method
     def store_chat_handle(wallet_id, handle):
         """Set or update a chat handle"""
         if not isinstance(handle, basestring):
@@ -1230,7 +1206,7 @@ def serve_api(mongo_db, redis_client):
         #^ last_updated MUST be in UTC, as it will be compaired again other servers
         return True
 
-    @dispatcher.add_method
+    @API.add_method
     def get_chat_history(start_ts=None, end_ts=None, handle=None, limit=1000):
         #DEPRECATED 1.5
         now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
@@ -1259,11 +1235,11 @@ def serve_api(mongo_db, redis_client):
         chat_history = list(chat_history)
         return chat_history 
 
-    @dispatcher.add_method
+    @API.add_method
     def is_wallet_online(wallet_id):
         return wallet_id in siofeeds.onlineClients
 
-    @dispatcher.add_method
+    @API.add_method
     def get_preferences(wallet_id, for_login=False, network=None):
         """Gets stored wallet preferences
         @param network: only required if for_login is specified. One of: 'mainnet' or 'testnet'
@@ -1293,7 +1269,7 @@ def serve_api(mongo_db, redis_client):
         } 
 
 
-    @dispatcher.add_method
+    @API.add_method
     def store_preferences(wallet_id, preferences, for_login=False, network=None, referer=None):
         """Stores freeform wallet preferences
         @param network: only required if for_login is specified. One of: 'mainnet' or 'testnet'
@@ -1338,17 +1314,18 @@ def serve_api(mongo_db, redis_client):
         #^ last_updated MUST be in GMT, as it will be compaired again other servers
         return True
     
-    @dispatcher.add_method
+    @API.add_method
     def proxy_to_counterpartyd(method='', params=[]):
         if method=='sql': raise Exception("Invalid method") 
         result = None
         cache_key = None
 
-        if redis_client: #check for a precached result and send that back instead
+        if config.REDIS_ENABLE_APICACHE: #check for a precached result and send that back instead
+            assert config.REDIS_CLIENT
             cache_key = method + '||' + base64.b64encode(json.dumps(params).encode()).decode()
             #^ must use encoding (e.g. base64) since redis doesn't allow spaces in its key names
             # (also shortens the hashing key for better performance)
-            result = redis_client.get(cache_key)
+            result = config.REDIS_CLIENT.get(cache_key)
             if result:
                 try:
                     result = json.loads(result)
@@ -1358,8 +1335,9 @@ def serve_api(mongo_db, redis_client):
         
         if result is None: #cache miss or cache disabled
             result = util.call_jsonrpc_api(method, params)
-            if redis_client: #cache miss
-                redis_client.setex(cache_key, DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD, json.dumps(result))
+            if config.REDIS_ENABLE_APICACHE: #cache miss
+                assert config.REDIS_CLIENT
+                config.REDIS_CLIENT.setex(cache_key, DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD, json.dumps(result))
                 #^TODO: we may want to have different cache periods for different types of data
         
         if 'error' in result:
@@ -1372,60 +1350,57 @@ def serve_api(mongo_db, redis_client):
             # which messes up w/ unicode under python 2.x)
         return result['result']
 
-    @dispatcher.add_method
+    @API.add_method
     def get_bets(bet_type, feed_address, deadline, target_value=None, leverage=5040):
         bets = betting.find_bets(bet_type, feed_address, deadline, target_value=target_value, leverage=leverage)
         return bets
 
-    @dispatcher.add_method
+    @API.add_method
     def get_user_bets(addresses = [], status="open"):
         bets = betting.find_user_bets(mongo_db, addresses, status)
         return bets
 
-    @dispatcher.add_method
+    @API.add_method
     def get_feed(address_or_url = ''):
         feed = betting.find_feed(mongo_db, address_or_url)
         return feed
 
-    @dispatcher.add_method
+    @API.add_method
     def get_feeds_by_source(addresses = []):
         feed = betting.get_feeds_by_source(mongo_db, addresses)
         return feed
+    
+    @API.add_method
+    def get_feeds_all(): 
+        feeds= betting.fetch_all_feed_info(mongo_db)
+        return feeds
 
-    @dispatcher.add_method
+    @API.add_method
     def parse_base64_feed(base64_feed):
         feed = betting.parse_base64_feed(base64_feed)
         return feed
 
-    @dispatcher.add_method
-    def get_open_rps_count(possible_moves = 3, exclude_addresses = []):
-        return rps.get_open_rps_count(possible_moves, exclude_addresses)
-
-    @dispatcher.add_method
-    def get_user_rps(addresses):
-        return rps.get_user_rps(addresses)
-
-    @dispatcher.add_method
+    @API.add_method
     def get_users_pairs(addresses=[], max_pairs=12):
         return dex.get_users_pairs(addresses, max_pairs, quote_assets=['XCP', 'XBTC'])
 
-    @dispatcher.add_method
+    @API.add_method
     def get_market_orders(asset1, asset2, addresses=[], min_fee_provided=0.95, max_fee_required=0.95):
         return dex.get_market_orders(asset1, asset2, addresses, None, min_fee_provided, max_fee_required)
 
-    @dispatcher.add_method
+    @API.add_method
     def get_market_trades(asset1, asset2, addresses=[], limit=50):
         return dex.get_market_trades(asset1, asset2, addresses, limit)
 
-    @dispatcher.add_method
+    @API.add_method
     def get_markets_list(quote_asset = None, order_by=None):
         return dex.get_markets_list(mongo_db, quote_asset=quote_asset, order_by=order_by)
 
-    @dispatcher.add_method
+    @API.add_method
     def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95):
         return dex.get_market_details(asset1, asset2, min_fee_provided, max_fee_required, mongo_db)
 
-    @dispatcher.add_method
+    @API.add_method
     def get_vennd_machine():
         # https://gist.github.com/JahPowerBit/655bee2b35d9997ac0af
         if config.VENDING_MACHINE_PROVIDER is not None:
@@ -1433,12 +1408,12 @@ def serve_api(mongo_db, redis_client):
         else:
             return []
     
-    @dispatcher.add_method
+    @API.add_method
     def get_pubkey_for_address(address):
         #returns None if the address has made 0 transactions (as we wouldn't be able to get the public key)
         return blockchain.get_pubkey_for_address(address) or False 
 
-    @dispatcher.add_method
+    @API.add_method
     def create_armory_utx(unsigned_tx_hex, public_key_hex):
         if not config.ARMORY_UTXSVR_ENABLE:
             raise Exception("Support for this feature is not enabled on this system")
@@ -1449,7 +1424,7 @@ def serve_api(mongo_db, redis_client):
         utx_ascii = util.call_jsonrpc_api("serialize_unsigned_tx", params=params, endpoint=endpoint, abort_on_error=True)['result']
         return utx_ascii
     
-    @dispatcher.add_method
+    @API.add_method
     def convert_armory_signedtx_to_raw_hex(signed_tx_ascii):
         if not config.ARMORY_UTXSVR_ENABLE:
             raise Exception("Support for this feature is not enabled on this system")
@@ -1460,7 +1435,7 @@ def serve_api(mongo_db, redis_client):
         raw_tx_hex = util.call_jsonrpc_api("convert_signed_tx_to_raw_hex", params=params, endpoint=endpoint, abort_on_error=True)['result']
         return raw_tx_hex
 
-    @dispatcher.add_method
+    @API.add_method
     def create_support_case(name, from_email, problem, screenshot=None, addtl_info=''):
         """create an email with the information received
         @param screenshot: The base64 text of the screenshot itself, prefixed with data=image/png ...,
@@ -1512,12 +1487,16 @@ def serve_api(mongo_db, redis_client):
         server.sendmail(from_email, config.SUPPORT_EMAIL, msg.as_string())
         return True
 
-    @dispatcher.add_method
+    @API.add_method
     def get_script_pub_key(tx_hash, vout_index):
         tx = blockchain.gettransaction(tx_hash)
         if 'vout' in tx and len(tx['vout']) > vout_index:
           return tx['vout'][vout_index]
         return None
+
+    @API.add_method
+    def get_assets_info(assetsList):
+        return assets.get_assets_info(mongo_db, assetsList)
 
     def _set_cors_headers(response):
         if config.RPC_ALLOW_CORS:
@@ -1608,7 +1587,7 @@ def serve_api(mongo_db, redis_client):
     @app.route('/api/', methods=["POST",])
     def handle_post():
         #don't do anything if we're not caught up
-        if not util.is_caught_up_well_enough_for_government_work():
+        if not blockfeed.fuzzy_is_caught_up():
             obj_error = jsonrpc.exceptions.JSONRPCServerError(data="Server is not caught up. Please try again later.")
             response = flask.Response(obj_error.json.encode(), 525, mimetype='application/json')
             #^ 525 is a custom response code we use for this one purpose
@@ -1634,7 +1613,7 @@ def serve_api(mongo_db, redis_client):
             _set_cors_headers(response)
             return response
         
-        rpc_response = jsonrpc.JSONRPCResponseManager.handle(request_json, dispatcher)
+        rpc_response = jsonrpc.JSONRPCResponseManager.handle(request_json, API)
         rpc_response_json = json.dumps(rpc_response.data, default=util.json_dthandler).encode()
         
         #log the request data
@@ -1642,7 +1621,7 @@ def serve_api(mongo_db, redis_client):
             assert 'method' in request_data
             tx_logger.info("TRANSACTION --- %s ||| REQUEST: %s ||| RESPONSE: %s" % (request_data['method'], request_json, rpc_response_json))
         except Exception, e:
-            logging.info("Could not log transaction: Invalid format: %s" % e)
+            logger.info("Could not log transaction: Invalid format: %s" % e)
             
         response = flask.Response(rpc_response_json, 200, mimetype='application/json')
         _set_cors_headers(response)
@@ -1650,7 +1629,9 @@ def serve_api(mongo_db, redis_client):
     
     #make a new RotatingFileHandler for the access log.
     api_logger = logging.getLogger("api_log")
-    h = logging_handlers.RotatingFileHandler(os.path.join(config.DATA_DIR, "api.access.log"), 'a', API_MAX_LOG_SIZE, API_MAX_LOG_COUNT)
+    h = logging_handlers.RotatingFileHandler(
+        os.path.join(config.DATA_DIR, "api.access.log"),
+        'a', API_MAX_LOG_SIZE, API_MAX_LOG_COUNT)
     api_logger.setLevel(logging.INFO)
     api_logger.addHandler(h)
     api_logger.propagate = False

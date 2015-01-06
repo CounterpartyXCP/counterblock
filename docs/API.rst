@@ -103,8 +103,8 @@ Asset Functions
   Retrieves the ordered balance history for a given address (or list of addresses) and asset pair, within the specified date range
 
   :param normalize: If set to True, return quantities that (if the asset is divisible) have been divided by 100M (satoshi).
-            :return: A list of tuples, with the first entry of each tuple being the block time (epoch TS), and the second being the new balance at that block time.
-            :rtype: [(<block time>, <balance>)]
+  :return: A list of tuples, with the first entry of each tuple being the block time (epoch TS), and the second being the new balance at that block time.
+  :rtype: [(<block time>, <balance>)]
 
 .. function:: get_base_quote_asset(asset1, asset2)
 
@@ -413,20 +413,6 @@ Betting Functions
       'target_value'
       }]
 
-RPS Betting Functions
-^^^^^^^^^^^^^^^^^^^^^
-
-.. function:: get_open_rps_count(possible_moves=3, exclude_addresses=[])
-
-  Get the open RPS bets matching the given parameters, except those from `exclude_addresses`
-
-  :rtype: [<total wager>, <game count>]
-
-.. function:: get_user_rps(addresses):
-
-  :rtype: [{'tx_hash', 'block_index', 'move', 'status', 'expiration', 'address', 'possible_moves', 'wager', 'counter_move'}]
-
-
 Debugging/Server Functions
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -474,14 +460,13 @@ Debugging/Server Functions
 Blockchain Functions
 ^^^^^^^^^^^^^^^^^^^^
 
-.. function:: get_chain_address_info(addresses, with_uxtos=True, with_last_txn_hashes=4, with_block_height=False)
+.. function:: get_chain_address_info(addresses, with_uxtos=True, with_last_txn_hashes=4)
 
   Get info for one or more addresses
 
   :parameter list addresses: Address to query
   :parameter boolean with_uxtos: Include Unspent
   :parameter int with_last_txn_hashes: Include n recent confirmed transactions
-  :param boolean with_block_height: Include block height
   :return: Address info
   :rtype: [{'addr', 'info',('uxto'),('last_txns'),('block_height')}]
 

@@ -14,6 +14,7 @@ from socketio.namespace import BaseNamespace
 
 from lib import config, util
 
+logger = logging.getLogger(__name__)
 onlineClients = {} #key = walletID, value = datetime when connected
 #^ tracks "online status" via the chat feed
 
@@ -37,7 +38,7 @@ class MessagesFeedServerNamespace(BaseNamespace):
             socks = poller.poll(2500) #wait *up to* 2.5 seconds for events to arrive
             if socks:
                 event = socks[0][0].recv_json() #only one sock we're polling
-                #logging.info("socket.io: Sending message ID %s -- %s:%s" % (
+                #logger.info("socket.io: Sending message ID %s -- %s:%s" % (
                 #    event['_message_index'], event['_category'], event['_command']))
                 self.emit(event['_category'], event)
 
@@ -82,7 +83,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
         """Triggered when the client disconnects (e.g. client closes their browser)"""
         #record the client as offline
         if 'wallet_id' not in self.socket.session:
-            logging.warn("wallet_id not found in socket session: %s" % socket.session)
+            logger.warn("wallet_id not found in socket session: %s" % socket.session)
             return super(ChatFeedServerNamespace, self).disconnect(silent=silent)
         if self.socket.session['wallet_id'] in onlineClients:
             del onlineClients[self.socket.session['wallet_id']]
@@ -331,3 +332,28 @@ class SocketIOChatFeedServer(object):
             start_response('401 UNAUTHORIZED', [])
             return ''
         socketio_manage(environ, {'': ChatFeedServerNamespace}, self.request)
+
+
+def set_up():
+    #set up zeromq publisher for sending out received events to connected socket.io clients
+    import zmq.green as zmq
+    from socketio import server as socketio_server
+    zmq_context = zmq.Context()
+    zmq_publisher_eventfeed = zmq_context.socket(zmq.PUB)
+    zmq_publisher_eventfeed.bind('inproc://queue_eventfeed')
+    #set event feed for shared access
+    config.ZMQ_PUBLISHER_EVENTFEED = zmq_publisher_eventfeed
+
+    logger.info("Starting up socket.io server (block event feed)...")
+    sio_server = socketio_server.SocketIOServer(
+        (config.SOCKETIO_HOST, config.SOCKETIO_PORT),
+        SocketIOMessagesFeedServer(zmq_context),
+        resource="socket.io", policy_server=False)
+    sio_server.start() #start the socket.io server greenlets
+
+    logger.info("Starting up socket.io server (chat feed)...")
+    sio_server = socketio_server.SocketIOServer(
+        (config.SOCKETIO_CHAT_HOST, config.SOCKETIO_CHAT_PORT),
+        SocketIOChatFeedServer(config.mongo_db),
+        resource="socket.io", policy_server=False)
+    sio_server.start() #start the socket.io server greenlets

@@ -8,6 +8,7 @@ from lib import config, util
 
 FEED_MAX_RETRY = 3
 D = decimal.Decimal
+logger = logging.getLogger(__name__)
 
 def parse_broadcast(db, message):
     save = False
@@ -110,27 +111,27 @@ def fetch_all_feed_info(db):
     feed_info_urls = []
 
     def feed_fetch_complete_hook(urls_data):
-        logging.info("Enhanced feed info fetching complete. %s unique URLs fetched. Processing..." % len(urls_data))
+        logger.info("Enhanced feed info fetching complete. %s unique URLs fetched. Processing..." % len(urls_data))
         feeds = db.feeds.find({'info_status': 'needfetch'})
         for feed in feeds:
-            #logging.debug("Looking at feed %s: %s" % (feed, feed['info_url']))
+            #logger.debug("Looking at feed %s: %s" % (feed, feed['info_url']))
             if feed['info_url']:
                 info_url = ('http://' + feed['info_url']) \
                     if not feed['info_url'].startswith('http://') and not feed['info_url'].startswith('https://') else feed['info_url']
                 if info_url not in urls_data:
-                    logging.warn("URL %s not properly fetched (not one of %i entries in urls_data), skipping..." % (info_url, len(urls_data)))
+                    logger.warn("URL %s not properly fetched (not one of %i entries in urls_data), skipping..." % (info_url, len(urls_data)))
                     continue
                 assert info_url in urls_data
                 if not urls_data[info_url][0]: #request was not successful
                     inc_fetch_retry(db, feed, max_retry=FEED_MAX_RETRY, errors=[urls_data[info_url][1]])
-                    logging.warn("Fetch for feed at %s not successful: %s (try %i of %i)" % (
+                    logger.warn("Fetch for feed at %s not successful: %s (try %i of %i)" % (
                         info_url, urls_data[info_url][1], feed['fetch_info_retry'], FEED_MAX_RETRY))
                 else:
                     result = process_feed_info(db, feed, urls_data[info_url][1])
                     if not result[0]:
-                        logging.info("Processing for feed at %s not successful: %s" % (info_url, result[1]))
+                        logger.info("Processing for feed at %s not successful: %s" % (info_url, result[1]))
                     else:
-                        logging.info("Processing for feed at %s successful" % info_url)
+                        logger.info("Processing for feed at %s successful" % info_url)
         
     #compose and fetch all info URLs in all feeds with them
     for feed in feeds:
@@ -140,10 +141,10 @@ def fetch_all_feed_info(db):
     feed_info_urls_str = ', '.join(feed_info_urls)
     feed_info_urls_str = (feed_info_urls_str[:2000] + ' ...') if len(feed_info_urls_str) > 2000 else feed_info_urls_str #truncate if necessary
     if len(feed_info_urls):
-        logging.info('Fetching enhanced feed info for %i feeds: %s' % (len(feed_info_urls), feed_info_urls_str))
+        logger.info('Fetching enhanced feed info for %i feeds: %s' % (len(feed_info_urls), feed_info_urls_str))
         util.stream_fetch(feed_info_urls, feed_fetch_complete_hook,
             fetch_timeout=10, max_fetch_size=4*1024, urls_group_size=20, urls_group_time_spacing=20,
-            per_request_complete_callback=lambda url, data: logging.debug("Feed at %s retrieved, result: %s" % (url, data)))
+            per_request_complete_callback=lambda url, data: logger.debug("Feed at %s retrieved, result: %s" % (url, data)))
 
 def get_feed_counters(feed_address):
     counters = {}        

@@ -5,13 +5,16 @@ import base64
 import logging
 import datetime
 import time
-import copy
 import decimal
 import cgi
 import itertools
 import StringIO
 import subprocess
+import calendar
+import hashlib
+import socket
 
+import dateutil.parser
 import gevent
 import gevent.pool
 import gevent.ssl
@@ -21,21 +24,15 @@ from geventhttpclient import HTTPClient
 from geventhttpclient.url import URL
 import lxml.html
 from PIL import Image
-
-import dateutil.parser
-import calendar
-import pygeoip
-import hashlib
-
 from jsonschema import FormatChecker, Draft4Validator, FormatError
-# not needed here but to ensure that installed
-import strict_rfc3339, rfc3987, aniso8601
+import strict_rfc3339, rfc3987, aniso8601 # not needed here but to ensure that installed
 
-from lib import config, util_bitcoin
+from lib import config
 
-JSONRPC_API_REQUEST_TIMEOUT = 10 #in seconds 
+JSONRPC_API_REQUEST_TIMEOUT = 50 #in seconds
+
 D = decimal.Decimal
-
+logger = logging.getLogger(__name__)
 
 def sanitize_eliteness(text):
     #strip out html data to avoid XSS-vectors
@@ -77,26 +74,28 @@ def assets_to_asset_pair(asset1, asset2):
         
     return (base, quote)
 
-
-blockinfo_cache = {}
-
-def get_block_info_cached(block_index, prefetch=0):
-    global blockinfo_cache
-    if block_index in blockinfo_cache:
-        return blockinfo_cache[block_index]
-    blockinfo_cache.clear()
-    blocks = call_jsonrpc_api('get_blocks',
-                              {'block_indexes': range(block_index, block_index + prefetch)},
-                              abort_on_error=True)['result']
-    for block in blocks:
-        blockinfo_cache[block['block_index']] = block
-    return blockinfo_cache[block_index]
-
+def jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False, max_retry=10, retry_interval=3):
+    retry = 0
+    while retry < max_retry or max_retry == 0:
+        try:
+            result = call_jsonrpc_api(method, params=params, endpoint=endpoint, auth=auth, abort_on_error=abort_on_error)
+            if 'result' not in result:
+                raise AssertionError("Could not contact counterpartyd")
+            return result
+        except Exception, e:
+            retry += 1
+            logger.warn(str(e) + " -- Waiting {} seconds before trying again...".format(retry_interval))
+            time.sleep(retry_interval)
+            continue
 
 def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False):
-    if not endpoint: endpoint = config.COUNTERPARTYD_RPC
-    if not auth: auth = config.COUNTERPARTYD_AUTH
-    if not params: params = {}
+    socket.setdefaulttimeout(JSONRPC_API_REQUEST_TIMEOUT)
+    if not endpoint:
+        endpoint = config.COUNTERPARTYD_RPC
+    if not auth: 
+        auth = config.COUNTERPARTYD_AUTH
+    if not params:
+        params = {}
     
     payload = {
         "id": 0,
@@ -110,10 +109,8 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
         'Content-Type': 'application/json',
         'Connection':'close', #no keepalive
     }
-    if auth:
-        #auth should be a (username, password) tuple, if specified
+    if auth: #auth should be a (username, password) tuple, if specified 
         headers['Authorization'] = http_basic_auth_str(auth[0], auth[1])
-    
     try:
         u = URL(endpoint)
         client = HTTPClient.from_url(u, connection_timeout=JSONRPC_API_REQUEST_TIMEOUT,
@@ -123,31 +120,36 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
         raise Exception("Got call_jsonrpc_api request error: %s" % e)
     else:
         if r.status_code != 200 and abort_on_error:
-            raise Exception("Bad status code returned from counterpartyd: '%s'. result body: '%s'." % (r.status_code, r.read()))
+            raise Exception("Bad status code returned: '%s'. result body: '%s'." % (r.status_code, r.read()))
         result = json.loads(r.read())
     finally:
         client.close()
 
     if abort_on_error and 'error' in result and result['error'] is not None:
         raise Exception("Got back error from server: %s" % result['error'])
+
     return result
 
-def bitcoind_rpc(command, params):
-    return call_jsonrpc_api(command, 
-                             params = params,
-                             endpoint = config.BACKEND_RPC, 
-                             auth = config.BACKEND_AUTH, 
-                             abort_on_error = True)['result']
-
-def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5):
+def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5, auth=None, post_data=None):
+    """
+    @param post_data: If not None, do a POST request, with the passed data (which should be in the correct string format already)
+    """
     headers = { 'Connection':'close', } #no keepalive
-
+    if auth:
+        #auth should be a (username, password) tuple, if specified
+        headers['Authorization'] = http_basic_auth_str(auth[0], auth[1])
+        
     try:
         u = URL(url)
         client_kwargs = {'connection_timeout': fetch_timeout, 'network_timeout': fetch_timeout, 'insecure': True}
         if u.scheme == "https": client_kwargs['ssl_options'] = {'cert_reqs': gevent.ssl.CERT_NONE}
         client = HTTPClient.from_url(u, **client_kwargs)
-        r = client.get(u.request_uri, headers=headers)
+        if post_data is not None:
+            if is_json:
+                headers['content-type'] = 'application/json'
+            r = client.post(u.request_uri, body=post_data, headers=headers)
+        else:
+            r = client.get(u.request_uri, headers=headers)
     except Exception, e:
         raise Exception("Got get_url request error: %s" % e)
     else:
@@ -157,20 +159,6 @@ def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5):
     finally:
         client.close()
     return result
-
-def get_address_cols_for_entity(entity):
-    if entity in ['debits', 'credits']:
-        return ['address',]
-    elif entity in ['issuances',]:
-        return ['issuer',]
-    elif entity in ['sends', 'dividends', 'bets', 'cancels', 'callbacks', 'orders', 'burns', 'broadcasts', 'btcpays']:
-        return ['source',]
-    #elif entity in ['order_matches', 'bet_matches']:
-    elif entity in ['order_matches', 'order_expirations', 'order_match_expirations',
-                    'bet_matches', 'bet_expirations', 'bet_match_expirations']:
-        return ['tx0_address', 'tx1_address']
-    else:
-        raise Exception("Unknown entity type: %s" % entity)
 
 def grouper(n, iterable, fillmissing=False, fillvalue=None):
     #Modified from http://stackoverflow.com/a/1625013
@@ -217,101 +205,6 @@ def json_dthandler(obj):
         return int(time.mktime(obj.timetuple())) * 1000
     else:
         raise TypeError, 'Object of type %s with value of %s is not JSON serializable' % (type(obj), repr(obj))
-
-def get_block_indexes_for_dates(start_dt=None, end_dt=None):
-    """Returns a 2 tuple (start_block, end_block) result for the block range that encompasses the given start_date
-    and end_date unix timestamps"""
-    mongo_db = config.mongo_db
-    if start_dt is None:
-        start_block_index = config.BLOCK_FIRST
-    else:
-        start_block = mongo_db.processed_blocks.find_one({"block_time": {"$lte": start_dt} }, sort=[("block_time", pymongo.DESCENDING)])
-        start_block_index = config.BLOCK_FIRST if not start_block else start_block['block_index']
-    
-    if end_dt is None:
-        end_block_index = config.CURRENT_BLOCK_INDEX
-    else:
-        end_block = mongo_db.processed_blocks.find_one({"block_time": {"$gte": end_dt} }, sort=[("block_time", pymongo.ASCENDING)])
-        if not end_block:
-            end_block_index = mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)])['block_index']
-        else:
-            end_block_index = end_block['block_index']
-    return (start_block_index, end_block_index)
-
-def get_block_time(block_index):
-    """TODO: implement result caching to avoid having to go out to the database"""
-    block = config.mongo_db.processed_blocks.find_one({"block_index": block_index })
-    if not block: return None
-    return block['block_time']
-
-def decorate_message(message, for_txn_history=False):
-    #insert custom fields in certain events...
-    #even invalid actions need these extra fields for proper reporting to the client (as the reporting message
-    # is produced via PendingActionViewModel.calcText) -- however make it able to deal with the queried data not existing in this case
-    assert '_category' in message
-    mongo_db = config.mongo_db
-    if for_txn_history:
-        message['_command'] = 'insert' #history data doesn't include this
-        block_index = message['block_index'] if 'block_index' in message else message['tx1_block_index']
-        message['_block_time'] = get_block_time(block_index)
-        message['_tx_index'] = message['tx_index'] if 'tx_index' in message else message.get('tx1_index', None)  
-        if message['_category'] in ['bet_expirations', 'order_expirations', 'bet_match_expirations', 'order_match_expirations']:
-            message['_tx_index'] = 0 #add tx_index to all entries (so we can sort on it secondarily in history view), since these lack it
-    
-    if message['_category'] in ['credits', 'debits']:
-        #find the last balance change on record
-        bal_change = mongo_db.balance_changes.find_one({ 'address': message['address'], 'asset': message['asset'] },
-            sort=[("block_time", pymongo.DESCENDING)])
-        message['_quantity_normalized'] = abs(bal_change['quantity_normalized']) if bal_change else None
-        message['_balance'] = bal_change['new_balance'] if bal_change else None
-        message['_balance_normalized'] = bal_change['new_balance_normalized'] if bal_change else None
-
-    if message['_category'] in ['orders',] and message['_command'] == 'insert':
-        get_asset_info = mongo_db.tracked_assets.find_one({'asset': message['get_asset']})
-        give_asset_info = mongo_db.tracked_assets.find_one({'asset': message['give_asset']})
-        message['_get_asset_divisible'] = get_asset_info['divisible'] if get_asset_info else None
-        message['_give_asset_divisible'] = give_asset_info['divisible'] if give_asset_info else None
-    
-    if message['_category'] in ['order_matches',] and message['_command'] == 'insert':
-        forward_asset_info = mongo_db.tracked_assets.find_one({'asset': message['forward_asset']})
-        backward_asset_info = mongo_db.tracked_assets.find_one({'asset': message['backward_asset']})
-        message['_forward_asset_divisible'] = forward_asset_info['divisible'] if forward_asset_info else None
-        message['_backward_asset_divisible'] = backward_asset_info['divisible'] if backward_asset_info else None
-    
-    if message['_category'] in ['orders', 'order_matches',]:
-        message['_btc_below_dust_limit'] = (
-                ('forward_asset' in message and message['forward_asset'] == config.BTC and message['forward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF)
-             or ('backward_asset' in message and message['backward_asset'] == config.BTC and message['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF)
-        )
-
-    if message['_category'] in ['dividends', 'sends', 'callbacks']:
-        asset_info = mongo_db.tracked_assets.find_one({'asset': message['asset']})
-        message['_divisible'] = asset_info['divisible'] if asset_info else None
-    
-    if message['_category'] in ['issuances',]:
-        message['_quantity_normalized'] = util_bitcoin.normalize_quantity(message['quantity'], message['divisible'])
-    return message
-
-def decorate_message_for_feed(msg, msg_data=None):
-    """This function takes a message from counterpartyd's message feed and mutates it a bit to be suitable to be
-    sent through the counterblockd message feed to an end-client"""
-    if not msg_data:
-        msg_data = json.loads(msg['bindings'])
-    
-    message = copy.deepcopy(msg_data)
-    message['_message_index'] = msg['message_index']
-    message['_command'] = msg['command']
-    message['_block_index'] = msg['block_index']
-    message['_block_time'] = get_block_time(msg['block_index'])
-    message['_category'] = msg['category']
-    message['_status'] = msg_data.get('status', 'valid')
-    message = decorate_message(message)
-    return message
-
-def is_caught_up_well_enough_for_government_work():
-    """We don't want to give users 525 errors or login errors if counterblockd/counterpartyd is in the process of
-    getting caught up, but we DO if counterblockd is either clearly out of date with the blockchain, or reinitializing its database"""
-    return config.CAUGHT_UP or (config.BLOCKCHAIN_SERVICE_LAST_BLOCK and config.CURRENT_BLOCK_INDEX >= config.BLOCKCHAIN_SERVICE_LAST_BLOCK - 1)
 
 def stream_fetch(urls, completed_callback, urls_group_size=50, urls_group_time_spacing=0, max_fetch_size=4*1024,
 fetch_timeout=1, is_json=True, per_request_complete_callback=None):
@@ -374,7 +267,7 @@ fetch_timeout=1, is_json=True, per_request_complete_callback=None):
     urls = list(set(urls)) #remove duplicates (so we only fetch any given URL, once)
     groups = grouper(urls_group_size, urls)
     for i in xrange(len(groups)):
-        #logging.debug("Stream fetching group %i of %i..." % (i, len(groups)))
+        #logger.debug("Stream fetching group %i of %i..." % (i, len(groups)))
         group = groups[i]
         if urls_group_time_spacing and i != 0:
             gevent.spawn_later(urls_group_time_spacing * i, process_group, group)
@@ -420,7 +313,7 @@ def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimens
         os.system("exiftool -q -overwrite_original -all= %s" % imagePath) #strip all metadata, just in case
         return True
     except Exception, e:
-        logging.warn(e)
+        logger.warn(e)
         return False
 
 def date_param(strDate):
@@ -476,62 +369,3 @@ def subprocess_cmd(command):
     process = subprocess.Popen(command,stdout=subprocess.PIPE, shell=True)
     proc_stdout = process.communicate()[0].strip()
     print proc_stdout
-
-def download_geoip_data():
-    logging.info("Checking/updating GeoIP.dat ...")
-
-    download = False;
-    data_path = os.path.join(config.DATA_DIR, 'GeoIP.dat')
-    if not os.path.isfile(data_path):
-        download = True
-    else:
-        one_week_ago = time.time() - 60*60*24*7
-        file_stat = os.stat(data_path)
-        if file_stat.st_ctime < one_week_ago:
-            download = True
-
-    if download:
-        logging.info("Downloading GeoIP.dat")
-        cmd = "cd '{}'; wget -N -q http://geolite.maxmind.com/download/geoip/database/GeoLiteCountry/GeoIP.dat.gz; gzip -dfq GeoIP.dat.gz".format(config.DATA_DIR)
-        subprocess_cmd(cmd)
-    else:
-        logging.info("GeoIP.dat OK")
-
-def init_geoip():
-    download_geoip_data();
-    return pygeoip.GeoIP(os.path.join(config.DATA_DIR, 'GeoIP.dat'))
-
-def block_cache(func):
-    def cached_function(*args, **kwargs):
-        
-        function_signature = hashlib.sha256(func.__name__ + str(args) + str(kwargs)).hexdigest()
-
-        sql = "SELECT block_index FROM blocks ORDER BY block_index DESC LIMIT 1"
-        block_index = call_jsonrpc_api('sql', {'query': sql, 'bindings': []})['result'][0]['block_index']
-
-        cached_result = config.mongo_db.counterblockd_cache.find_one({'block_index': block_index, 'function': function_signature})
-
-        if not cached_result or config.TESTNET:
-            #logging.info("generate cache ({}, {}, {})".format(func.__name__, block_index, function_signature))
-            try:
-                result = func(*args, **kwargs)
-                config.mongo_db.counterblockd_cache.insert({
-                    'block_index': block_index, 
-                    'function': function_signature,
-                    'result': json.dumps(result)
-                })
-                return result
-            except Exception, e:
-                logging.exception(e)
-        else:
-            #logging.info("result from cache ({}, {}, {})".format(func.__name__, block_index, function_signature))
-            result = json.loads(cached_result['result'])
-            return result
-            
-    return cached_function
-
-
-def clean_block_cache(block_index):
-    #logging.info("clean block cache lower than {}".format(block_index))
-    config.mongo_db.counterblockd_cache.remove({'block_index': {'$lt': block_index}})
-
