@@ -3,7 +3,7 @@
 ##
 ## CONSTANTS
 ##
-VERSION = "1.5.0" #should keep up with the counterwallet version it works with (for now at least)
+VERSION = "1.0.0" #should keep up with counterblockd repo's release tag
 
 DB_VERSION = 22 #a db version increment will cause counterblockd to rebuild its database off of counterpartyd 
 
