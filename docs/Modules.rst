@@ -97,7 +97,7 @@ want to run a process for every new block (but not when counterblockd is catchin
 .. code-block:: python
     @BlockProcessor.subscribe() 
     def my_custom_block_event(): 
-        if not (config.state['cpd_latest_block']['block_index'] - config.state['my_latest_block']['block_index']) == 1: 
+        if not (config.state['cpd_latest_block_index'] - config.state['my_latest_block']['block_index']) == 1: 
             return
         #Do stuff here
     
@@ -116,7 +116,10 @@ want to run a process for every new block (but not when counterblockd is catchin
         print('counterblockd is now caught up to Counterpartyd!') 
 
 ``RollbackProcessor`` runs whenever the ``counterblockd`` database is rolled back (either due to a blockchain
-reorg, or an explicit rollback command being specified to ``counterblockd`` via the command line). 
+reorg, or an explicit rollback command being specified to ``counterblockd`` via the command line).
+
+Note that if this processor runs and ``None`` is passed as ``max_block_index``, it means that there was a reparse of
+all block data.
 
 .. code-block:: python
     @RollbackProcessor.subscribe()
