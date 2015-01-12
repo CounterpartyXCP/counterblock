@@ -11,7 +11,7 @@ appdirs==1.4.0
 
 prettytable==0.7.2
 
-python-dateutil==2.3
+python-dateutil==2.4.0
 
 flask==0.10.1
 

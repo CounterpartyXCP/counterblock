@@ -165,8 +165,13 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
     #start polling counterpartyd for new blocks
     while True:
         if not autopilot or autopilot_runner == 0:
-            cpd_running_info = util.jsonrpc_api("get_running_info", abort_on_error=True)['result']
-        
+            try:
+                cpd_running_info = util.jsonrpc_api("get_running_info", abort_on_error=True)['result']
+            except Exception, e:
+                logger.warn("Cannot contact counterpartyd get_running_info: %s" % e)
+                time.sleep(3)
+                continue
+                
         #wipe our state data if necessary, if counterpartyd has moved on to a new DB version
         wipeState = False
         updatePrefs = False
