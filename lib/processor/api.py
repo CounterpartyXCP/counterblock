@@ -345,11 +345,11 @@ def serve_api():
         if count > 1000:
             raise Exception("The count is too damn high")
         message_indexes = range(max(config.state['last_message_index'] - count, 0) + 1, config.state['last_message_index'] + 1)
-        messages = util.call_jsonrpc_api("get_messages_by_index",
+        msgs = util.call_jsonrpc_api("get_messages_by_index",
             { 'message_indexes': message_indexes }, abort_on_error=True)['result']
-        for i in xrange(len(messages)):
-            messages[i] = messages.decorate_message_for_feed(messages[i])
-        return messages
+        for i in xrange(len(msgs)):
+            msgs[i] = messages.decorate_message_for_feed(msgs[i])
+        return msgs
 
     @API.add_method
     def get_raw_transactions(address, start_ts=None, end_ts=None, limit=500):
