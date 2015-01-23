@@ -185,6 +185,9 @@ def reset_db_state():
     config.state['my_latest_block'] = {'block_index': 0}
     config.state['last_message_index'] = -1
     
+    #call any rollback processors for any extension modules
+    RollbackProcessor.run_active_functions(None)
+    
     return app_config
 
 def rollback(max_block_index):

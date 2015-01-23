@@ -119,9 +119,14 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
     except Exception, e:
         raise Exception("Got call_jsonrpc_api request error: %s" % e)
     else:
-        if r.status_code != 200 and abort_on_error:
-            raise Exception("Bad status code returned: '%s'. result body: '%s'." % (r.status_code, r.read()))
-        result = json.loads(r.read())
+        if r.status_code != 200:
+            if abort_on_error:
+                raise Exception("Bad status code returned: '%s'. result body: '%s'." % (r.status_code, r.read()))
+            else:
+                logging.warning("Bad status code returned: '%s'. result body: '%s'." % (r.status_code, r.read()))
+                result = None
+        else:
+            result = json.loads(r.read())
     finally:
         client.close()
 
@@ -155,7 +160,8 @@ def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5, auth=None,
     else:
         if r.status_code != 200 and abort_on_error:
             raise Exception("Bad status code returned: '%s'. result body: '%s'." % (r.status_code, r.read()))
-        result = json.loads(r.read()) if is_json else r.read()
+        result = r.read()
+        result = json.loads(result) if result and is_json else result
     finally:
         client.close()
     return result

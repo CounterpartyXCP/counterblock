@@ -29,7 +29,7 @@ def handle_invalid(msg, msg_data):
     #don't process invalid messages, but do forward them along to clients
     status = msg_data.get('status', 'valid').lower()
     if status.startswith('invalid'):
-        if config.state['cpd_latest_block']['block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
+        if config.state['cpd_latest_block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
             #forward along via message feed, except while we're catching up
             event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
             config.ZMQ_PUBLISHER_EVENTFEED.send_json(event)
@@ -65,7 +65,7 @@ def handle_reorg(msg, msg_data):
         config.state['last_message_index'] = running_info['last_message_index']
         
         #send out the message to listening clients (but don't forward along while we're catching up)
-        if config.state['cpd_latest_block']['block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
+        if config.state['cpd_latest_block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
             msg_data['_last_message_index'] = config.state['last_message_index']
             event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
             config.ZMQ_PUBLISHER_EVENTFEED.send_json(event)
@@ -192,7 +192,7 @@ def parse_for_socketio(msg, msg_data):
     #if we're catching up beyond MAX_REORG_NUM_BLOCKS blocks out, make sure not to send out any socket.io
     # events, as to not flood on a resync (as we may give a 525 to kick the logged in clients out, but we
     # can't guarantee that the socket.io connection will always be severed as well??)
-    if config.state['cpd_latest_block']['block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
+    if config.state['cpd_latest_block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
         #send out the message to listening clients
         event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
         config.ZMQ_PUBLISHER_EVENTFEED.send_json(event)

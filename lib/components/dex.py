@@ -29,8 +29,9 @@ def calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divi
         return price
 
     except Exception, e:
+        logging.exception(e)
         decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
-        return '0'
+        raise(e)
 
 def get_pairs_with_orders(addresses=[], max_pairs=12):
 
@@ -269,7 +270,10 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
         
         if not exclude:
             if order['give_asset'] == base_asset:
-                price = calculate_price(order['give_quantity'], order['get_quantity'], supplies[order['give_asset']][1], supplies[order['get_asset']][1], 'SELL')
+                try:
+                    price = calculate_price(order['give_quantity'], order['get_quantity'], supplies[order['give_asset']][1], supplies[order['get_asset']][1], 'SELL')
+                except:
+                    continue
                 market_order['type'] = 'SELL'
                 market_order['amount'] = order['give_remaining']
                 market_order['total'] = D(order['give_remaining']) * D(price)
@@ -280,7 +284,10 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
                 else:
                     market_order['total'] = int(market_order['total'])
             else:
-                price = calculate_price(order['get_quantity'], order['give_quantity'], supplies[order['get_asset']][1], supplies[order['give_asset']][1], 'BUY')
+                try:
+                    price = calculate_price(order['get_quantity'], order['give_quantity'], supplies[order['get_asset']][1], supplies[order['give_asset']][1], 'BUY')
+                except:
+                    continue
                 market_order['type'] = 'BUY'
                 market_order['total'] = order['give_remaining']
                 market_order['amount'] = D(order['give_remaining']) / D(price)

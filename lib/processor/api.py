@@ -57,7 +57,7 @@ def serve_api():
         return {
             'caught_up': blockfeed.fuzzy_is_caught_up(),
             'last_message_index': config.state['last_message_index'],
-            'block_height': config.state['cpd_backend_block_height'],
+            'block_height': config.state['cpd_backend_block_index'],
             'testnet': config.TESTNET,
             'ip': ip,
             'country': country,
@@ -87,7 +87,7 @@ def serve_api():
     @API.add_method
     def get_chain_block_height():
         #DEPRECIATED 1.5
-        return config.state['cpd_backend_block_height']
+        return config.state['cpd_backend_block_index']
         
     @API.add_method
     def get_insight_block_info(block_hash):
@@ -107,7 +107,7 @@ def serve_api():
             result = {}
             result['addr'] = address
             result['info'] = info
-            result['block_height'] = config.state['cpd_backend_block_height']
+            result['block_height'] = config.state['cpd_backend_block_index']
             #^ yeah, hacky...it will be the same block height for each address (we do this to avoid an extra API call to get_block_height)
             if with_uxtos:
               result['uxtos'] = blockchain.listunspent(address)
@@ -345,11 +345,11 @@ def serve_api():
         if count > 1000:
             raise Exception("The count is too damn high")
         message_indexes = range(max(config.state['last_message_index'] - count, 0) + 1, config.state['last_message_index'] + 1)
-        messages = util.call_jsonrpc_api("get_messages_by_index",
+        msgs = util.call_jsonrpc_api("get_messages_by_index",
             { 'message_indexes': message_indexes }, abort_on_error=True)['result']
-        for i in xrange(len(messages)):
-            messages[i] = messages.decorate_message_for_feed(messages[i])
-        return messages
+        for i in xrange(len(msgs)):
+            msgs[i] = messages.decorate_message_for_feed(msgs[i])
+        return msgs
 
     @API.add_method
     def get_raw_transactions(address, start_ts=None, end_ts=None, limit=500):
