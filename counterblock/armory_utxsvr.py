@@ -84,7 +84,7 @@ class ArmoryBlockchainUpdaterThread(threading.Thread):
               print 'New blocks: %d  (top: %d)' % (newTop-prevTop, newTop)
            time.sleep(1.0)  # check every 1 second    
 
-if __name__ == '__main__':
+def main():
     print("**** Starting up ...")
     parser = argparse.ArgumentParser(description='Armory offline transaction generator daemon')
     parser.add_argument('--testnet', action='store_true', help='Run for testnet')
@@ -102,3 +102,6 @@ if __name__ == '__main__':
     print("**** Initializing Flask (HTTP) server ...")
     app.run(host="127.0.0.1", port=ARMORY_UTXSVR_PORT_MAINNET if not args.testnet else ARMORY_UTXSVR_PORT_TESTNET, threaded=True)
     print("**** Ready to serve ...")
+
+if __name__ == '__main__':
+    main()

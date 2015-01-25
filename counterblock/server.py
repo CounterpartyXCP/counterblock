@@ -21,7 +21,7 @@ from lib.processor import StartUpProcessor
 
 logger = logging.getLogger(__name__)
 
-if __name__ == '__main__':
+def main():
     # Parse command-line arguments.
     parser = argparse.ArgumentParser(prog='counterblockd', description='Counterwallet daemon. Works with counterpartyd')
 
@@ -125,3 +125,6 @@ if __name__ == '__main__':
     
     #Run Startup Functions
     StartUpProcessor.run_active_functions()
+
+if __name__ == '__main__':
+    main()
