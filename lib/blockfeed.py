@@ -95,7 +95,11 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
         
         for function in MessageProcessor.active_functions():
             logger.debug('starting {}'.format(function['function']))
-            cmd = function['function'](msg, msg_data) or None
+            # TODO: Better handling of double parsing
+            try:
+                cmd = function['function'](msg, msg_data) or None
+            except pymongo.errors.DuplicateKeyError, e:
+                logging.exception(e)
             #break or *return* (?) depends on whether we want config.last_message_index to be updated
             if cmd == 'continue': break
             elif cmd == 'break': return 'break' 
