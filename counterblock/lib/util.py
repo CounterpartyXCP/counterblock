@@ -91,9 +91,9 @@ def jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=Fa
 def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False):
     socket.setdefaulttimeout(JSONRPC_API_REQUEST_TIMEOUT)
     if not endpoint:
-        endpoint = config.COUNTERPARTYD_RPC
+        endpoint = config.COUNTERPARTY_RPC
     if not auth: 
-        auth = config.COUNTERPARTYD_AUTH
+        auth = config.COUNTERPARTY_AUTH
     if not params:
         params = {}
     

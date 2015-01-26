@@ -20,7 +20,7 @@ required_packages = [
     'pymongo==2.7.2',
     'https://github.com/surfly/gevent/archive/72119c8c3e704b75a2d91d8555ca8673928ebabb.zip#egg=gevent',
     #^ 1.0.1 is a bit old. this is an up to date master that has some good bug fixes...
-    'gevent-websocket==0.9.3'',
+    'gevent-websocket==0.9.3',
     'gevent-socketio==0.3.6',
     'https://github.com/gwik/geventhttpclient/archive/83ded6980a2e37025acbe5a93a52ceedd8f9338a.zip#egg=geventhttpclient',
     'redis==2.10.3',

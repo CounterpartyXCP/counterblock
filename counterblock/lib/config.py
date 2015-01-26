@@ -32,8 +32,8 @@ ARMORY_UTXSVR_PORT_TESTNET = 6591
 QUOTE_ASSETS = ['BTC', 'XBTC', 'XCP'] # define the priority for quote asset
 MARKET_LIST_QUOTE_ASSETS = ['XCP', 'XBTC', 'BTC'] # define the order in the market list
 
-DEFAULT_BACKEND_RPC_PORT_TESTNET = 18332
-DEFAULT_BACKEND_RPC_PORT = 8332
+DEFAULT_BACKEND_PORT_TESTNET = 18332
+DEFAULT_BACKEND_PORT = 8332
 
 
 ##
@@ -97,109 +97,101 @@ def load(args):
     # THINGS WE CONNECT TO
 
     # backend (e.g. bitcoind)
-    global BACKEND_RPC_CONNECT
+    global BACKEND_CONNECT
     if args.counterpartyd_rpc_connect:
-        BACKEND_RPC_CONNECT = args.backend_rpc_connect
-    elif has_config and configfile.has_option('Default', 'backend-rpc-connect') and configfile.get('Default', 'backend-rpc-connect'):
-        BACKEND_RPC_CONNECT = configfile.get('Default', 'backend-rpc-connect')
-    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-connect') and configfile.get('Default', 'bitcoind-rpc-connect'):
-        BACKEND_RPC_CONNECT = configfile.get('Default', 'bitcoind-rpc-connect')
+        BACKEND_CONNECT = args.backend_rpc_connect
+    elif has_config and configfile.has_option('Default', 'backend-connect') and configfile.get('Default', 'backend-connect'):
+        BACKEND_CONNECT = configfile.get('Default', 'backend-connect')
     else:
-        BACKEND_RPC_CONNECT = 'localhost'
+        BACKEND_CONNECT = 'localhost'
 
-    global BACKEND_RPC_PORT
+    global BACKEND_PORT
     if args.backend_rpc_port:
-        BACKEND_RPC_PORT = args.backend_rpc_port
-    elif has_config and configfile.has_option('Default', 'backend-rpc-port') and configfile.get('Default', 'backend-rpc-port'):
-        BACKEND_RPC_PORT = configfile.get('Default', 'backend-rpc-port')
-    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-port') and configfile.get('Default', 'bitcoind-rpc-port'):
-        BACKEND_RPC_PORT = configfile.get('Default', 'bitcoind-rpc-port')
+        BACKEND_PORT = args.backend_rpc_port
+    elif has_config and configfile.has_option('Default', 'backend-port') and configfile.get('Default', 'backend-port'):
+        BACKEND_PORT = configfile.get('Default', 'backend-port')
     else:
         if TESTNET:
-            BACKEND_RPC_PORT = DEFAULT_BACKEND_RPC_PORT_TESTNET
+            BACKEND_PORT = DEFAULT_BACKEND_PORT_TESTNET
         else:
-            BACKEND_RPC_PORT = DEFAULT_BACKEND_RPC_PORT
+            BACKEND_PORT = DEFAULT_BACKEND_PORT
     try:
-        BACKEND_RPC_PORT = int(BACKEND_RPC_PORT)
-        assert int(BACKEND_RPC_PORT) > 1 and int(BACKEND_RPC_PORT) < 65535
+        BACKEND_PORT = int(BACKEND_PORT)
+        assert int(BACKEND_PORT) > 1 and int(BACKEND_PORT) < 65535
     except:
-        raise Exception("Please specific a valid port number backend-rpc-port configuration parameter")
+        raise Exception("Please specific a valid port number backend-port configuration parameter")
             
-    global BACKEND_RPC_USER
+    global BACKEND_USER
     if args.backend_rpc_user:
-        BACKEND_RPC_USER = args.backend_rpc_user
-    elif has_config and configfile.has_option('Default', 'backend-rpc-user') and configfile.get('Default', 'backend-rpc-user'):
-        BACKEND_RPC_USER = configfile.get('Default', 'backend-rpc-user')
-    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-user') and configfile.get('Default', 'bitcoind-rpc-user'):
-        BACKEND_RPC_USER = configfile.get('Default', 'bitcoind-rpc-user')
+        BACKEND_USER = args.backend_rpc_user
+    elif has_config and configfile.has_option('Default', 'backend-user') and configfile.get('Default', 'backend-user'):
+        BACKEND_USER = configfile.get('Default', 'backend-user')
     else:
-        BACKEND_RPC_USER = 'rpcuser'
+        BACKEND_USER = 'rpcuser'
 
-    global BACKEND_RPC_PASSWORD
+    global BACKEND_PASSWORD
     if args.backend_rpc_password:
-        BACKEND_RPC_PASSWORD = args.backend_rpc_password
-    elif has_config and configfile.has_option('Default', 'backend-rpc-password') and configfile.get('Default', 'backend-rpc-password'):
-        BACKEND_RPC_PASSWORD = configfile.get('Default', 'backend-rpc-password')
-    elif has_config and configfile.has_option('Default', 'bitcoind-rpc-password') and configfile.get('Default', 'bitcoind-rpc-password'):
-        BACKEND_RPC_PASSWORD = configfile.get('Default', 'bitcoind-rpc-password')
+        BACKEND_PASSWORD = args.backend_rpc_password
+    elif has_config and configfile.has_option('Default', 'backend-password') and configfile.get('Default', 'backend-password'):
+        BACKEND_PASSWORD = configfile.get('Default', 'backend-password')
     else:
-        BACKEND_RPC_PASSWORD = 'rpcpassword'
-
-    global BACKEND_RPC
-    BACKEND_RPC = 'http://' + BACKEND_RPC_CONNECT + ':' + str(BACKEND_RPC_PORT) + '/'
+        BACKEND_PASSWORD = 'rpcpassword'
 
     global BACKEND_AUTH
-    BACKEND_AUTH = (BACKEND_RPC_USER, BACKEND_RPC_PASSWORD) if (BACKEND_RPC_USER and BACKEND_RPC_PASSWORD) else None
+    BACKEND_AUTH = (BACKEND_USER, BACKEND_PASSWORD) if (BACKEND_USER and BACKEND_PASSWORD) else None
     
-    global BACKEND_RPC_URL
-    BACKEND_RPC_URL = 'http://' + BACKEND_RPC_USER + ':' + BACKEND_RPC_PASSWORD + '@' + BACKEND_RPC_CONNECT + ':' + str(BACKEND_RPC_PORT)
+    global BACKEND_URL
+    BACKEND_URL = 'http://' + BACKEND_USER + ':' + BACKEND_PASSWORD + '@' + BACKEND_CONNECT + ':' + str(BACKEND_PORT)
 
+    global BACKEND_URL_NOAUTH
+    BACKEND_URL_NOAUTH = 'http://' + BACKEND_CONNECT + ':' + str(BACKEND_PORT) + '/'
+    
     # counterpartyd RPC connection
-    global COUNTERPARTYD_RPC_CONNECT
+    global COUNTERPARTY_CONNECT
     if args.counterpartyd_rpc_connect:
-        COUNTERPARTYD_RPC_CONNECT = args.counterpartyd_rpc_connect
-    elif has_config and configfile.has_option('Default', 'counterpartyd-rpc-connect') and configfile.get('Default', 'counterpartyd-rpc-connect'):
-        COUNTERPARTYD_RPC_CONNECT = configfile.get('Default', 'counterpartyd-rpc-connect')
+        COUNTERPARTY_CONNECT = args.counterpartyd_rpc_connect
+    elif has_config and configfile.has_option('Default', 'counterparty-connect') and configfile.get('Default', 'counterparty-connect'):
+        COUNTERPARTY_CONNECT = configfile.get('Default', 'counterparty-connect')
     else:
-        COUNTERPARTYD_RPC_CONNECT = 'localhost'
+        COUNTERPARTY_CONNECT = 'localhost'
 
-    global COUNTERPARTYD_RPC_PORT
+    global COUNTERPARTY_PORT
     if args.counterpartyd_rpc_port:
-        COUNTERPARTYD_RPC_PORT = args.counterpartyd_rpc_port
-    elif has_config and configfile.has_option('Default', 'counterpartyd-rpc-port') and configfile.get('Default', 'counterpartyd-rpc-port'):
-        COUNTERPARTYD_RPC_PORT = configfile.get('Default', 'counterpartyd-rpc-port')
+        COUNTERPARTY_PORT = args.counterpartyd_rpc_port
+    elif has_config and configfile.has_option('Default', 'counterparty-port') and configfile.get('Default', 'counterparty-port'):
+        COUNTERPARTY_PORT = configfile.get('Default', 'counterparty-port')
     else:
         if TESTNET:
-            COUNTERPARTYD_RPC_PORT = 14000
+            COUNTERPARTY_PORT = 14000
         else:
-            COUNTERPARTYD_RPC_PORT = 4000
+            COUNTERPARTY_PORT = 4000
     try:
-        COUNTERPARTYD_RPC_PORT = int(COUNTERPARTYD_RPC_PORT)
-        assert int(COUNTERPARTYD_RPC_PORT) > 1 and int(COUNTERPARTYD_RPC_PORT) < 65535
+        COUNTERPARTY_PORT = int(COUNTERPARTY_PORT)
+        assert int(COUNTERPARTY_PORT) > 1 and int(COUNTERPARTY_PORT) < 65535
     except:
-        raise Exception("Please specific a valid port number counterpartyd-rpc-port configuration parameter")
+        raise Exception("Please specific a valid port number counterparty-port configuration parameter")
     
-    global COUNTERPARTYD_RPC_USER
+    global COUNTERPARTY_USER
     if args.counterpartyd_rpc_user:
-        COUNTERPARTYD_RPC_USER = args.counterpartyd_rpc_user
-    elif has_config and configfile.has_option('Default', 'counterpartyd-rpc-user') and configfile.get('Default', 'counterpartyd-rpc-user'):
-        COUNTERPARTYD_RPC_USER = configfile.get('Default', 'counterpartyd-rpc-user')
+        COUNTERPARTY_USER = args.counterpartyd_rpc_user
+    elif has_config and configfile.has_option('Default', 'counterparty-user') and configfile.get('Default', 'counterparty-user'):
+        COUNTERPARTY_USER = configfile.get('Default', 'counterparty-user')
     else:
-        COUNTERPARTYD_RPC_USER = 'rpcuser'
+        COUNTERPARTY_USER = 'rpcuser'
 
-    global COUNTERPARTYD_RPC_PASSWORD
+    global COUNTERPARTY_PASSWORD
     if args.counterpartyd_rpc_password:
-        COUNTERPARTYD_RPC_PASSWORD = args.counterpartyd_rpc_password
-    elif has_config and configfile.has_option('Default', 'counterpartyd-rpc-password') and configfile.get('Default', 'counterpartyd-rpc-password'):
-        COUNTERPARTYD_RPC_PASSWORD = configfile.get('Default', 'counterpartyd-rpc-password')
+        COUNTERPARTY_PASSWORD = args.counterpartyd_rpc_password
+    elif has_config and configfile.has_option('Default', 'counterparty-password') and configfile.get('Default', 'counterparty-password'):
+        COUNTERPARTY_PASSWORD = configfile.get('Default', 'counterparty-password')
     else:
-        COUNTERPARTYD_RPC_PASSWORD = 'rpcpassword'
+        COUNTERPARTY_PASSWORD = 'rpcpassword'
 
-    global COUNTERPARTYD_RPC
-    COUNTERPARTYD_RPC = 'http://' + COUNTERPARTYD_RPC_CONNECT + ':' + str(COUNTERPARTYD_RPC_PORT) + '/api/'
+    global COUNTERPARTY_RPC
+    COUNTERPARTY_RPC = 'http://' + COUNTERPARTY_CONNECT + ':' + str(COUNTERPARTY_PORT) + '/api/'
     
-    global COUNTERPARTYD_AUTH
-    COUNTERPARTYD_AUTH = (COUNTERPARTYD_RPC_USER, COUNTERPARTYD_RPC_PASSWORD) if (COUNTERPARTYD_RPC_USER and COUNTERPARTYD_RPC_PASSWORD) else None
+    global COUNTERPARTY_AUTH
+    COUNTERPARTY_AUTH = (COUNTERPARTY_USER, COUNTERPARTY_PASSWORD) if (COUNTERPARTY_USER and COUNTERPARTY_PASSWORD) else None
 
     # mongodb
     global MONGODB_CONNECT

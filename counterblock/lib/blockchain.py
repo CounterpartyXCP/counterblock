@@ -61,7 +61,7 @@ def pubkey_to_address(pubkey_hex):
 def bitcoind_rpc(command, params):
     return util.call_jsonrpc_api(command, 
                             params = params,
-                            endpoint = config.BACKEND_RPC, 
+                            endpoint = config.BACKEND_URL_NOAUTH, 
                             auth = config.BACKEND_AUTH, 
                             abort_on_error = True)['result']
                             
@@ -199,7 +199,7 @@ def get_cached_batch_raw_transactions(tx_hashes):
 
     if config.TESTNET:
         bitcoinlib.SelectParams('testnet')
-    proxy = bitcoin_rpc.Proxy(service_url=config.BACKEND_RPC_URL)
+    proxy = bitcoin_rpc.Proxy(service_url=config.BACKEND_URL)
     return proxy._batch(call_list)
 
 # TODO: use scriptpubkey_to_address()

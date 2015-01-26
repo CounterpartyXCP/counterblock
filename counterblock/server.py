@@ -37,15 +37,15 @@ def main():
     parser.add_argument('--pid-file', help='the location of the pid file')
 
     #THINGS WE CONNECT TO
-    parser.add_argument('--backend-rpc-connect', help='the hostname or IP of the backend bitcoind JSON-RPC server')
-    parser.add_argument('--backend-rpc-port', type=int, help='the backend JSON-RPC port to connect to')
-    parser.add_argument('--backend-rpc-user', help='the username used to communicate with backend over JSON-RPC')
-    parser.add_argument('--backend-rpc-password', help='the password used to communicate with backend over JSON-RPC')
+    parser.add_argument('--backend-connect', help='the hostname or IP of the backend bitcoind JSON-RPC server')
+    parser.add_argument('--backend-port', type=int, help='the backend JSON-RPC port to connect to')
+    parser.add_argument('--backend-user', help='the username used to communicate with backend over JSON-RPC')
+    parser.add_argument('--backend-password', help='the password used to communicate with backend over JSON-RPC')
 
-    parser.add_argument('--counterpartyd-rpc-connect', help='the hostname of the counterpartyd JSON-RPC server')
-    parser.add_argument('--counterpartyd-rpc-port', type=int, help='the port used to communicate with counterpartyd over JSON-RPC')
-    parser.add_argument('--counterpartyd-rpc-user', help='the username used to communicate with counterpartyd over JSON-RPC')
-    parser.add_argument('--counterpartyd-rpc-password', help='the password used to communicate with counterpartyd over JSON-RPC')
+    parser.add_argument('--counterparty-connect', help='the hostname of the counterpartyd JSON-RPC server')
+    parser.add_argument('--counterparty-port', type=int, help='the port used to communicate with counterpartyd over JSON-RPC')
+    parser.add_argument('--counterparty-user', help='the username used to communicate with counterpartyd over JSON-RPC')
+    parser.add_argument('--counterparty-password', help='the password used to communicate with counterpartyd over JSON-RPC')
 
     parser.add_argument('--mongodb-connect', help='the hostname of the mongodb server to connect to')
     parser.add_argument('--mongodb-port', type=int, help='the port used to communicate with mongodb')
