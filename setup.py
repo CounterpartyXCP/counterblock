@@ -2,10 +2,7 @@
 
 from setuptools import setup, find_packages
 import os
-import zipfile
-import urllib.request
 import sys
-import shutil
 import logging
 
 required_packages = [
@@ -13,22 +10,20 @@ required_packages = [
     'prettytable==0.7.2',
     'python-dateutil==2.4.0',
     'flask==0.10.1',
-    'json-rpc==1.8,1',
+    'json-rpc==1.8.1',
     'pytest==2.6.3',
     'pycoin==0.52',
     'python-bitcoinlib==0.2.1',
+    'numpy==1.9.1',
     'pymongo==2.7.2',
-    'https://github.com/surfly/gevent/archive/72119c8c3e704b75a2d91d8555ca8673928ebabb.zip#egg=gevent',
-    #^ 1.0.1 is a bit old. this is an up to date master that has some good bug fixes...
+    'gevent<=1.0.2',
     'gevent-websocket==0.9.3',
     'gevent-socketio==0.3.6',
-    'https://github.com/gwik/geventhttpclient/archive/83ded6980a2e37025acbe5a93a52ceedd8f9338a.zip#egg=geventhttpclient',
+    'geventhttpclient<=1.2.0',
     'redis==2.10.3',
-    'https://github.com/natecode/grequests/archive/ea00e193074fc11d71b4ff74138251f6055ca364.zip#egg=grequests',
-    #grequests (waiting until the next point release with natecode's pull request factored in)
+    'grequests<=0.2.1',
     'pyzmq==14.4.1',
     'pillow==2.6.1',
-    'numpy==1.9.1',
     'lxml==3.4.1',
     'jsonschema==2.4.0',
     'strict_rfc3339==0.5',
@@ -38,6 +33,15 @@ required_packages = [
     'colorama==0.3.2',
     'configobj==5.0.6',
     'repoze.lru==0.6'
+]
+
+required_repos = [
+    #see http://stackoverflow.com/a/17442663
+    'https://github.com/surfly/gevent/archive/72119c8c3e704b75a2d91d8555ca8673928ebabb.zip#egg=gevent-1.2',
+    #^ 1.0.1 is a bit old. this is an up to date master that has some good bug fixes...
+    'https://github.com/gwik/geventhttpclient/archive/83ded6980a2e37025acbe5a93a52ceedd8f9338a.zip#egg=geventhttpclient-1.2.0',
+    'https://github.com/natecode/grequests/archive/ea00e193074fc11d71b4ff74138251f6055ca364.zip#egg=grequests-0.2.1',
+    #^ grequests (waiting until the next point release with natecode's pull request factored in)
 ]
 
 VERSION="1.0.1"
@@ -61,8 +65,12 @@ setup_options = {
     'provides': ['counterblock',],
     'packages': find_packages(),
     'zip_safe': False,
+    'dependency_links': required_repos,
     'install_requires': required_packages,
-    'setup_requires': ['appdirs==1.4.0',],
+    'setup_requires': [
+        'numpy==1.9.1', #see https://github.com/numpy/numpy/issues/2434#issuecomment-65252402
+        'appdirs==1.4.0',
+    ],
     'include_package_data': True,
     'entry_points': {
         'console_scripts': [
