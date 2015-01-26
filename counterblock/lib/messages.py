@@ -3,7 +3,7 @@ import copy
 import logging
 import pymongo
 
-from lib import config, blockchain, database
+from counterblock.lib import config, blockchain, database
 
 logger = logging.getLogger(__name__)
 

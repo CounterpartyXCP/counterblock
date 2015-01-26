@@ -15,9 +15,9 @@ import logging
 import datetime
 import time
 
-from lib import config, log, blockfeed, util, module, database
-from lib.processor import messages, caughtup, startup #to kick off processors
-from lib.processor import StartUpProcessor
+from counterblock.lib import config, log, blockfeed, util, module, database
+from counterblock.lib.processor import messages, caughtup, startup #to kick off processors
+from counterblock.lib.processor import StartUpProcessor
 
 logger = logging.getLogger(__name__)
 

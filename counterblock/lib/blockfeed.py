@@ -15,8 +15,8 @@ import itertools
 import pymongo
 import gevent
 
-from lib import config, util, blockchain, cache, database
-from lib.processor import MessageProcessor, BlockProcessor, CaughtUpProcessor
+from counterblock.lib import config, util, blockchain, cache, database
+from counterblock.lib.processor import MessageProcessor, BlockProcessor, CaughtUpProcessor
 
 D = decimal.Decimal 
 logger = logging.getLogger(__name__)

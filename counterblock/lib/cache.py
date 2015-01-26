@@ -7,7 +7,7 @@ import redis
 import redis.connection
 redis.connection.socket = gevent.socket #make redis play well with gevent
 
-from lib import config, util
+from counterblock.lib import config, util
 
 logger = logging.getLogger(__name__)
 

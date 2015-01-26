@@ -2,8 +2,8 @@ import os
 import logging
 import pymongo
 
-from lib import config, cache, util
-from lib.processor import RollbackProcessor
+from counterblock.lib import config, cache, util
+from counterblock.lib.processor import RollbackProcessor
 
 logger = logging.getLogger(__name__)
 

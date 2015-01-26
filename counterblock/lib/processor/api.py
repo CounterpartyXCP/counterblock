@@ -22,9 +22,9 @@ import pymongo
 from bson import json_util
 from bson.son import SON
 
-from lib import config, database, siofeeds, util, blockchain, blockfeed, messages
-from lib.components import betting, assets, assets_trading, dex
-from . import API
+from counterblock.lib import config, database, siofeeds, util, blockchain, blockfeed, messages
+from counterblock.lib.components import betting, assets, assets_trading, dex
+from counterblock.lib.processor import API
 
 PREFERENCES_MAX_LENGTH = 100000 #in bytes, as expressed in JSON
 API_MAX_LOG_SIZE = 10 * 1024 * 1024 #max log size of 20 MB before rotation (make configurable later)

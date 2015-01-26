@@ -5,9 +5,9 @@ import gevent
 import decimal
 D = decimal.Decimal 
 
-from lib import util, config, blockchain, blockfeed, database, messages
-from lib.components import assets, betting
-from . import MessageProcessor, CORE_FIRST_PRIORITY, CORE_LAST_PRIORITY, api
+from counterblock.lib import util, config, blockchain, blockfeed, database, messages
+from counterblock.lib.components import assets, betting
+from counterblock.lib.processor import MessageProcessor, CORE_FIRST_PRIORITY, CORE_LAST_PRIORITY, api
 
 logger = logging.getLogger(__name__)
 

@@ -5,7 +5,7 @@ import base64
 import json
 from datetime import datetime
 
-from lib import config, util, blockchain
+from counterblock.lib import config, util, blockchain
 
 ASSET_MAX_RETRY = 3
 D = decimal.Decimal

@@ -12,7 +12,7 @@ import bitcoin as bitcoinlib
 import bitcoin.rpc as bitcoin_rpc
 from pycoin import encoding
 
-from lib import config, util
+from counterblock.lib import config, util
 
 D = decimal.Decimal
 decimal.getcontext().prec = 8

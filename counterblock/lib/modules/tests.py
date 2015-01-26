@@ -14,8 +14,8 @@ early_exit_block = 313000
 logger = logging.getLogger(__name__)
 
 if __name__ != '__main__':
-    from lib import config
-    from lib.processor import processor
+    from counterblock.lib import config
+    from counterblock.lib.processor import processor
     
     @processor.StartUpProcessor.subscribe()
     def reparse_timer_start(): 

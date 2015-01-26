@@ -5,7 +5,7 @@ import base64
 import json
 import time
 
-from lib import cache, config, util
+from counterblock.lib import cache, config, util
 
 decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
 D = decimal.Decimal

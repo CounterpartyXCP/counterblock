@@ -27,7 +27,7 @@ from PIL import Image
 from jsonschema import FormatChecker, Draft4Validator, FormatError
 import strict_rfc3339, rfc3987, aniso8601 # not needed here but to ensure that installed
 
-from lib import config
+from counterblock.lib import config
 
 JSONRPC_API_REQUEST_TIMEOUT = 50 #in seconds
 

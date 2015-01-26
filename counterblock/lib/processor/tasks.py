@@ -13,8 +13,8 @@ import pymongo
 import gevent
 from PIL import Image
 
-from lib import config, util, blockchain
-from lib.components import assets, assets_trading, betting
+from counterblock.lib import config, util, blockchain
+from counterblock.lib.components import assets, assets_trading, betting
 
 COMPILE_MARKET_PAIR_INFO_PERIOD = 10 * 60 #in seconds (this is every 10 minutes currently)
 COMPILE_ASSET_MARKET_INFO_PERIOD = 30 * 60 #in seconds (this is every 30 minutes currently)

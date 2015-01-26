@@ -4,7 +4,7 @@ import decimal
 import base64
 import json
 
-from lib import config, util
+from counterblock.lib import config, util
 
 FEED_MAX_RETRY = 3
 D = decimal.Decimal

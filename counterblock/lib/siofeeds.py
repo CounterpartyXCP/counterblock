@@ -12,7 +12,7 @@ from socketio import socketio_manage
 from socketio.mixins import BroadcastMixin
 from socketio.namespace import BaseNamespace
 
-from lib import config, util
+from counterblock.lib import config, util
 
 logger = logging.getLogger(__name__)
 onlineClients = {} #key = walletID, value = datetime when connected

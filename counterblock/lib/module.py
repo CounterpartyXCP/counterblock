@@ -4,9 +4,11 @@ import imp
 import logging
 from configobj import ConfigObj
 
-from lib import config
+from counterblock.lib import config
 
 logger = logging.getLogger(__name__)
+
+CONFIG_FILENAME = 'counterblock_module.conf'
 
 def load_all():
     """Loads 3rd party plugin modules (note that this does not yet run startup processors, etc)
@@ -38,8 +40,8 @@ def load_all():
                 params_dict['enabled'] = False if "false" == params[1].lower() else True
         return params_dict
 
-    #Read counterblockd_module.conf
-    module_conf = ConfigObj(os.path.join(config.DATA_DIR, 'counterblockd_module.conf'))
+    #Read module configuration file
+    module_conf = ConfigObj(os.path.join(config.DATA_DIR, CONFIG_FILENAME))
     for key, container in module_conf.items():
         if key == 'LoadModule':
             for module, user_settings in container.items(): 
@@ -53,7 +55,7 @@ def load_all():
             try:
                 processor_functions = processor.__dict__[key]
             except: 
-                logger.warn("Invalid config header %s in counterblockd_module.conf" % key)
+                logger.warn("Invalid config header %s in %s" % (key, CONFIG_FILENAME))
                 continue
             #print(processor_functions)
             for func_name, user_settings in container.items(): 
@@ -73,7 +75,7 @@ def toggle(mod, enabled=True):
     except: 
         print("Unable to find module %s"  % mod)
         return
-    mod_config_path = os.path.join(config.DATA_DIR, 'counterblockd_module.conf')
+    mod_config_path = os.path.join(config.DATA_DIR, CONFIG_FILENAME)
     module_conf = ConfigObj(mod_config_path)
     try:
         try:
@@ -88,7 +90,7 @@ def toggle(mod, enabled=True):
     print("%s Module %s" %("Enabled" if enabled else "Disabled", mod))
     
 def list_all():
-    mod_config_path = os.path.join(config.DATA_DIR, 'counterblockd_module.conf')
+    mod_config_path = os.path.join(config.DATA_DIR, CONFIG_FILENAME)
     module_conf = ConfigObj(mod_config_path)
     for name, modules in module_conf.items(): 
         print("Configuration for %s" %name)

@@ -12,7 +12,7 @@ import cgi
 import numpy
 import pymongo
 
-from lib import config, database, util, blockchain
+from counterblock.lib import config, database, util, blockchain
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)

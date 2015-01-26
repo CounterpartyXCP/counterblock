@@ -5,8 +5,8 @@ import time
 import logging
 import gevent
 
-from lib import blockfeed, config, cache, siofeeds, database, util
-from . import StartUpProcessor, CORE_FIRST_PRIORITY, CORE_LAST_PRIORITY, api, tasks
+from counterblock.lib import blockfeed, config, cache, siofeeds, database, util
+from counterblock.lib.processor import StartUpProcessor, CORE_FIRST_PRIORITY, CORE_LAST_PRIORITY, api, tasks
 
 logger = logging.getLogger(__name__)
 
