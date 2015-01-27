@@ -41,7 +41,7 @@ def load_all():
         return params_dict
 
     #Read module configuration file
-    module_conf = ConfigObj(os.path.join(config.DATA_DIR, CONFIG_FILENAME))
+    module_conf = ConfigObj(os.path.join(config.config_dir, CONFIG_FILENAME))
     for key, container in module_conf.items():
         if key == 'LoadModule':
             for module, user_settings in container.items(): 
@@ -75,7 +75,7 @@ def toggle(mod, enabled=True):
     except: 
         print("Unable to find module %s"  % mod)
         return
-    mod_config_path = os.path.join(config.DATA_DIR, CONFIG_FILENAME)
+    mod_config_path = os.path.join(config.config_dir, CONFIG_FILENAME)
     module_conf = ConfigObj(mod_config_path)
     try:
         try:
@@ -90,7 +90,7 @@ def toggle(mod, enabled=True):
     print("%s Module %s" %("Enabled" if enabled else "Disabled", mod))
     
 def list_all():
-    mod_config_path = os.path.join(config.DATA_DIR, CONFIG_FILENAME)
+    mod_config_path = os.path.join(config.config_dir, CONFIG_FILENAME)
     module_conf = ConfigObj(mod_config_path)
     for name, modules in module_conf.items(): 
         print("Configuration for %s" %name)

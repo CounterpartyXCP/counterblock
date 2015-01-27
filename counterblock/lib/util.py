@@ -283,7 +283,7 @@ fetch_timeout=1, is_json=True, per_request_complete_callback=None):
 
 def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimensions=(48, 48), fetch_timeout=1):
     def make_data_dir(subfolder):
-        path = os.path.join(config.DATA_DIR, subfolder)
+        path = os.path.join(config.data_dir, subfolder)
         if not os.path.exists(path):
             os.makedirs(path)
         return path

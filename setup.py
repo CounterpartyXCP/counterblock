@@ -77,7 +77,10 @@ setup_options = {
             'counterblock = counterblock:server_main',
             'armory_utxsvr = counterblock:armory_utxsvr_main',
         ]
-    }
+    },
+    'data_files': [
+        ('counterblock/schemas', ['counterblock/schemas/asset.schema.json', 'counterblock/schemas/feed.schema.json']),
+    ]
 }
 
 setup(**setup_options)

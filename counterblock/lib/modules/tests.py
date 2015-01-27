@@ -59,7 +59,7 @@ if __name__ != '__main__':
         db_info = get_db_info_from_file()
         db_info[head_label] = cur_hash
         logger.info("storing db hashes to file for Head %s" %head_label)
-        with open(os.path.join(config.DATA_DIR, "dbhashes.txt"), 'w') as wfile: 
+        with open(os.path.join(config.data_dir, "dbhashes.txt"), 'w') as wfile: 
             json.dump(db_info, wfile)
         
 def get_dbhash_file_path(): 

@@ -30,7 +30,7 @@ def main():
     parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', default=False, help='sets log level to DEBUG instead of WARNING')
     parser.add_argument('--reparse', action='store_true', default=False, help='force full re-initialization of the counterblockd database')
     parser.add_argument('--testnet', action='store_true', default=False, help='use Bitcoin testnet addresses and block numbers')
-    parser.add_argument('--data-dir', help='specify to explicitly override the directory in which to keep the config file and log file')
+    
     parser.add_argument('--config-file', help='the location of the configuration file')
     parser.add_argument('--log-file', help='the location of the log file')
     parser.add_argument('--tx-log-file', help='the location of the transaction log file')

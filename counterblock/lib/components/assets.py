@@ -32,7 +32,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
         else:
             db.asset_extended_info.remove({ 'asset': asset })
             #remove any saved asset image data
-            imagePath = os.path.join(config.DATA_DIR, config.SUBDIR_ASSET_IMAGES, asset + '.png')
+            imagePath = os.path.join(config.data_dir, config.SUBDIR_ASSET_IMAGES, asset + '.png')
             if os.path.exists(imagePath):
                 os.remove(imagePath)
 

@@ -34,7 +34,7 @@ def init_geoip():
         logger.info("Checking/updating GeoIP.dat ...")
     
         download = False;
-        data_path = os.path.join(config.DATA_DIR, 'GeoIP.dat')
+        data_path = os.path.join(config.data_dir, 'GeoIP.dat')
         if not os.path.isfile(data_path):
             download = True
         else:
@@ -46,13 +46,13 @@ def init_geoip():
         if download:
             logger.info("Downloading GeoIP.dat")
             ##TODO: replace with pythonic way to do this!
-            cmd = "cd '{}'; wget -N -q http://geolite.maxmind.com/download/geoip/database/GeoLiteCountry/GeoIP.dat.gz; gzip -dfq GeoIP.dat.gz".format(config.DATA_DIR)
+            cmd = "cd '{}'; wget -N -q http://geolite.maxmind.com/download/geoip/database/GeoLiteCountry/GeoIP.dat.gz; gzip -dfq GeoIP.dat.gz".format(config.data_dir)
             util.subprocess_cmd(cmd)
         else:
             logger.info("GeoIP.dat database up to date. Not downloading.")
     
     download_geoip_data()
-    config.GEOIP =  pygeoip.GeoIP(os.path.join(config.DATA_DIR, 'GeoIP.dat'))
+    config.GEOIP =  pygeoip.GeoIP(os.path.join(config.data_dir, 'GeoIP.dat'))
 
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 3)
 def init_mongo():

@@ -23,6 +23,10 @@ ORDER_BTC_DUST_LIMIT_CUTOFF = MULTISIG_DUST_SIZE
 BTC = 'BTC'
 XCP = 'XCP'
 
+BTC_NAME = "Bitcoin"
+XCP_NAME = "Counterparty"
+APP_NAME = "counterblock"
+
 MAX_REORG_NUM_BLOCKS = 10 #max reorg we'd likely ever see
 MAX_FORCED_REORG_NUM_BLOCKS = 20 #but let us go deeper when messages are out of sync
 
@@ -53,23 +57,31 @@ def init_data_dir(args):
     import os
     import appdirs
 
-    global DATA_DIR
-    if not args.data_dir:
-        DATA_DIR = appdirs.user_data_dir(appauthor='Counterparty', appname='counterblockd', roaming=True)
-    else:
-        DATA_DIR = args.data_dir
-    if not os.path.isdir(DATA_DIR): os.mkdir(DATA_DIR)
+    global data_dir
+    data_dir = appdirs.user_data_dir(appauthor=XCP_NAME, appname=APP_NAME, roaming=True)
+    if not os.path.isdir(data_dir):
+        os.makedirs(data_dir)
 
+    global config_dir  
+    config_dir = appdirs.user_config_dir(appauthor=XCP_NAME, appname=APP_NAME, roaming=True)
+    if not os.path.isdir(config_dir):
+        os.makedirs(config_dir)
+
+    global log_dir
+    log_dir = appdirs.user_log_dir(appauthor=XCP_NAME, appname=APP_NAME)
+    if not os.path.isdir(log_dir):
+        os.makedirs(log_dir)
+                
 def load(args):
     import os
     import ConfigParser
     import email.utils
     
-    assert DATA_DIR
+    assert data_dir and config_dir and log_dir
     
     #Read config file
     configfile = ConfigParser.ConfigParser()
-    config_path = os.path.join(DATA_DIR, 'counterblockd.conf')
+    config_path = os.path.join(config_dir, 'counterblockd.conf' if args.testnet else 'counterblockd.testnet.conf')
     configfile.read(config_path)
     has_config = configfile.has_section('Default')
     
@@ -82,6 +94,9 @@ def load(args):
     else:
         TESTNET = False
 
+    global net_path_part
+    net_path_part = '.testnet' if TESTNET else ''
+    
     #first block
     global BLOCK_FIRST
     if TESTNET:
@@ -98,16 +113,16 @@ def load(args):
 
     # backend (e.g. bitcoind)
     global BACKEND_CONNECT
-    if args.counterpartyd_rpc_connect:
-        BACKEND_CONNECT = args.backend_rpc_connect
+    if args.backend_connect:
+        BACKEND_CONNECT = args.backend_connect
     elif has_config and configfile.has_option('Default', 'backend-connect') and configfile.get('Default', 'backend-connect'):
         BACKEND_CONNECT = configfile.get('Default', 'backend-connect')
     else:
         BACKEND_CONNECT = 'localhost'
 
     global BACKEND_PORT
-    if args.backend_rpc_port:
-        BACKEND_PORT = args.backend_rpc_port
+    if args.backend_port:
+        BACKEND_PORT = args.backend_port
     elif has_config and configfile.has_option('Default', 'backend-port') and configfile.get('Default', 'backend-port'):
         BACKEND_PORT = configfile.get('Default', 'backend-port')
     else:
@@ -122,16 +137,16 @@ def load(args):
         raise Exception("Please specific a valid port number backend-port configuration parameter")
             
     global BACKEND_USER
-    if args.backend_rpc_user:
-        BACKEND_USER = args.backend_rpc_user
+    if args.backend_user:
+        BACKEND_USER = args.backend_user
     elif has_config and configfile.has_option('Default', 'backend-user') and configfile.get('Default', 'backend-user'):
         BACKEND_USER = configfile.get('Default', 'backend-user')
     else:
-        BACKEND_USER = 'rpcuser'
+        BACKEND_USER = 'rpc'
 
     global BACKEND_PASSWORD
-    if args.backend_rpc_password:
-        BACKEND_PASSWORD = args.backend_rpc_password
+    if args.backend_password:
+        BACKEND_PASSWORD = args.backend_password
     elif has_config and configfile.has_option('Default', 'backend-password') and configfile.get('Default', 'backend-password'):
         BACKEND_PASSWORD = configfile.get('Default', 'backend-password')
     else:
@@ -148,16 +163,16 @@ def load(args):
     
     # counterpartyd RPC connection
     global COUNTERPARTY_CONNECT
-    if args.counterpartyd_rpc_connect:
-        COUNTERPARTY_CONNECT = args.counterpartyd_rpc_connect
+    if args.counterparty_connect:
+        COUNTERPARTY_CONNECT = args.counterparty_connect
     elif has_config and configfile.has_option('Default', 'counterparty-connect') and configfile.get('Default', 'counterparty-connect'):
         COUNTERPARTY_CONNECT = configfile.get('Default', 'counterparty-connect')
     else:
         COUNTERPARTY_CONNECT = 'localhost'
 
     global COUNTERPARTY_PORT
-    if args.counterpartyd_rpc_port:
-        COUNTERPARTY_PORT = args.counterpartyd_rpc_port
+    if args.counterparty_port:
+        COUNTERPARTY_PORT = args.counterparty_port
     elif has_config and configfile.has_option('Default', 'counterparty-port') and configfile.get('Default', 'counterparty-port'):
         COUNTERPARTY_PORT = configfile.get('Default', 'counterparty-port')
     else:
@@ -172,16 +187,16 @@ def load(args):
         raise Exception("Please specific a valid port number counterparty-port configuration parameter")
     
     global COUNTERPARTY_USER
-    if args.counterpartyd_rpc_user:
-        COUNTERPARTY_USER = args.counterpartyd_rpc_user
+    if args.counterparty_user:
+        COUNTERPARTY_USER = args.counterparty_user
     elif has_config and configfile.has_option('Default', 'counterparty-user') and configfile.get('Default', 'counterparty-user'):
         COUNTERPARTY_USER = configfile.get('Default', 'counterparty-user')
     else:
-        COUNTERPARTY_USER = 'rpcuser'
+        COUNTERPARTY_USER = 'rpc'
 
     global COUNTERPARTY_PASSWORD
-    if args.counterpartyd_rpc_password:
-        COUNTERPARTY_PASSWORD = args.counterpartyd_rpc_password
+    if args.counterparty_password:
+        COUNTERPARTY_PASSWORD = args.counterparty_password
     elif has_config and configfile.has_option('Default', 'counterparty-password') and configfile.get('Default', 'counterparty-password'):
         COUNTERPARTY_PASSWORD = configfile.get('Default', 'counterparty-password')
     else:
@@ -378,22 +393,22 @@ def load(args):
     # System (logging, pids, etc)
     global COUNTERBLOCKD_DIR
     COUNTERBLOCKD_DIR = os.path.realpath(os.path.join(os.path.dirname(os.path.realpath(__file__)), os.pardir))
-
+    
     global LOG
     if args.log_file:
         LOG = args.log_file
     elif has_config and configfile.has_option('Default', 'log-file'):
         LOG = configfile.get('Default', 'log-file')
     else:
-        LOG = os.path.join(DATA_DIR, 'counterblockd.log')
-    
+        LOG = os.path.join(log_dir, 'counterblock%s.log' % net_path_part)
+                
     global TX_LOG
     if args.tx_log_file:
         TX_LOG = args.tx_log_file
     elif has_config and configfile.has_option('Default', 'tx-log-file'):
         TX_LOG = configfile.get('Default', 'tx-log-file')
     else:
-        TX_LOG = os.path.join(DATA_DIR, 'counterblockd-tx.log')
+        TX_LOG = os.path.join(log_dir, 'counterblock-tx%s.log' % net_path_part)
 
     global PID
     if args.pid_file:
@@ -401,7 +416,7 @@ def load(args):
     elif has_config and configfile.has_option('Default', 'pid-file'):
         PID = configfile.get('Default', 'pid-file')
     else:
-        PID = os.path.join(DATA_DIR, 'counterblockd.pid')
+        PID = os.path.join(data_dir, 'counterblock%s.pid' % net_path_part)
 
     #email-related
     global SUPPORT_EMAIL

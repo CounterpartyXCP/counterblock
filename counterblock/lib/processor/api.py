@@ -1630,7 +1630,7 @@ def serve_api():
     #make a new RotatingFileHandler for the access log.
     api_logger = logging.getLogger("api_log")
     h = logging_handlers.RotatingFileHandler(
-        os.path.join(config.DATA_DIR, "api.access.log"),
+        os.path.join(config.log_dir, "counterblock-api%s.log" % config.net_path_part),
         'a', API_MAX_LOG_SIZE, API_MAX_LOG_COUNT)
     api_logger.setLevel(logging.INFO)
     api_logger.addHandler(h)
