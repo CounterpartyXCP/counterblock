@@ -89,7 +89,7 @@ def main():
     parser = argparse.ArgumentParser(description='Armory offline transaction generator daemon')
     parser.add_argument('--testnet', action='store_true', help='Run for testnet')
     args = parser.parse_args()
-    btcdir = "/home/xcp/.bitcoin%s/" % ('-testnet/testnet3' if args.testnet else '')
+    btcdir = "/home/xcp/.bitcoin" + ("/testnet3" if args.testnet else '')
 
     print("**** Initializing armory ...")
     #require armory to be installed, adding the configured armory path to PYTHONPATH
