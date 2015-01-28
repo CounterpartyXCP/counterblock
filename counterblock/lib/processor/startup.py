@@ -68,9 +68,9 @@ def init_siofeeds():
     siofeeds.set_up()
 
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 6)
-def start_cpd_blockfeed():
-    logger.info("Starting up counterpartyd block feed poller...")
-    gevent.spawn(blockfeed.process_cpd_blockfeed, config.ZMQ_PUBLISHER_EVENTFEED)
+def start_cp_blockfeed():
+    logger.info("Starting up counterparty block feed poller...")
+    gevent.spawn(blockfeed.process_cp_blockfeed, config.ZMQ_PUBLISHER_EVENTFEED)
     
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 7)
 def check_blockchain_service():

@@ -25,11 +25,11 @@ def fuzzy_is_caught_up():
     """We don't want to give users 525 errors or login errors if counterblockd/counterpartyd is in the process of
     getting caught up, but we DO if counterblockd is either clearly out of date with the blockchain, or reinitializing its database"""
     return     config.state['caught_up'] \
-           or (    config.state['cpd_backend_block_index']
-               and config.state['my_latest_block']['block_index'] >= config.state['cpd_backend_block_index'] - 1
+           or (    config.state['cp_backend_block_index']
+               and config.state['my_latest_block']['block_index'] >= config.state['cp_backend_block_index'] - 1
               )
         
-def process_cpd_blockfeed(zmq_publisher_eventfeed):
+def process_cp_blockfeed(zmq_publisher_eventfeed):
     config.LATEST_BLOCK_INIT = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
     zmq_publisher_eventfeed = config.ZMQ_PUBLISHER_EVENTFEED
     
@@ -37,8 +37,8 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
     config.state['cur_block'] = {'block_index': 0, } #block being currently processed
     config.state['my_latest_block'] = {'block_index': 0 } #last block that was successfully processed by counterblockd
     config.state['last_message_index'] = -1 #initialize (last processed message index)
-    config.state['cpd_latest_block_index'] = 0 #last block that was successfully processed by counterparty
-    config.state['cpd_backend_block_index'] = 0 #the latest block height as reported by the cpd blockchain backend
+    config.state['cp_latest_block_index'] = 0 #last block that was successfully processed by counterparty
+    config.state['cp_backend_block_index'] = 0 #the latest block height as reported by the cpd blockchain backend
     config.state['caught_up_started_events'] = False
     #^ set after we are caught up and start up the recurring events that depend on us being caught up with the blockchain 
     
@@ -128,11 +128,11 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
 
         logger.info("Block: %i of %i [message height=%s]" % (
             config.state['my_latest_block']['block_index'],
-            config.state['cpd_backend_block_index'] \
-                if config.state['cpd_backend_block_index'] else '???',
+            config.state['cp_backend_block_index'] \
+                if config.state['cp_backend_block_index'] else '???',
             config.state['last_message_index'] if config.state['last_message_index'] != -1 else '???'))
 
-        if config.state['cpd_latest_block_index'] - cur_block_index < config.MAX_REORG_NUM_BLOCKS: #only when we are near the tip
+        if config.state['cp_latest_block_index'] - cur_block_index < config.MAX_REORG_NUM_BLOCKS: #only when we are near the tip
             clean_mempool_tx()
         
     #grab our stored preferences, and rebuild the database if necessary
@@ -166,7 +166,7 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
     while True:
         if not autopilot or autopilot_runner == 0:
             try:
-                cpd_running_info = util.jsonrpc_api("get_running_info", abort_on_error=True)['result']
+                cp_running_info = util.jsonrpc_api("get_running_info", abort_on_error=True)['result']
             except Exception, e:
                 logger.warn("Cannot contact counterpartyd get_running_info: %s" % e)
                 time.sleep(3)
@@ -181,51 +181,51 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
            or app_config['counterpartyd_db_version_minor'] is None \
            or app_config['counterpartyd_running_testnet'] is None:
             updatePrefs = True
-        elif cpd_running_info['version_major'] != app_config['counterpartyd_db_version_major']:
+        elif cp_running_info['version_major'] != app_config['counterpartyd_db_version_major']:
             logger.warn("counterpartyd MAJOR DB version change (we built from %s, counterpartyd is at %s)."
                 + " Wiping our state data." % (
-                    app_config['counterpartyd_db_version_major'], cpd_running_info['version_major']))
+                    app_config['counterpartyd_db_version_major'], cp_running_info['version_major']))
             wipeState = True
             updatePrefs = True
-        elif cpd_running_info['version_minor'] != app_config['counterpartyd_db_version_minor']:
+        elif cp_running_info['version_minor'] != app_config['counterpartyd_db_version_minor']:
             logger.warn("counterpartyd MINOR DB version change (we built from %s.%s, counterpartyd is at %s.%s)."
                 + " Wiping our state data." % (
                 app_config['counterpartyd_db_version_major'], app_config['counterpartyd_db_version_minor'],
-                cpd_running_info['version_major'], cpd_running_info['version_minor']))
+                cp_running_info['version_major'], cp_running_info['version_minor']))
             wipeState = True
             updatePrefs = True
-        elif cpd_running_info.get('running_testnet', False) != app_config['counterpartyd_running_testnet']:
+        elif cp_running_info.get('running_testnet', False) != app_config['counterpartyd_running_testnet']:
             logger.warn("counterpartyd testnet setting change (from %s to %s). Wiping our state data." % (
-                app_config['counterpartyd_running_testnet'], cpd_running_info['running_testnet']))
+                app_config['counterpartyd_running_testnet'], cp_running_info['running_testnet']))
             wipeState = True
             updatePrefs = True
         if wipeState:
             app_config = blow_away_db()
         if updatePrefs:
-            app_config['counterpartyd_db_version_major'] = cpd_running_info['version_major'] 
-            app_config['counterpartyd_db_version_minor'] = cpd_running_info['version_minor']
-            app_config['counterpartyd_running_testnet'] = cpd_running_info['running_testnet']
+            app_config['counterpartyd_db_version_major'] = cp_running_info['version_major'] 
+            app_config['counterpartyd_db_version_minor'] = cp_running_info['version_minor']
+            app_config['counterpartyd_running_testnet'] = cp_running_info['running_testnet']
             config.mongo_db.app_config.update({}, app_config)
             #reset my latest block record
             config.state['my_latest_block'] = config.LATEST_BLOCK_INIT
             config.state['caught_up'] = False #You've Come a Long Way, Baby
             
         #work up to what block counterpartyd is at
-        config.state['cpd_latest_block_index'] = cpd_running_info['last_block']['block_index'] \
-            if isinstance(cpd_running_info['last_block'], dict) else cpd_running_info['last_block']
-        config.state['cpd_backend_block_index'] = cpd_running_info['bitcoin_block_count']
-        if not config.state['cpd_latest_block_index']:
+        config.state['cp_latest_block_index'] = cp_running_info['last_block']['block_index'] \
+            if isinstance(cp_running_info['last_block'], dict) else cp_running_info['last_block']
+        config.state['cp_backend_block_index'] = cp_running_info['bitcoin_block_count']
+        if not config.state['cp_latest_block_index']:
             logger.warn("counterpartyd has no last processed block (probably is reparsing or was just restarted)."
                 + " Waiting 3 seconds before trying again...")
             time.sleep(3)
             continue
-        assert config.state['cpd_latest_block_index']
-        if config.state['my_latest_block']['block_index'] < config.state['cpd_latest_block_index']:
+        assert config.state['cp_latest_block_index']
+        if config.state['my_latest_block']['block_index'] < config.state['cp_latest_block_index']:
             #need to catch up
             config.state['caught_up'] = False
             
             #Autopilot and autopilot runner are redundant
-            if config.state['cpd_latest_block_index'] - config.state['my_latest_block']['block_index'] > 500: #we are safely far from the tip, switch to bulk-everything
+            if config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'] > 500: #we are safely far from the tip, switch to bulk-everything
                 autopilot = True
                 if autopilot_runner == 0:
                     autopilot_runner = 500
@@ -236,37 +236,37 @@ def process_cpd_blockfeed(zmq_publisher_eventfeed):
             cur_block_index = config.state['my_latest_block']['block_index'] + 1
             try:
                 block_data = cache.get_block_info(cur_block_index,
-                    min(100, (config.state['cpd_latest_block_index'] - config.state['my_latest_block']['block_index'])))
+                    min(100, (config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'])))
             except Exception, e:
                 logger.warn(str(e) + " Waiting 3 seconds before trying again...")
                 time.sleep(3)
                 continue
             
             # clean api cache
-            if config.state['cpd_latest_block_index'] - cur_block_index <= config.MAX_REORG_NUM_BLOCKS: #only when we are near the tip
+            if config.state['cp_latest_block_index'] - cur_block_index <= config.MAX_REORG_NUM_BLOCKS: #only when we are near the tip
                 cache.clean_block_cache(cur_block_index)
 
             parse_block(block_data)
 
-        elif config.state['my_latest_block']['block_index'] > config.state['cpd_latest_block_index']:
+        elif config.state['my_latest_block']['block_index'] > config.state['cp_latest_block_index']:
             # should get a reorg message. Just to be on the safe side, prune back MAX_REORG_NUM_BLOCKS blocks
             # before what counterpartyd is saying if we see this
             logger.error("Very odd: Ahead of counterpartyd with block indexes! Pruning back %s blocks to be safe."
                 % config.MAX_REORG_NUM_BLOCKS)
             config.state['my_latest_block'] = database.rollback(
-                config.state['cpd_latest_block_index'] - config.MAX_REORG_NUM_BLOCKS)
+                config.state['cp_latest_block_index'] - config.MAX_REORG_NUM_BLOCKS)
         else:
             #...we may be caught up (to counterpartyd), but counterpartyd may not be (to the blockchain). And if it isn't, we aren't
-            config.state['caught_up'] = cpd_running_info['db_caught_up']
+            config.state['caught_up'] = cp_running_info['db_caught_up']
             
             #this logic here will cover a case where we shut down counterblockd, then start it up again quickly...
             # in that case, there are no new blocks for it to parse, so config.state['last_message_index'] would otherwise remain 0.
             # With this logic, we will correctly initialize config.state['last_message_index'] to the last message ID of the last processed block
             if config.state['last_message_index'] == -1 or config.state['my_latest_block']['block_index'] == 0:
                 if config.state['last_message_index'] == -1:
-                    config.state['last_message_index'] = cpd_running_info['last_message_index']
+                    config.state['last_message_index'] = cp_running_info['last_message_index']
                 if config.state['my_latest_block']['block_index'] == 0:
-                    config.state['my_latest_block']['block_index'] = cpd_running_info['last_block']['block_index']
+                    config.state['my_latest_block']['block_index'] = cp_running_info['last_block']['block_index']
                 logger.info("Detected blocks caught up on startup. Setting last message idx to %s, current block index to %s ..." % (
                     config.state['last_message_index'], config.state['my_latest_block']['block_index']))
             

@@ -195,7 +195,7 @@ def rollback(max_block_index):
        and we should get rid of them
     
     NOTE: after calling this function, you should always trigger a "continue" statement to reiterate the processing loop
-    (which will get a new cpd_latest_block from counterpartyd and resume as appropriate)   
+    (which will get a new cp_latest_block from counterpartyd and resume as appropriate)   
     """
     assert isinstance(max_block_index, (int, long)) and max_block_index > 0
     if not config.mongo_db.processed_blocks.find_one({"block_index": max_block_index}):

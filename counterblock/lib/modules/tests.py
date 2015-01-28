@@ -27,7 +27,7 @@ if __name__ != '__main__':
 
     @processor.CaughtUpProcessor.subscribe(priority=90, enabled=False)
     def reparse_timer_stop(): 
-        msg = "Caught up To Blockchain" if config.state['caught_up'] else "Timer stopped at %i, Counterpartyd is at %i" %(config.state['my_latest_block']['block_index'], config.state['cpd_latest_block_index'])
+        msg = "Caught up To Blockchain" if config.state['caught_up'] else "Timer stopped at %i, Counterpartyd is at %i" %(config.state['my_latest_block']['block_index'], config.state['cp_latest_block_index'])
         logger.warn("%s, time elapsed %s" %(msg, time.time() - config.state['timer']))
 
     @processor.BlockProcessor.subscribe()

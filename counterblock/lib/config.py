@@ -9,9 +9,6 @@ DB_VERSION = 22 #a db version increment will cause counterblockd to rebuild its 
 
 UNIT = 100000000
 
-SUBDIR_ASSET_IMAGES = "asset_img" #goes under the data dir and stores retrieved asset images
-SUBDIR_FEED_IMAGES = "feed_img" #goes under the data dir and stores retrieved feed images
-
 MARKET_PRICE_DERIVE_NUM_POINTS = 8 #number of last trades over which to derive the market price (via WVAP)
 
 # FROM counterpartyd
@@ -396,7 +393,7 @@ def load(args):
     elif has_config and configfile.has_option('Default', 'tx-log-file'):
         TX_LOG = configfile.get('Default', 'tx-log-file')
     else:
-        TX_LOG = os.path.join(log_dir, 'server.tx%s.log' % net_path_part)
+        TX_LOG = os.path.join(log_dir, 'server%s.tx.log' % net_path_part)
 
     global PID
     if args.pid_file:
@@ -425,6 +422,12 @@ def load(args):
         EMAIL_SERVER = configfile.get('Default', 'email-server')
     else:
         EMAIL_SERVER = "localhost"
+        
+    #Other things
+    global SUBDIR_ASSET_IMAGES
+    SUBDIR_ASSET_IMAGES = "asset_img%s" % net_path_part #goes under the data dir and stores retrieved asset images
+    global SUBDIR_FEED_IMAGES
+    SUBDIR_FEED_IMAGES = "feed_img%s" % net_path_part #goes under the data dir and stores retrieved feed images
 
     ###
     # TODO: MOVE OUT INTO THEIR OWN PLUGINS

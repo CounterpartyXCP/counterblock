@@ -57,7 +57,7 @@ def serve_api():
         return {
             'caught_up': blockfeed.fuzzy_is_caught_up(),
             'last_message_index': config.state['last_message_index'],
-            'block_height': config.state['cpd_backend_block_index'],
+            'block_height': config.state['cp_backend_block_index'],
             'testnet': config.TESTNET,
             'ip': ip,
             'country': country,
@@ -87,7 +87,7 @@ def serve_api():
     @API.add_method
     def get_chain_block_height():
         #DEPRECIATED 1.5
-        return config.state['cpd_backend_block_index']
+        return config.state['cp_backend_block_index']
         
     @API.add_method
     def get_insight_block_info(block_hash):
@@ -107,7 +107,7 @@ def serve_api():
             result = {}
             result['addr'] = address
             result['info'] = info
-            result['block_height'] = config.state['cpd_backend_block_index']
+            result['block_height'] = config.state['cp_backend_block_index']
             #^ yeah, hacky...it will be the same block height for each address (we do this to avoid an extra API call to get_block_height)
             if with_uxtos:
               result['uxtos'] = blockchain.listunspent(address)
@@ -137,7 +137,7 @@ def serve_api():
     @API.add_method
     def get_normalized_balances(addresses):
         """
-        This call augments counterpartyd's get_balances with a normalized_quantity field. It also will include any owned
+        This call augments counterparty's get_balances with a normalized_quantity field. It also will include any owned
         assets for an address, even if their balance is zero. 
         NOTE: Does not retrieve BTC balance. Use get_address_info for that.
         """
@@ -379,7 +379,7 @@ def serve_api():
             start_dt=datetime.datetime.utcfromtimestamp(start_ts),
             end_dt=datetime.datetime.utcfromtimestamp(end_ts) if now_ts != end_ts else None)
         
-        #make API call to counterpartyd to get all of the data for the specified address
+        #make API call to counterparty-server to get all of the data for the specified address
         txns = []
         d = _get_address_history(address, start_block=start_block_index, end_block=end_block_index)
         #mash it all together
@@ -1527,18 +1527,18 @@ def serve_api():
             return flask.Response('', 200)
         
         #"ping" counterpartyd to test
-        cpd_s = time.time()
-        cpd_result_valid = True
+        cp_s = time.time()
+        cp_result_valid = True
         try:
-            cpd_status = util.call_jsonrpc_api("get_running_info", abort_on_error=True)['result']
+            cp_status = util.call_jsonrpc_api("get_running_info", abort_on_error=True)['result']
         except:
-            cpd_result_valid = False
-        cpd_e = time.time()
+            cp_result_valid = False
+        cp_e = time.time()
 
         #"ping" counterblockd to test, as well
-        cbd_s = time.time()
-        cbd_result_valid = True
-        cbd_result_error_code = None
+        cb_s = time.time()
+        cb_result_valid = True
+        cb_result_error_code = None
         payload = {
           "id": 0,
           "jsonrpc": "2.0",
@@ -1550,35 +1550,35 @@ def serve_api():
             client = HTTPClient.from_url(url)
             r = client.post(url.request_uri, body=json.dumps(payload), headers={'content-type': 'application/json'})
         except Exception, e:
-            cbd_result_valid = False
-            cbd_result_error_code = "GOT EXCEPTION: %s" % e
+            cb_result_valid = False
+            cb_result_error_code = "GOT EXCEPTION: %s" % e
         else:
             if r.status_code != 200:
-                cbd_result_valid = False
-                cbd_result_error_code = "GOT STATUS %s" % r.status_code if r else 'COULD NOT CONTACT'
-            cbd_result = json.loads(r.read())
+                cb_result_valid = False
+                cb_result_error_code = "GOT STATUS %s" % r.status_code if r else 'COULD NOT CONTACT'
+            cb_result = json.loads(r.read())
             if 'error' in r:
-                cbd_result_valid = False
-                cbd_result_error_code = "GOT ERROR: %s" % r['error']
+                cb_result_valid = False
+                cb_result_error_code = "GOT ERROR: %s" % r['error']
         finally:
             client.close()
-        cbd_e = time.time()
+        cb_e = time.time()
         
         response_code = 200
-        if not cpd_result_valid or not cbd_result_valid:
+        if not cp_result_valid or not cb_result_valid:
             response_code = 500
         
         result = {
-            'counterpartyd': 'OK' if cpd_result_valid else 'NOT OK',
-            'counterblockd': 'OK' if cbd_result_valid else 'NOT OK',
-            'counterblockd_error': cbd_result_error_code,
-            'counterpartyd_ver': '%s.%s.%s' % (
-                cpd_status['version_major'], cpd_status['version_minor'], cpd_status['version_revision']) if cpd_result_valid else '?',
-            'counterblockd_ver': config.VERSION,
-            'counterpartyd_last_block': cpd_status['last_block'] if cpd_result_valid else '?',
-            'counterpartyd_last_message_index': cpd_status['last_message_index'] if cpd_result_valid else '?',
-            'counterpartyd_check_elapsed': cpd_e - cpd_s,
-            'counterblockd_check_elapsed': cbd_e - cbd_s,
+            'counterparty-server': 'OK' if cp_result_valid else 'NOT OK',
+            'counterblock': 'OK' if cb_result_valid else 'NOT OK',
+            'counterblock_error': cb_result_error_code,
+            'counterparty-server_ver': '%s.%s.%s' % (
+                cp_status['version_major'], cp_status['version_minor'], cp_status['version_revision']) if cp_result_valid else '?',
+            'counterblock_ver': config.VERSION,
+            'counterparty-server_last_block': cp_status['last_block'] if cp_result_valid else '?',
+            'counterparty-server_last_message_index': cp_status['last_message_index'] if cp_result_valid else '?',
+            'counterparty-server_check_elapsed': cp_e - cp_s,
+            'counterblock_check_elapsed': cb_e - cb_s,
             'local_online_users': len(siofeeds.onlineClients),
         }
         return flask.Response(json.dumps(result), response_code, mimetype='application/json')
@@ -1630,7 +1630,7 @@ def serve_api():
     #make a new RotatingFileHandler for the access log.
     api_logger = logging.getLogger("api_log")
     h = logging_handlers.RotatingFileHandler(
-        os.path.join(config.log_dir, "server.api%s.log" % config.net_path_part),
+        os.path.join(config.log_dir, "server%s.api.log" % config.net_path_part),
         'a', API_MAX_LOG_SIZE, API_MAX_LOG_COUNT)
     api_logger.setLevel(logging.INFO)
     api_logger.addHandler(h)

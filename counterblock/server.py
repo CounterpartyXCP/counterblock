@@ -14,12 +14,16 @@ import json
 import logging
 import datetime
 import time
+import tempfile
 
 from counterblock.lib import config, log, blockfeed, util, module, database
 from counterblock.lib.processor import messages, caughtup, startup #to kick off processors
 from counterblock.lib.processor import StartUpProcessor
 
 logger = logging.getLogger(__name__)
+
+#fix permissions-related issue when loading pymongo
+os.environ['PYTHON_EGG_CACHE'] = os.path.join(tempfile.gettempdir(), 'counterblock.python-eggs')
 
 def main():
     # Parse command-line arguments.
