@@ -81,7 +81,7 @@ def load(args):
     
     #Read config file
     configfile = ConfigParser.ConfigParser()
-    config_path = os.path.join(config_dir, 'counterblockd.conf' if args.testnet else 'counterblockd.testnet.conf')
+    config_path = os.path.join(config_dir, 'server.conf' if args.testnet else 'server.testnet.conf')
     configfile.read(config_path)
     has_config = configfile.has_section('Default')
     
@@ -400,7 +400,7 @@ def load(args):
     elif has_config and configfile.has_option('Default', 'log-file'):
         LOG = configfile.get('Default', 'log-file')
     else:
-        LOG = os.path.join(log_dir, 'counterblock%s.log' % net_path_part)
+        LOG = os.path.join(log_dir, 'server%s.log' % net_path_part)
                 
     global TX_LOG
     if args.tx_log_file:
@@ -408,7 +408,7 @@ def load(args):
     elif has_config and configfile.has_option('Default', 'tx-log-file'):
         TX_LOG = configfile.get('Default', 'tx-log-file')
     else:
-        TX_LOG = os.path.join(log_dir, 'counterblock-tx%s.log' % net_path_part)
+        TX_LOG = os.path.join(log_dir, 'server.tx%s.log' % net_path_part)
 
     global PID
     if args.pid_file:
@@ -416,7 +416,7 @@ def load(args):
     elif has_config and configfile.has_option('Default', 'pid-file'):
         PID = configfile.get('Default', 'pid-file')
     else:
-        PID = os.path.join(data_dir, 'counterblock%s.pid' % net_path_part)
+        PID = os.path.join(data_dir, 'server%s.pid' % net_path_part)
 
     #email-related
     global SUPPORT_EMAIL

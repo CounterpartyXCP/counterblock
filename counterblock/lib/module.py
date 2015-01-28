@@ -8,7 +8,7 @@ from counterblock.lib import config
 
 logger = logging.getLogger(__name__)
 
-CONFIG_FILENAME = 'counterblock_module.conf'
+CONFIG_FILENAME = 'modules%s.conf'
 
 def load_all():
     """Loads 3rd party plugin modules (note that this does not yet run startup processors, etc)
@@ -41,7 +41,7 @@ def load_all():
         return params_dict
 
     #Read module configuration file
-    module_conf = ConfigObj(os.path.join(config.config_dir, CONFIG_FILENAME))
+    module_conf = ConfigObj(os.path.join(config.config_dir, CONFIG_FILENAME % config.net_path_part))
     for key, container in module_conf.items():
         if key == 'LoadModule':
             for module, user_settings in container.items(): 
@@ -55,7 +55,7 @@ def load_all():
             try:
                 processor_functions = processor.__dict__[key]
             except: 
-                logger.warn("Invalid config header %s in %s" % (key, CONFIG_FILENAME))
+                logger.warn("Invalid config header %s in %s" % (key, CONFIG_FILENAME % config.net_path_part))
                 continue
             #print(processor_functions)
             for func_name, user_settings in container.items(): 
@@ -66,7 +66,7 @@ def load_all():
                     for param_name, param_value in params.items(): 
                         processor_functions[func_name][param_name] = param_value
                 else:
-                    logger.warn("Attempted to configure a non-existent processor %s" %func_name)
+                    logger.warn("Attempted to configure a non-existent processor %s" % func_name)
             logger.debug(processor_functions)
 
 def toggle(mod, enabled=True):
@@ -75,7 +75,7 @@ def toggle(mod, enabled=True):
     except: 
         print("Unable to find module %s"  % mod)
         return
-    mod_config_path = os.path.join(config.config_dir, CONFIG_FILENAME)
+    mod_config_path = os.path.join(config.config_dir, CONFIG_FILENAME % config.net_path_part)
     module_conf = ConfigObj(mod_config_path)
     try:
         try:
@@ -90,7 +90,7 @@ def toggle(mod, enabled=True):
     print("%s Module %s" %("Enabled" if enabled else "Disabled", mod))
     
 def list_all():
-    mod_config_path = os.path.join(config.config_dir, CONFIG_FILENAME)
+    mod_config_path = os.path.join(config.config_dir, CONFIG_FILENAME % config.net_path_part)
     module_conf = ConfigObj(mod_config_path)
     for name, modules in module_conf.items(): 
         print("Configuration for %s" %name)
