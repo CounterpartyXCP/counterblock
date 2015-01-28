@@ -78,9 +78,9 @@ setup_options = {
             'armory_utxsvr = counterblock:armory_utxsvr_main',
         ]
     },
-    'data_files': [
-        ('counterblock/schemas', ['counterblock/schemas/asset.schema.json', 'counterblock/schemas/feed.schema.json']),
-    ]
+    'package_data': {
+        'counterblock.schemas': ['asset.schema.json', 'feed.schema.json'],
+    }
 }
 
 setup(**setup_options)
