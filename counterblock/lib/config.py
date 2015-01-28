@@ -81,7 +81,10 @@ def load(args):
     
     #Read config file
     configfile = ConfigParser.ConfigParser()
-    config_path = os.path.join(config_dir, 'server.conf' if args.testnet else 'server.testnet.conf')
+    if args.config_file:
+        config_path = args.config_file
+    else:
+        config_path = os.path.join(config_dir, 'server.conf')
     configfile.read(config_path)
     has_config = configfile.has_section('Default')
     
@@ -126,10 +129,8 @@ def load(args):
     elif has_config and configfile.has_option('Default', 'backend-port') and configfile.get('Default', 'backend-port'):
         BACKEND_PORT = configfile.get('Default', 'backend-port')
     else:
-        if TESTNET:
-            BACKEND_PORT = DEFAULT_BACKEND_PORT_TESTNET
-        else:
-            BACKEND_PORT = DEFAULT_BACKEND_PORT
+        BACKEND_PORT = DEFAULT_BACKEND_PORT_TESTNET if TESTNET else DEFAULT_BACKEND_PORT
+
     try:
         BACKEND_PORT = int(BACKEND_PORT)
         assert int(BACKEND_PORT) > 1 and int(BACKEND_PORT) < 65535
@@ -176,10 +177,8 @@ def load(args):
     elif has_config and configfile.has_option('Default', 'counterparty-port') and configfile.get('Default', 'counterparty-port'):
         COUNTERPARTY_PORT = configfile.get('Default', 'counterparty-port')
     else:
-        if TESTNET:
-            COUNTERPARTY_PORT = 14000
-        else:
-            COUNTERPARTY_PORT = 4000
+        COUNTERPARTY_PORT = 14000 if TESTNET else 4000
+
     try:
         COUNTERPARTY_PORT = int(COUNTERPARTY_PORT)
         assert int(COUNTERPARTY_PORT) > 1 and int(COUNTERPARTY_PORT) < 65535
@@ -236,10 +235,7 @@ def load(args):
     elif has_config and configfile.has_option('Default', 'mongodb-database') and configfile.get('Default', 'mongodb-database'):
         MONGODB_DATABASE = configfile.get('Default', 'mongodb-database')
     else:
-        if TESTNET:
-            MONGODB_DATABASE = 'counterblockd_testnet'
-        else:
-            MONGODB_DATABASE = 'counterblockd'
+        MONGODB_DATABASE = 'counterblockd_testnet' if TESTNET else 'counterblockd'
 
     global MONGODB_USER
     if args.mongodb_user:
@@ -285,10 +281,8 @@ def load(args):
     elif has_config and configfile.has_option('Default', 'redis-database') and configfile.get('Default', 'redis-database'):
         REDIS_DATABASE = configfile.get('Default', 'redis-database')
     else:
-        if TESTNET:
-            REDIS_DATABASE = 1
-        else:
-            REDIS_DATABASE = 0
+        REDIS_DATABASE = 1 if TESTNET else 0
+
     try:
         REDIS_DATABASE = int(REDIS_DATABASE)
         assert int(REDIS_DATABASE) >= 0 and int(REDIS_DATABASE) <= 16
@@ -320,10 +314,8 @@ def load(args):
     elif has_config and configfile.has_option('Default', 'rpc-port') and configfile.get('Default', 'rpc-port'):
         RPC_PORT = configfile.get('Default', 'rpc-port')
     else:
-        if TESTNET:
-            RPC_PORT = 14100
-        else:
-            RPC_PORT = 4100        
+        RPC_PORT = 14100 if TESTNET else 4100
+       
     try:
         RPC_PORT = int(RPC_PORT)
         assert int(RPC_PORT) > 1 and int(RPC_PORT) < 65535
@@ -352,10 +344,8 @@ def load(args):
     elif has_config and configfile.has_option('Default', 'socketio-port') and configfile.get('Default', 'socketio-port'):
         SOCKETIO_PORT = configfile.get('Default', 'socketio-port')
     else:
-        if TESTNET:
-            SOCKETIO_PORT = 14101
-        else:
-            SOCKETIO_PORT = 4101        
+        SOCKETIO_PORT = 14101 if TESTNET else 4101
+      
     try:
         SOCKETIO_PORT = int(SOCKETIO_PORT)
         assert int(SOCKETIO_PORT) > 1 and int(SOCKETIO_PORT) < 65535
@@ -376,10 +366,8 @@ def load(args):
     elif has_config and configfile.has_option('Default', 'socketio-chat-port') and configfile.get('Default', 'socketio-chat-port'):
         SOCKETIO_CHAT_PORT = configfile.get('Default', 'socketio-chat-port')
     else:
-        if TESTNET:
-            SOCKETIO_CHAT_PORT = 14102
-        else:
-            SOCKETIO_CHAT_PORT = 4102       
+        SOCKETIO_CHAT_PORT = 14102 if TESTNET else 4102
+    
     try:
         SOCKETIO_CHAT_PORT = int(SOCKETIO_CHAT_PORT)
         assert int(SOCKETIO_CHAT_PORT) > 1 and int(SOCKETIO_CHAT_PORT) < 65535
