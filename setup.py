@@ -71,7 +71,6 @@ setup_options = {
         'numpy==1.9.1', #see https://github.com/numpy/numpy/issues/2434#issuecomment-65252402
         'appdirs==1.4.0',
     ],
-    'include_package_data': True,
     'entry_points': {
         'console_scripts': [
             'counterblock = counterblock:server_main',
