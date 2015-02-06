@@ -22,9 +22,6 @@ from counterblock.lib.processor import StartUpProcessor
 
 logger = logging.getLogger(__name__)
 
-#fix permissions-related issue when loading pymongo
-os.environ['PYTHON_EGG_CACHE'] = os.path.join(tempfile.gettempdir(), 'counterblock.python-eggs')
-
 def main():
     # Parse command-line arguments.
     parser = argparse.ArgumentParser(prog='counterblockd', description='Counterwallet daemon. Works with counterpartyd')
