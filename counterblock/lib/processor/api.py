@@ -1498,6 +1498,10 @@ def serve_api():
     def get_assets_info(assetsList):
         return assets.get_assets_info(mongo_db, assetsList)
 
+    @API.add_method
+    def broadcast_tx(signed_tx_hex):
+        return blockchain.broadcast_tx(signed_tx_hex)
+
     def _set_cors_headers(response):
         if config.RPC_ALLOW_CORS:
             response.headers['Access-Control-Allow-Origin'] = '*'

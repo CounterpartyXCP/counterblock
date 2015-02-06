@@ -417,4 +417,5 @@ def get_unspent_txouts(source, return_confirmed=False):
     else:
         return unspent
 
-
+def broadcast_tx(signed_tx_hex):
+    return bitcoind_rpc('sendrawtransaction', [signed_tx_hex])
