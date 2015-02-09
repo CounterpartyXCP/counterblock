@@ -14,7 +14,6 @@ required_packages = [
     'pytest==2.6.3',
     'pycoin==0.52',
     'python-bitcoinlib==0.2.1',
-    'numpy==1.9.1',
     'pymongo==2.7.2',
     'gevent<=1.0.2',
     'gevent-websocket==0.9.3',
@@ -68,7 +67,6 @@ setup_options = {
     'dependency_links': required_repos,
     'install_requires': required_packages,
     'setup_requires': [
-        'numpy==1.9.1', #see https://github.com/numpy/numpy/issues/2434#issuecomment-65252402
         'appdirs==1.4.0',
     ],
     'entry_points': {
