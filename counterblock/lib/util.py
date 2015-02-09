@@ -18,7 +18,6 @@ import dateutil.parser
 import gevent
 import gevent.pool
 import gevent.ssl
-import numpy
 import pymongo
 from geventhttpclient import HTTPClient
 from geventhttpclient.url import URL
@@ -188,8 +187,14 @@ def multikeysort(items, columns):
             return 0
     return sorted(items, cmp=comparer)
 
+def cumsum(iterable):
+    values = list(iterable)
+    for pos in xrange(1, len(values)):
+        values[pos] += values[pos - 1]
+    return values
+
 def moving_average(samples, n=3) :
-    ret = numpy.cumsum(samples, dtype=float)
+    ret = cumsum(samples)
     ret[n:] = ret[n:] - ret[:-n]
     return ret[n - 1:] / n
 

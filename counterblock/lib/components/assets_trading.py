@@ -9,7 +9,6 @@ import copy
 import decimal
 import cgi
 
-import numpy
 import pymongo
 
 from counterblock.lib import config, database, util, blockchain
@@ -20,7 +19,7 @@ logger = logging.getLogger(__name__)
 def get_market_price(price_data, vol_data):
     assert len(price_data) == len(vol_data)
     assert len(price_data) <= config.MARKET_PRICE_DERIVE_NUM_POINTS
-    market_price = numpy.average(price_data, weights=vol_data)
+    market_price = util.weighted_average(zip(price_data, vol_data))
     return market_price
 
 def get_market_price_summary(asset1, asset2, with_last_trades=0, start_dt=None, end_dt=None):
