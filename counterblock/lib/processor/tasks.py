@@ -112,6 +112,7 @@ def generate_wallet_stats():
         for e in referer_counts:
             ts = time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple())
             assert ts in new_entries
+            if e['_id']['referer'] is None: continue
             referer_key = urllib.quote(e['_id']['referer']).replace('.', '%2E')
             if 'referers' not in new_entries[ts]: new_entries[ts]['referers'] = {}
             if e['_id']['referer'] not in new_entries[ts]['referers']: new_entries[ts]['referers'][referer_key] = 0
