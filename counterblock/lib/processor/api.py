@@ -78,9 +78,9 @@ def serve_api():
     
     @API.add_method
     def get_messagefeed_messages_by_index(message_indexes):
-        messages = util.call_jsonrpc_api("get_messages_by_index", {'message_indexes': message_indexes}, abort_on_error=True)['result']
+        msgs = util.call_jsonrpc_api("get_messages_by_index", {'message_indexes': message_indexes}, abort_on_error=True)['result']
         events = []
-        for m in messages:
+        for m in msgs:
             events.append(messages.decorate_message_for_feed(m))
         return events
 
