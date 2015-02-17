@@ -6,32 +6,32 @@ import sys
 import logging
 
 required_packages = [
-    'appdirs==1.4.0',
-    'prettytable==0.7.2',
-    'python-dateutil==2.4.0',
-    'flask==0.10.1',
-    'json-rpc==1.8.1',
-    'pytest==2.6.3',
-    'pycoin==0.52',
-    'python-bitcoinlib==0.2.1',
-    'pymongo==2.7.2',
+    'appdirs>=1.4.0',
+    'prettytable>=0.7.2',
+    'python-dateutil>=2.4.0',
+    'flask>=0.10.1',
+    'json-rpc>=1.8.1',
+    'pytest>=2.6.3',
+    'pycoin>=0.52',
+    'python-bitcoinlib>=0.2.1',
+    'pymongo>=2.7.2',
     'gevent<=1.0.2',
-    'gevent-websocket==0.9.3',
-    'gevent-socketio==0.3.6',
+    'gevent-websocket>=0.9.3',
+    'gevent-socketio>=0.3.6',
     'geventhttpclient<=1.2.0',
-    'redis==2.10.3',
+    'redis>=2.10.3',
     'grequests<=0.2.1',
-    'pyzmq==14.4.1',
-    'pillow==2.6.1',
-    'lxml==3.4.1',
-    'jsonschema==2.4.0',
-    'strict_rfc3339==0.5',
-    'rfc3987==1.3.4',
-    'aniso8601==0.82',
-    'pygeoip==0.3.2',
-    'colorama==0.3.2',
-    'configobj==5.0.6',
-    'repoze.lru==0.6'
+    'pyzmq>=14.4.1',
+    'pillow>=2.6.1',
+    'lxml>=3.4.1',
+    'jsonschema>=2.4.0',
+    'strict_rfc3339>=0.5',
+    'rfc3987>=1.3.4',
+    'aniso8601>=0.82',
+    'pygeoip>=0.3.2',
+    'colorama>=0.3.2',
+    'configobj>=5.0.6',
+    'repoze.lru>=0.6'
 ]
 
 required_repos = [
@@ -61,14 +61,13 @@ setup_options = {
       "Programming Language :: Python",
     ],
     'download_url': 'https://github.com/CounterpartyXCP/counterblock/releases/tag/%s' % VERSION,
-    'provides': ['counterblock',],
+    'provides': ['counterblock'],
     'packages': find_packages(),
     'zip_safe': False,
     'dependency_links': required_repos,
+    'setup_requires': ['appdirs==1.4.0'],
     'install_requires': required_packages,
-    'setup_requires': [
-        'appdirs==1.4.0',
-    ],
+    'include_package_data': True,
     'entry_points': {
         'console_scripts': [
             'counterblock = counterblock:server_main',
@@ -80,7 +79,7 @@ setup_options = {
     }
 }
 
-setup(**setup_options)
-
 if os.name == "nt":
     sys.exit("Windows installs not supported")
+
+setup(**setup_options)
