@@ -90,7 +90,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                 'description': message['description'],
                 'divisible': message['divisible'],
                 'locked': False,
-                'total_issued': message['quantity'],
+                'total_issued': int(message['quantity']),
                 'total_issued_normalized': blockchain.normalize_quantity(message['quantity'], message['divisible']),
                 '_history': [] #to allow for block rollbacks
             }
@@ -107,7 +107,7 @@ def parse_issuance(db, message, cur_block_index, cur_block):
                     '_change_type': 'issued_more',
                  },
                  "$inc": {
-                     'total_issued': message['quantity'],
+                     'total_issued': int(message['quantity']),
                      'total_issued_normalized': blockchain.normalize_quantity(message['quantity'], message['divisible'])
                  },
                  "$push": {'_history': tracked_asset} }, upsert=False)
