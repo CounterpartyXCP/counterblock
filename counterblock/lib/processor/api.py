@@ -164,7 +164,10 @@ def serve_api():
             if not d['quantity'] and ((d['address'] + d['asset']) not in isowner):
                 continue #don't include balances with a zero asset value
             asset_info = mongo_db.tracked_assets.find_one({'asset': d['asset']})
-            d['normalized_quantity'] = blockchain.normalize_quantity(d['quantity'], asset_info['divisible'])
+            divisible = True # XCP and BTC
+            if asset_info and 'divisible' in asset_info:
+                divisible = asset_info['divisible']
+            d['normalized_quantity'] = blockchain.normalize_quantity(d['quantity'], divisible)
             d['owner'] = (d['address'] + d['asset']) in isowner
             mappings[d['address'] + d['asset']] = d
             data.append(d)
