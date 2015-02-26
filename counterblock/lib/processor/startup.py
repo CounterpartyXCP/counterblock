@@ -10,6 +10,20 @@ from counterblock.lib.processor import StartUpProcessor, CORE_FIRST_PRIORITY, CO
 
 logger = logging.getLogger(__name__)
 
+#https://github.com/miracle2k/gevent-erlang-mode/blob/master/erlangmode/links.py
+class LinkedFailed(Exception):
+    """Raised when a linked greenlet dies because of unhandled exception"""
+
+    msg = "%r failed with %s: %s"
+
+    def __init__(self, source):
+        exception = source.exception
+        try:
+            excname = exception.__class__.__name__
+        except:
+            excname = str(exception) or repr(exception)
+        Exception.__init__(self, self.msg % (source, excname, exception))
+
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 0)
 def load_counterwallet_config_settings():
     #TODO: Hardcode in cw path for now. Will be taken out to a plugin shortly...
@@ -70,7 +84,14 @@ def init_siofeeds():
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 6)
 def start_cp_blockfeed():
     logger.info("Starting up counterparty block feed poller...")
-    gevent.spawn(blockfeed.process_cp_blockfeed, config.ZMQ_PUBLISHER_EVENTFEED)
+    try:
+        parent = gevent.getcurrent()
+        g = gevent.spawn(blockfeed.process_cp_blockfeed, config.ZMQ_PUBLISHER_EVENTFEED)
+        g.link_exception(lambda failed: gevent.kill(parent, LinkedFailed(failed)))
+    except LinkedFailed, e:
+        logger.exception(e)
+        time.sleep(2)
+        start_cp_blockfeed()
     
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 7)
 def check_blockchain_service():
@@ -101,4 +122,3 @@ def warn_on_missing_support_email():
 def start_api():
     logger.info("Starting up RPC API handler...")
     api.serve_api()
-
