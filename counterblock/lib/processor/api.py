@@ -198,7 +198,8 @@ def serve_api():
             }, abort_on_error=True)['result']
         
         address_dict['debits'] = util.call_jsonrpc_api("get_debits",
-            { 'filters': [{'field': 'address', 'op': '==', 'value': address},],
+            { 'filters': [{'field': 'address', 'op': '==', 'value': address},
+                          {'field': 'quantity', 'op': '>', 'value': 0}],
               'order_by': 'block_index',
               'order_dir': 'asc',
               'start_block': start_block,
@@ -206,7 +207,8 @@ def serve_api():
             }, abort_on_error=True)['result']
         
         address_dict['credits'] = util.call_jsonrpc_api("get_credits",
-            { 'filters': [{'field': 'address', 'op': '==', 'value': address},],
+            { 'filters': [{'field': 'address', 'op': '==', 'value': address},
+                          {'field': 'quantity', 'op': '>', 'value': 0}],
               'order_by': 'block_index',
               'order_dir': 'asc',
               'start_block': start_block,
