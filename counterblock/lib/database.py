@@ -219,17 +219,16 @@ def rollback(max_block_index):
             prev_ver = asset['_history'].pop()
             if prev_ver['_at_block'] <= max_block_index:
                 break
-        if prev_ver:
-            if prev_ver['_at_block'] > max_block_index:
-                #even the first history version is newer than max_block_index.
-                #in this case, just remove the asset tracking record itself
-                config.mongo_db.tracked_assets.remove({'asset': asset['asset']})
-            else:
-                #if here, we were able to find a previous version that was saved at or before max_block_index
-                # (which should be prev_ver ... restore asset's values to its values
-                prev_ver['_id'] = asset['_id']
-                prev_ver['_history'] = asset['_history']
-                config.mongo_db.tracked_assets.save(prev_ver)
+        if not prev_ver or prev_ver['_at_block'] > max_block_index:
+            #even the first history version is newer than max_block_index.
+            #in this case, just remove the asset tracking record itself
+            config.mongo_db.tracked_assets.remove({'asset': asset['asset']})
+        else:
+            #if here, we were able to find a previous version that was saved at or before max_block_index
+            # (which should be prev_ver ... restore asset's values to its values
+            prev_ver['_id'] = asset['_id']
+            prev_ver['_history'] = asset['_history']
+            config.mongo_db.tracked_assets.save(prev_ver)
     
     #call any rollback processors for any extension modules
     RollbackProcessor.run_active_functions(max_block_index)

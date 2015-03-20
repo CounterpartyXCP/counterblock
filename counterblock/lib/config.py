@@ -5,7 +5,7 @@
 ##
 VERSION = "1.1.0" #should keep up with counterblockd repo's release tag
 
-DB_VERSION = 22 #a db version increment will cause counterblockd to rebuild its database off of counterpartyd 
+DB_VERSION = 23 #a db version increment will cause counterblockd to rebuild its database off of counterpartyd 
 
 UNIT = 100000000
 
