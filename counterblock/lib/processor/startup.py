@@ -71,13 +71,6 @@ def load_counterwallet_config_settings():
     except Exception, e:
         logger.error("Exception loading counterwallet config: %s" % e)
    
-def on_init_exception(parent, e):
-    #logger.exception(e)
-    print "FOO", e, e.__traceback__
-    tb = traceback.format_tb(e.__traceback__)
-    logging.error( "TB: %s" % tb)
-    gevent.kill(parent, e)
-        
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 2)
 def init_geoip():
     import pygeoip
