@@ -4,25 +4,56 @@ import json
 import time
 import logging
 import gevent
+import gevent.pool
+import gevent.util
 
 from counterblock.lib import blockfeed, config, cache, siofeeds, database, util
 from counterblock.lib.processor import StartUpProcessor, CORE_FIRST_PRIORITY, CORE_LAST_PRIORITY, api, tasks
 
 logger = logging.getLogger(__name__)
 
-#https://github.com/miracle2k/gevent-erlang-mode/blob/master/erlangmode/links.py
-class LinkedFailed(Exception):
-    """Raised when a linked greenlet dies because of unhandled exception"""
+class GreenletGroupWithExceptionCatching(gevent.pool.Group):
+    """See https://gist.github.com/progrium/956006"""
+    def __init__(self, *args):
+        super(GreenletGroupWithExceptionCatching, self).__init__(*args)
+        self._error_handlers = {}
+    
+    def _wrap_errors(self, func):
+        """Wrap a callable for triggering error handlers
+        
+        This is used by the greenlet spawn methods so you can handle known
+        exception cases instead of gevent's default behavior of just printing
+        a stack trace for exceptions running in parallel greenlets.
+        
+        """
+        def wrapped_f(*args, **kwargs):
+            exceptions = tuple(self._error_handlers.keys())
+            try:
+                return func(*args, **kwargs)
+            except exceptions, exception:
+                for type in self._error_handlers:
+                    if isinstance(exception, type):
+                        handler, greenlet = self._error_handlers[type]
+                        self._wrap_errors(handler)(exception, greenlet)
+                return exception
+        return wrapped_f
+    
+    def catch(self, type, handler):
+        """Set an error handler for exceptions of `type` raised in greenlets"""
+        self._error_handlers[type] = (handler, gevent.getcurrent())
+    
+    def spawn(self, func, *args, **kwargs):
+        parent = super(GreenletGroupWithExceptionCatching, self)
+        func_wrap = self._wrap_errors(func)
+        return parent.spawn(func_wrap, *args, **kwargs)
+    
+    def spawn_later(self, seconds, func, *args, **kwargs):
+        parent = super(GreenletGroupWithExceptionCatching, self)
+        func_wrap = self._wrap_errors(func)
+        return parent.spawn_later(seconds, func_wrap, *args, **kwargs)
 
-    msg = "%r failed with %s: %s"
-
-    def __init__(self, source):
-        exception = source.exception
-        try:
-            excname = exception.__class__.__name__
-        except:
-            excname = str(exception) or repr(exception)
-        Exception.__init__(self, self.msg % (source, excname, exception))
+def raise_in_handling_greenlet(error, greenlet):
+    greenlet.throw(error)
 
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 0)
 def load_counterwallet_config_settings():
@@ -39,6 +70,13 @@ def load_counterwallet_config_settings():
         config.COUNTERWALLET_CONFIG = json.loads(config.COUNTERWALLET_CONFIG_JSON)
     except Exception, e:
         logger.error("Exception loading counterwallet config: %s" % e)
+   
+def on_init_exception(parent, e):
+    #logger.exception(e)
+    print "FOO", e, e.__traceback__
+    tb = traceback.format_tb(e.__traceback__)
+    logging.error( "TB: %s" % tb)
+    gevent.kill(parent, e)
         
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 2)
 def init_geoip():
@@ -84,34 +122,37 @@ def init_siofeeds():
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 6)
 def start_cp_blockfeed():
     logger.info("Starting up counterparty block feed poller...")
-    try:
-        parent = gevent.getcurrent()
-        g = gevent.spawn(blockfeed.process_cp_blockfeed, config.ZMQ_PUBLISHER_EVENTFEED)
-        g.link_exception(lambda failed: gevent.kill(parent, LinkedFailed(failed)))
-    except LinkedFailed, e:
-        logger.exception(e)
-        time.sleep(2)
-        start_cp_blockfeed()
-    
+    group = GreenletGroupWithExceptionCatching()
+    group.catch(Exception, raise_in_handling_greenlet)
+    group.spawn(blockfeed.process_cp_blockfeed, config.ZMQ_PUBLISHER_EVENTFEED)
+        
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 7)
 def check_blockchain_service():
     logger.debug("Starting event timer: check_blockchain_service")
-    gevent.spawn(tasks.check_blockchain_service)
+    group = GreenletGroupWithExceptionCatching()
+    group.catch(Exception, raise_in_handling_greenlet)
+    group.spawn(tasks.check_blockchain_service)
     
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 8)
 def expire_stale_prefs():
     logger.debug("Starting event timer: expire_stale_prefs")
-    gevent.spawn(tasks.expire_stale_prefs)
+    group = GreenletGroupWithExceptionCatching()
+    group.catch(Exception, raise_in_handling_greenlet)
+    group.spawn(tasks.expire_stale_prefs)
 
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 9)
 def expire_stale_orders():
     logger.debug("Starting event timer: expire_stale_btc_open_order_records")
-    gevent.spawn(tasks.expire_stale_btc_open_order_records)
+    group = GreenletGroupWithExceptionCatching()
+    group.catch(Exception, raise_in_handling_greenlet)
+    group.spawn(tasks.expire_stale_btc_open_order_records)
 
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 10)
 def generate_wallet_stats():
     logger.debug("Starting event timer: generate_wallet_stats")
-    gevent.spawn(tasks.generate_wallet_stats)
+    group = GreenletGroupWithExceptionCatching()
+    group.catch(Exception, raise_in_handling_greenlet)
+    group.spawn(tasks.generate_wallet_stats)
     
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 11)
 def warn_on_missing_support_email():
@@ -121,4 +162,7 @@ def warn_on_missing_support_email():
 @StartUpProcessor.subscribe(priority=CORE_LAST_PRIORITY - 0) #should go last (even after custom plugins)
 def start_api():
     logger.info("Starting up RPC API handler...")
-    api.serve_api()
+    group = GreenletGroupWithExceptionCatching()
+    group.catch(Exception, raise_in_handling_greenlet)
+    group.spawn(api.serve_api)
+    group.join() #block forever
