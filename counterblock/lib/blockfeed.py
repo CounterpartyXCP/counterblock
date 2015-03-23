@@ -186,14 +186,14 @@ def process_cp_blockfeed(zmq_publisher_eventfeed):
            or app_config['counterpartyd_running_testnet'] is None:
             updatePrefs = True
         elif cp_running_info['version_major'] != app_config['counterpartyd_db_version_major']:
-            logger.warn("counterpartyd MAJOR DB version change (we built from %s, counterpartyd is at %s)."
-                + " Wiping our state data." % (
+            logger.warn(
+                "counterpartyd MAJOR DB version change (we built from %s, counterpartyd is at %s). Wiping our state data." % (
                     app_config['counterpartyd_db_version_major'], cp_running_info['version_major']))
             wipeState = True
             updatePrefs = True
         elif cp_running_info['version_minor'] != app_config['counterpartyd_db_version_minor']:
-            logger.warn("counterpartyd MINOR DB version change (we built from %s.%s, counterpartyd is at %s.%s)."
-                + " Wiping our state data." % (
+            logger.warn(
+                "counterpartyd MINOR DB version change (we built from %s.%s, counterpartyd is at %s.%s). Wiping our state data." % (
                 app_config['counterpartyd_db_version_major'], app_config['counterpartyd_db_version_minor'],
                 cp_running_info['version_major'], cp_running_info['version_minor']))
             wipeState = True
@@ -204,7 +204,7 @@ def process_cp_blockfeed(zmq_publisher_eventfeed):
             wipeState = True
             updatePrefs = True
         if wipeState:
-            app_config = blow_away_db()
+            app_config = database.reset_db_state()
         if updatePrefs:
             app_config['counterpartyd_db_version_major'] = cp_running_info['version_major'] 
             app_config['counterpartyd_db_version_minor'] = cp_running_info['version_minor']
