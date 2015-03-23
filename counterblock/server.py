@@ -96,6 +96,11 @@ def main():
 
     config.init(args)
     log.set_up(args.verbose)
+    
+    #Log unhandled errors.
+    def handle_exception(exc_type, exc_value, exc_traceback):
+        logger.error("Unhandled Exception", exc_info=(exc_type, exc_value, exc_traceback))
+    sys.excepthook = handle_exception    
 
     #Create/update pid file
     pid = str(os.getpid())
