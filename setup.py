@@ -43,7 +43,7 @@ required_repos = [
     #^ grequests (waiting until the next point release with natecode's pull request factored in)
 ]
 
-VERSION="1.1.0"
+VERSION="1.1.1"
 
 setup_options = {
     'name': 'counterblock',
