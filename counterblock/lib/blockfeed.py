@@ -204,7 +204,7 @@ def process_cp_blockfeed(zmq_publisher_eventfeed):
             wipeState = True
             updatePrefs = True
         if wipeState:
-            app_config = blow_away_db()
+            app_config = database.reset_db_state()
         if updatePrefs:
             app_config['counterpartyd_db_version_major'] = cp_running_info['version_major'] 
             app_config['counterpartyd_db_version_minor'] = cp_running_info['version_minor']
