@@ -1,3 +1,7 @@
+###
+### THIS MODULE IS INCOMPLETE
+###
+
 import time
 import logging
 import sys
