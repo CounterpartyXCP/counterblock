@@ -82,7 +82,7 @@ def rollback(max_block_index):
     NOTE: after calling this function, you should always trigger a "continue" statement to reiterate the processing loop
     (which will get a new cp_latest_block from counterpartyd and resume as appropriate)   
     """
-    assert isinstance(max_block_index, (int, long)) and max_block_index > 0
+    assert isinstance(max_block_index, (int, long)) and max_block_index >= config.BLOCK_FIRST
     if not config.mongo_db.processed_blocks.find_one({"block_index": max_block_index}):
         raise Exception("Can't roll back to specified block index: %i doesn't exist in database" % max_block_index)
     
