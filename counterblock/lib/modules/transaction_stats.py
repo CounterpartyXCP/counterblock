@@ -12,6 +12,8 @@ import logging
 import json
 import ConfigParser
 
+import pymongo
+from bson.son import SON
 import dateutil.parser
 
 from counterblock.lib import config, util, blockfeed, blockchain
@@ -39,7 +41,7 @@ def get_transaction_stats(start_ts=None, end_ts=None):
     if not start_ts: #default to 360 days before the end date
         start_ts = end_ts - (360 * 24 * 60 * 60)
             
-    stats = mongo_db.transaction_stats.aggregate([
+    stats = config.mongo_db.transaction_stats.aggregate([
         {"$match": {
             "block_time": {
                 "$gte": datetime.datetime.utcfromtimestamp(start_ts)

@@ -18,8 +18,6 @@ from geventhttpclient.url import URL
 import flask
 import jsonrpc
 import pymongo
-from bson import json_util
-from bson.son import SON
 
 from counterblock.lib import config, database, util, blockchain, blockfeed, messages
 from counterblock.lib.processor import API
@@ -40,7 +38,6 @@ def serve_api():
     DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD = 60 #in seconds
     app = flask.Flask(__name__)
     assert config.mongo_db
-    mongo_db = config.mongo_db
     tx_logger = logging.getLogger("transaction_log") #get transaction logger
 
     @API.add_method
@@ -292,15 +289,6 @@ def serve_api():
                 }, abort_on_error=True)['result']
             return address_dict
 
-        def get_asset_cached(asset, asset_cache):
-            if asset in asset_cache:
-                return asset_cache[asset]
-            asset_data = mongo_db.tracked_assets.find_one({'asset': asset})
-            asset_cache[asset] = asset_data
-            return asset_data
-        
-        asset_cache = {} #ghetto cache to speed asset lookups within the scope of a function call
-        
         now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
         if not end_ts: #default to current datetime
             end_ts = now_ts

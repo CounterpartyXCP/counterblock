@@ -4,7 +4,7 @@ import json
 import time
 import logging
 
-from counterblock.lib import blockfeed, config, cache, database, util
+from counterblock.lib import blockfeed, blockchain, config, cache, database, util
 from counterblock.lib.processor import StartUpProcessor, CORE_FIRST_PRIORITY, CORE_LAST_PRIORITY, api, tasks, start_task
 
 logger = logging.getLogger(__name__)
@@ -18,11 +18,6 @@ def init_mongo():
 def init_redis():
     config.REDIS_CLIENT = cache.get_redis_connection()
     
-@StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 2)
-def start_cp_blockfeed():
-    logger.info("Starting up counterparty block feed poller...")
-    start_task(blockfeed.process_cp_blockfeed)
-        
 @StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 3)
 def check_blockchain_service():
     try:
@@ -31,8 +26,13 @@ def check_blockchain_service():
         raise Exception('Could not connect to blockchain service: %s' % e)
     finally:
         start_task(check_blockchain_service, delay=60 * 5)  #call again in 5 minutes
+
+@StartUpProcessor.subscribe(priority=CORE_LAST_PRIORITY - 0) #must come after all plugins have been initalized
+def start_cp_blockfeed():
+    logger.info("Starting up counterparty block feed poller...")
+    start_task(blockfeed.process_cp_blockfeed)
     
-@StartUpProcessor.subscribe(priority=CORE_LAST_PRIORITY - 0) #should go last (even after custom plugins)
+@StartUpProcessor.subscribe(priority=CORE_LAST_PRIORITY - 1) #should go last (even after custom plugins)
 def start_api():
     logger.info("Starting up RPC API handler...")
     group = start_task(api.serve_api)

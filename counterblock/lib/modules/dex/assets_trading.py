@@ -26,7 +26,6 @@ def get_market_price_summary(asset1, asset2, with_last_trades=0, start_dt=None, 
     """Gets a synthesized trading "market price" for a specified asset pair (if available), as well as additional info.
     If no price is available, False is returned.
     """
-    mongo_db = config.mongo_db
     if not end_dt:
         end_dt = datetime.datetime.utcnow()
     if not start_dt:
@@ -34,8 +33,8 @@ def get_market_price_summary(asset1, asset2, with_last_trades=0, start_dt=None, 
     
     #look for the last max 6 trades within the past 10 day window
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
-    base_asset_info = mongo_db.tracked_assets.find_one({'asset': base_asset})
-    quote_asset_info = mongo_db.tracked_assets.find_one({'asset': quote_asset})
+    base_asset_info = config.mongo_db.tracked_assets.find_one({'asset': base_asset})
+    quote_asset_info = config.mongo_db.tracked_assets.find_one({'asset': quote_asset})
     
     if not isinstance(with_last_trades, int) or with_last_trades < 0 or with_last_trades > 30:
         raise Exception("Invalid with_last_trades")
@@ -43,7 +42,7 @@ def get_market_price_summary(asset1, asset2, with_last_trades=0, start_dt=None, 
     if not base_asset_info or not quote_asset_info:
         raise Exception("Invalid asset(s)")
     
-    last_trades = mongo_db.trades.find({
+    last_trades = config.mongo_db.trades.find({
             "base_asset": base_asset,
             "quote_asset": quote_asset,
             'block_time': { "$gte": start_dt, "$lte": end_dt }
@@ -90,8 +89,7 @@ def get_price_primatives(start_dt=None, end_dt=None):
     return mps_xcp_btc, xcp_btc_price, btc_xcp_price
 
 def get_asset_info(asset, at_dt=None):
-    mongo_db = config.mongo_db
-    asset_info = mongo_db.tracked_assets.find_one({'asset': asset})
+    asset_info = config.mongo_db.tracked_assets.find_one({'asset': asset})
     
     if asset not in (config.XCP, config.BTC) and at_dt and asset_info['_at_block_time'] > at_dt:
         #get the asset info at or before the given at_dt datetime
@@ -207,12 +205,11 @@ def compile_summary_market_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price
 def compile_24h_market_info(asset):        
     asset_data = {}
     start_dt_1d = datetime.datetime.utcnow() - datetime.timedelta(days=1)
-    mongo_db = config.mongo_db
 
     #perform aggregation to get 24h statistics
     #TOTAL volume and count across all trades for the asset (on ALL markets, not just XCP and BTC pairings)
     _24h_vols = {'vol': 0, 'count': 0}
-    _24h_vols_as_base = mongo_db.trades.aggregate([
+    _24h_vols_as_base = config.mongo_db.trades.aggregate([
         {"$match": {
             "base_asset": asset,
             "block_time": {"$gte": start_dt_1d } }},
@@ -227,7 +224,7 @@ def compile_24h_market_info(asset):
     ])
     _24h_vols_as_base = {} if not _24h_vols_as_base['ok'] \
         or not len(_24h_vols_as_base['result']) else _24h_vols_as_base['result'][0]
-    _24h_vols_as_quote = mongo_db.trades.aggregate([
+    _24h_vols_as_quote = config.mongo_db.trades.aggregate([
         {"$match": {
             "quote_asset": asset,
             "block_time": {"$gte": start_dt_1d } }},
@@ -247,7 +244,7 @@ def compile_24h_market_info(asset):
     
     #XCP market volume with stats
     if asset != config.XCP:
-        _24h_ohlc_in_xcp = mongo_db.trades.aggregate([
+        _24h_ohlc_in_xcp = config.mongo_db.trades.aggregate([
             {"$match": {
                 "base_asset": config.XCP,
                 "quote_asset": asset,
@@ -274,7 +271,7 @@ def compile_24h_market_info(asset):
         
     #BTC market volume with stats
     if asset != config.BTC:
-        _24h_ohlc_in_btc = mongo_db.trades.aggregate([
+        _24h_ohlc_in_btc = config.mongo_db.trades.aggregate([
             {"$match": {
                 "base_asset": config.BTC,
                 "quote_asset": asset,
@@ -314,7 +311,6 @@ def compile_24h_market_info(asset):
     }
 
 def compile_7d_market_info(asset): 
-    mongo_db = config.mongo_db       
     start_dt_7d = datetime.datetime.utcnow() - datetime.timedelta(days=7)
 
     #get XCP and BTC market summarized trades over a 7d period (quantize to hour long slots)
@@ -322,7 +318,7 @@ def compile_7d_market_info(asset):
     _7d_history_in_btc = None # btc/asset market (or btc/xcp for xcp or btc)
     if asset not in [config.BTC, config.XCP]:
         for a in [config.XCP, config.BTC]:
-            _7d_history = mongo_db.trades.aggregate([
+            _7d_history = config.mongo_db.trades.aggregate([
                 {"$match": {
                     "base_asset": a,
                     "quote_asset": asset,
@@ -347,7 +343,7 @@ def compile_7d_market_info(asset):
             if a == config.XCP: _7d_history_in_xcp = _7d_history
             else: _7d_history_in_btc = _7d_history
     else: #get the XCP/BTC market and invert for BTC/XCP (_7d_history_in_btc)
-        _7d_history = mongo_db.trades.aggregate([
+        _7d_history = config.mongo_db.trades.aggregate([
             {"$match": {
                 "base_asset": config.XCP,
                 "quote_asset": config.BTC,
@@ -388,7 +384,6 @@ def compile_7d_market_info(asset):
 def compile_asset_pair_market_info():
     """Compiles the pair-level statistics that show on the View Prices page of counterwallet, for instance"""
     #loop through all open orders, and compile a listing of pairs, with a count of open orders for each pair
-    mongo_db = config.mongo_db
     end_dt = datetime.datetime.utcnow()
     start_dt = end_dt - datetime.timedelta(days=1)
     start_block_index, end_block_index = database.get_block_indexes_for_dates(start_dt=start_dt, end_dt=end_dt)
@@ -412,9 +407,9 @@ def compile_asset_pair_market_info():
     for o in open_orders:
         (base_asset, quote_asset) = util.assets_to_asset_pair(o['give_asset'], o['get_asset'])
         pair = '%s/%s' % (base_asset, quote_asset)
-        base_asset_info = asset_info.get(base_asset, mongo_db.tracked_assets.find_one({ 'asset': base_asset }))
+        base_asset_info = asset_info.get(base_asset, config.mongo_db.tracked_assets.find_one({ 'asset': base_asset }))
         if base_asset not in asset_info: asset_info[base_asset] = base_asset_info
-        quote_asset_info = asset_info.get(quote_asset, mongo_db.tracked_assets.find_one({ 'asset': quote_asset }))
+        quote_asset_info = asset_info.get(quote_asset, config.mongo_db.tracked_assets.find_one({ 'asset': quote_asset }))
         if quote_asset not in asset_info: asset_info[quote_asset] = quote_asset_info
         
         pair_data.setdefault(pair, {'open_orders_count': 0, 'lowest_ask': None, 'highest_bid': None,
@@ -435,7 +430,7 @@ def compile_asset_pair_market_info():
     
     #COMPOSE volume data (in XCP and BTC), and % change data
     #loop through all trade volume over the past 24h, and match that to the open orders
-    trades_data_by_pair = mongo_db.trades.aggregate([
+    trades_data_by_pair = config.mongo_db.trades.aggregate([
         {"$match": {
             "block_time": {"$gte": start_dt, "$lte": end_dt } }
         },
@@ -494,11 +489,11 @@ def compile_asset_pair_market_info():
             pair_data[pair]['24h_vol_in_{}'.format(config.BTC.lower())] = _24h_vol_in_btc #might still be None
         
         #get % change stats -- start by getting the first trade directly before the 24h period starts
-        prev_trade = mongo_db.trades.find({
+        prev_trade = config.mongo_db.trades.find({
             "base_asset": base_asset,
             "quote_asset": quote_asset,
             "block_time": {'$lt': start_dt}}).sort('block_time', pymongo.DESCENDING).limit(1)
-        latest_trade = mongo_db.trades.find({
+        latest_trade = config.mongo_db.trades.find({
             "base_asset": base_asset,
             "quote_asset": quote_asset}).sort('block_time', pymongo.DESCENDING).limit(1)
         if not prev_trade.count(): #no previous trade before this 24hr period
@@ -511,22 +506,21 @@ def compile_asset_pair_market_info():
             pair_data[pair]['24h_pct_change'] = ((latest_trade_price - prev_trade_price) / prev_trade_price) * 100
         pair_data[pair]['last_updated'] = end_dt
         #print "PRODUCED", pair, pair_data[pair] 
-        mongo_db.asset_pair_market_info.update( {'base_asset': base_asset, 'quote_asset': quote_asset}, {"$set": pair_data[pair]}, upsert=True)
+        config.mongo_db.asset_pair_market_info.update( {'base_asset': base_asset, 'quote_asset': quote_asset}, {"$set": pair_data[pair]}, upsert=True)
         
     #remove any old pairs that were not just updated
-    mongo_db.asset_pair_market_info.remove({'last_updated': {'$lt': end_dt}})
+    config.mongo_db.asset_pair_market_info.remove({'last_updated': {'$lt': end_dt}})
     logger.info("Recomposed 24h trade statistics for %i asset pairs: %s" % (len(pair_data), ', '.join(pair_data.keys())))
 
 def compile_asset_market_info():
     """Run through all assets and compose and store market ranking information."""
-    mongo_db = config.mongo_db
     
     if not config.state['caught_up']:
         logger.warn("Not updating asset market info as counterblockd is not caught up.")
         return False
     
     #grab the last block # we processed assets data off of
-    last_block_assets_compiled = mongo_db.app_config.find_one()['last_block_assets_compiled']
+    last_block_assets_compiled = config.mongo_db.app_config.find_one()['last_block_assets_compiled']
     last_block_time_assets_compiled = database.get_block_time(last_block_assets_compiled)
     #logger.debug("Comping info for assets traded since block %i" % last_block_assets_compiled)
     current_block_index = config.state['my_latest_block']['block_index'] #store now as it may change as we are compiling asset data :)
@@ -537,7 +531,7 @@ def compile_asset_market_info():
         return True
 
     mps_xcp_btc, xcp_btc_price, btc_xcp_price = get_price_primatives()
-    all_traded_assets = list(set(list([config.BTC, config.XCP]) + list(mongo_db.trades.find({}, {'quote_asset': 1, '_id': 0}).distinct('quote_asset'))))
+    all_traded_assets = list(set(list([config.BTC, config.XCP]) + list(config.mongo_db.trades.find({}, {'quote_asset': 1, '_id': 0}).distinct('quote_asset'))))
     
     #######################
     #get a list of all assets with a trade within the last 24h (not necessarily just against XCP and BTC)
@@ -545,15 +539,15 @@ def compile_asset_market_info():
     start_dt_1d = datetime.datetime.utcnow() - datetime.timedelta(days=1)
     
     assets = list(set(
-          list(mongo_db.trades.find({'block_time': {'$gte': start_dt_1d}}).distinct('quote_asset'))
-        + list(mongo_db.trades.find({'block_time': {'$gte': start_dt_1d}}).distinct('base_asset'))
+          list(config.mongo_db.trades.find({'block_time': {'$gte': start_dt_1d}}).distinct('quote_asset'))
+        + list(config.mongo_db.trades.find({'block_time': {'$gte': start_dt_1d}}).distinct('base_asset'))
     ))
     for asset in assets:
         market_info_24h = compile_24h_market_info(asset)
-        mongo_db.asset_market_info.update({'asset': asset}, {"$set": market_info_24h})
+        config.mongo_db.asset_market_info.update({'asset': asset}, {"$set": market_info_24h})
     #for all others (i.e. no trade in the last 24 hours), zero out the 24h trade data
     non_traded_assets = list(set(all_traded_assets) - set(assets))
-    mongo_db.asset_market_info.update( {'asset': {'$in': non_traded_assets}}, {"$set": {
+    config.mongo_db.asset_market_info.update( {'asset': {'$in': non_traded_assets}}, {"$set": {
             '24h_summary': {'vol': 0, 'count': 0},
             '24h_ohlc_in_{}'.format(config.XCP.lower()): {},
             '24h_ohlc_in_{}'.format(config.BTC.lower()): {},
@@ -566,14 +560,14 @@ def compile_asset_market_info():
     #get a list of all assets with a trade within the last 7d up against XCP and BTC
     start_dt_7d = datetime.datetime.utcnow() - datetime.timedelta(days=7)
     assets = list(set(
-          list(mongo_db.trades.find({'block_time': {'$gte': start_dt_7d}, 'base_asset': {'$in': [config.XCP, config.BTC]}}).distinct('quote_asset'))
-        + list(mongo_db.trades.find({'block_time': {'$gte': start_dt_7d}}).distinct('base_asset'))
+          list(config.mongo_db.trades.find({'block_time': {'$gte': start_dt_7d}, 'base_asset': {'$in': [config.XCP, config.BTC]}}).distinct('quote_asset'))
+        + list(config.mongo_db.trades.find({'block_time': {'$gte': start_dt_7d}}).distinct('base_asset'))
     ))
     for asset in assets:
         market_info_7d = compile_7d_market_info(asset)
-        mongo_db.asset_market_info.update({'asset': asset}, {"$set": market_info_7d})
+        config.mongo_db.asset_market_info.update({'asset': asset}, {"$set": market_info_7d})
     non_traded_assets = list(set(all_traded_assets) - set(assets))
-    mongo_db.asset_market_info.update( {'asset': {'$in': non_traded_assets}}, {"$set": {
+    config.mongo_db.asset_market_info.update( {'asset': {'$in': non_traded_assets}}, {"$set": {
             '7d_history_in_{}'.format(config.XCP.lower()): [],
             '7d_history_in_{}'.format(config.BTC.lower()): [],
     }}, multi=True)
@@ -583,21 +577,21 @@ def compile_asset_market_info():
     #update summary market data for assets traded since last_block_assets_compiled
     #get assets that were traded since the last check with either BTC or XCP, and update their market summary data
     assets = list(set(
-          list(mongo_db.trades.find({'block_index': {'$gt': last_block_assets_compiled}, 'base_asset': {'$in': [config.XCP, config.BTC]}}).distinct('quote_asset'))
-        + list(mongo_db.trades.find({'block_index': {'$gt': last_block_assets_compiled}}).distinct('base_asset'))
+          list(config.mongo_db.trades.find({'block_index': {'$gt': last_block_assets_compiled}, 'base_asset': {'$in': [config.XCP, config.BTC]}}).distinct('quote_asset'))
+        + list(config.mongo_db.trades.find({'block_index': {'$gt': last_block_assets_compiled}}).distinct('base_asset'))
     ))
     #update our storage of the latest market info in mongo
     for asset in assets:
         logger.info("Block: %s -- Updating asset market info for %s ..." % (current_block_index, asset))
         summary_info = compile_summary_market_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price)
-        mongo_db.asset_market_info.update( {'asset': asset}, {"$set": summary_info}, upsert=True)
+        config.mongo_db.asset_market_info.update( {'asset': asset}, {"$set": summary_info}, upsert=True)
 
     
     #######################
     #next, compile market cap historicals (and get the market price data that we can use to update assets with new trades)
     #NOTE: this algoritm still needs to be fleshed out some...I'm not convinced it's laid out/optimized like it should be
     #start by getting all trades from when we last compiled this data
-    trades = mongo_db.trades.find({'block_index': {'$gt': last_block_assets_compiled}}).sort('block_index', pymongo.ASCENDING)
+    trades = config.mongo_db.trades.find({'block_index': {'$gt': last_block_assets_compiled}}).sort('block_index', pymongo.ASCENDING)
     trades_by_block = [] #tracks assets compiled per block, as we only want to analyze any given asset once per block
     trades_by_block_mapping = {} 
     #organize trades by block
@@ -640,12 +634,12 @@ def compile_asset_market_info():
                 for market_cap_as in (config.XCP, config.BTC):
                     market_cap = market_cap_in_xcp if market_cap_as == config.XCP else market_cap_in_btc
                     #if there is a previously stored market cap for this asset, add a new history point only if the two caps differ
-                    prev_market_cap_history = mongo_db.asset_marketcap_history.find({'market_cap_as': market_cap_as, 'asset': asset,
+                    prev_market_cap_history = config.mongo_db.asset_marketcap_history.find({'market_cap_as': market_cap_as, 'asset': asset,
                         'block_index': {'$lt': t['block_index']}}).sort('block_index', pymongo.DESCENDING).limit(1)
                     prev_market_cap_history = list(prev_market_cap_history)[0] if prev_market_cap_history.count() == 1 else None
                     
                     if market_cap and (not prev_market_cap_history or prev_market_cap_history['market_cap'] != market_cap):
-                        mongo_db.asset_marketcap_history.insert({
+                        config.mongo_db.asset_marketcap_history.insert({
                             'block_index': t['block_index'],
                             'block_time': t['block_time'],
                             'asset': asset,
@@ -654,6 +648,6 @@ def compile_asset_market_info():
                         })
                         logger.info("Block %i -- Calculated market cap history point for %s as %s (mID: %s)" % (t['block_index'], asset, market_cap_as, t['message_index']))
     
-    mongo_db.app_config.update({}, {'$set': {'last_block_assets_compiled': current_block_index}})
+    config.mongo_db.app_config.update({}, {'$set': {'last_block_assets_compiled': current_block_index}})
     return True
 

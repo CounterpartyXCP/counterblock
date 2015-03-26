@@ -21,7 +21,8 @@ from socketio import socketio_manage
 from socketio.mixins import BroadcastMixin
 from socketio.namespace import BaseNamespace
 
-from counterblock.lib import config, util, blockchain
+from counterblock.lib import config, util, blockchain, messages
+from counterblock.lib.modules import CWIOFEEDS_PRIORITY_PARSE_FOR_SOCKETIO, CWIOFEEDS_PRIORITY_PUBLISH_MEMPOOL
 from counterblock.lib.processor import MessageProcessor, MempoolMessageProcessor, BlockProcessor, StartUpProcessor, CaughtUpProcessor, RollbackProcessor, API
 
 logger = logging.getLogger(__name__)
@@ -79,15 +80,15 @@ def get_num_users_online():
 @API.add_method
 def is_chat_handle_in_use(handle):
     #DEPRECATED 1.5
-    results = mongo_db.chat_handles.find({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
+    results = config.mongo_db.chat_handles.find({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
     return True if results.count() else False 
 
 @API.add_method
 def get_chat_handle(wallet_id):
-    result = mongo_db.chat_handles.find_one({"wallet_id": wallet_id})
+    result = config.mongo_db.chat_handles.find_one({"wallet_id": wallet_id})
     if not result: return False #doesn't exist
     result['last_touched'] = time.mktime(time.gmtime())
-    mongo_db.chat_handles.save(result)
+    config.mongo_db.chat_handles.save(result)
     data = {
         'handle': re.sub('[^\sA-Za-z0-9_-]', "", result['handle']),
         'is_op': result.get('is_op', False),
@@ -109,14 +110,14 @@ def store_chat_handle(wallet_id, handle):
         raise Exception("Invalid chat handle: bad syntax/length")
     
     #see if this handle already exists (case insensitive)
-    results = mongo_db.chat_handles.find({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
+    results = config.mongo_db.chat_handles.find({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
     if results.count():
         if results[0]['wallet_id'] == wallet_id:
             return True #handle already saved for this wallet ID
         else:
             raise Exception("Chat handle already is in use")
 
-    mongo_db.chat_handles.update(
+    config.mongo_db.chat_handles.update(
         {'wallet_id': wallet_id},
         {"$set": {
             'wallet_id': wallet_id,
@@ -151,7 +152,7 @@ def get_chat_history(start_ts=None, end_ts=None, handle=None, limit=1000):
     }
     if handle:
         filters['handle'] = handle
-    chat_history = mongo_db.chat_history.find(filters, {'_id': 0}).sort("when", pymongo.DESCENDING).limit(limit)
+    chat_history = config.mongo_db.chat_history.find(filters, {'_id': 0}).sort("when", pymongo.DESCENDING).limit(limit)
     if not chat_history.count():
         return False #no suitable trade data to form a market price
     chat_history = list(chat_history)
@@ -255,7 +256,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             assert self.socket.session['wallet_id'] == wallet_id
 
         #lookup the walletid and ensure that it has a handle match for chat
-        chat_profile =  self.request['mongo_db'].chat_handles.find_one({"wallet_id": self.socket.session['wallet_id']})
+        chat_profile =  config.mongo_db.chat_handles.find_one({"wallet_id": self.socket.session['wallet_id']})
         handle = chat_profile['handle'] if chat_profile else None
         if not handle:
             return self.error('invalid_id', "No handle is defined for wallet ID %s" % self.socket.session['wallet_id'])
@@ -266,7 +267,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
         self.socket.session['last_action'] = None
 
     def on_get_lastlines(self):
-        return list(self.request['mongo_db'].chat_history.find({}, {'_id': 0}).sort(
+        return list(config.mongo_db.chat_history.find({}, {'_id': 0}).sort(
             "when", pymongo.DESCENDING).limit(self.NUM_HISTORY_LINES_ON_JOIN))
     
     def on_command(self, command, args):
@@ -283,7 +284,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             if len(args) != 1:
                 return self.error('invalid_args', "USAGE: /online {handle=} -- Desc: Determines whether a specific user is online")
             handle = args[0]
-            p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
+            p = config.mongo_db.chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
             return self.emit("online_status", p['handle'], p['wallet_id'] in online_clients)
@@ -303,7 +304,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                 return self.error('banned', "Your handle is still banned from chat for %s more seconds."
                     % int((self.socket.session['banned_until'] - now).total_seconds()))
             
-            p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
+            p = config.mongo_db.chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
             if p['wallet_id'] not in online_clients:
@@ -316,11 +317,11 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             if len(args) != 1:
                 return self.error('invalid_args', "USAGE: /op|unop {handle to op/unop} -- Desc: Gives/removes operator priveledges from a specific user")
             handle = args[0]
-            p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
+            p = config.mongo_db.chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
             p['is_op'] = command == 'op'
-            self.request['mongo_db'].chat_handles.save(p)
+            config.mongo_db.chat_handles.save(p)
             #make the change active immediately
             handle_lower = handle.lower()
             for sessid, socket in self.socket.server.sockets.iteritems():
@@ -339,12 +340,12 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             except:
                 return self.error('invalid_args', "Invalid ban_period value: '%s'" % ban_period)
                 
-            p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
+            p = config.mongo_db.chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
             p['banned_until'] = datetime.datetime.utcnow() + datetime.timedelta(seconds=ban_period) if ban_period != -1 else -1
             #^ can be the special value of -1 to mean "ban indefinitely"
-            self.request['mongo_db'].chat_handles.save(p)
+            config.mongo_db.chat_handles.save(p)
             #make the change active immediately
             handle_lower = handle.lower()
             for sessid, socket in self.socket.server.sockets.iteritems():
@@ -357,11 +358,11 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             if len(args) != 1:
                 return self.error('invalid_args', "USAGE: /unban {handle to unban} -- Desc: Unban a specific banned user")
             handle = args[0]
-            p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
+            p = config.mongo_db.chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
             p['banned_until'] = None
-            self.request['mongo_db'].chat_handles.save(p)
+            config.mongo_db.chat_handles.save(p)
             #make the change active immediately
             handle_lower = handle.lower()
             for sessid, socket in self.socket.server.sockets.iteritems():
@@ -379,15 +380,15 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                     "The new handle ('%s') must be different than the current handle ('%s')" % (new_handle, handle))
             if not re.match(r'[A-Za-z0-9_-]{4,12}', new_handle):            
                 return self.error('invalid_args', "New handle ('%s') contains invalid characters or is not between 4 and 12 characters" % new_handle)
-            p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
+            p = config.mongo_db.chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
-            new_handle_p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % new_handle, '$options': 'i' } })
+            new_handle_p = config.mongo_db.chat_handles.find_one({ 'handle': { '$regex': '^%s$' % new_handle, '$options': 'i' } })
             if new_handle_p:
                 return self.error('invalid_args', "Handle '%s' already exists" % new_handle)
             old_handle = p['handle'] #has the right capitalization (instead of using 'handle' var)
             p['handle'] = new_handle
-            self.request['mongo_db'].chat_handles.save(p)
+            config.mongo_db.chat_handles.save(p)
             #make the change active immediately
             handle_lower = handle.lower()
             for sessid, socket in self.socket.server.sockets.iteritems():
@@ -400,11 +401,11 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                 return self.error('invalid_args', "USAGE: /%s {asset} -- Desc: %s" % (command,
                     "Disables extended asset information from showing" if command == 'disextinfo' else "(Re)enables extended asset information"))
             asset = args[0].upper()
-            asset_info = self.request['mongo_db'].asset_extended_info.find_one({'asset': asset})
+            asset_info = config.mongo_db.asset_extended_info.find_one({'asset': asset})
             if not asset_info:
                 return self.error('invalid_args', "Asset '%s' has no extended info" % (asset))
             asset_info['disabled'] = command == 'disextinfo'
-            self.request['mongo_db'].asset_extended_info.save(asset_info)
+            config.mongo_db.asset_extended_info.save(asset_info)
             return self.emit("emote", None,
                 "Asset '%s' extended info %s" % (asset, 'disabled' if command == 'disextinfo' else 'enabled'),
                 False, True) #isPrivate = False, viaCommand = True
@@ -438,7 +439,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             last_message_ago = None
             
         #make sure this line hasn't been repeated in the last N chat lines
-        past_lines = self.request['mongo_db'].chat_history.find({'handle': self.socket.session['handle']}).sort(
+        past_lines = config.mongo_db.chat_history.find({'handle': self.socket.session['handle']}).sort(
             "when", pymongo.DESCENDING).limit(self.NUM_HISTORY_LINES_NO_REPEAT)
         past_lines = [l['text'] for l in list(past_lines)] if past_lines else []
         
@@ -453,7 +454,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                 self.broadcast_event('emote', self.socket.session['handle'], text, self.socket.session['is_op'], False, False)
                 #^ isPrivate = False, viaCommand = False
             self.socket.session['last_action'] = time.mktime(time.gmtime())
-            self.request['mongo_db'].chat_history.insert({
+            config.mongo_db.chat_history.insert({
                 'handle': self.socket.session['handle'],
                 'is_op': self.socket.session['is_op'],
                 'text': text,
@@ -464,10 +465,9 @@ class SocketIOChatFeedServer(object):
     """
     Funnel messages from counterparty.io client chats to other clients
     """
-    def __init__(self, mongo_db):
+    def __init__(self):
         # Dummy request object to maintain state between Namespace initialization.
         self.request = {
-            'mongo_db': mongo_db,
         }        
             
     def __call__(self, environ, start_response):
@@ -476,7 +476,7 @@ class SocketIOChatFeedServer(object):
             return ''
         socketio_manage(environ, {'': ChatFeedServerNamespace}, self.request)
 
-@MessageProcessor.subscribe(priority=1000)
+@MessageProcessor.subscribe(priority=CWIOFEEDS_PRIORITY_PARSE_FOR_SOCKETIO)
 def parse_for_socketio(msg, msg_data):
     #if we're catching up beyond MAX_REORG_NUM_BLOCKS blocks out, make sure not to send out any socket.io
     # events, as to not flood on a resync (as we may give a 525 to kick the logged in clients out, but we
@@ -486,7 +486,7 @@ def parse_for_socketio(msg, msg_data):
         event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
         zmq_publisher_eventfeed.send_json(event)
 
-@MempoolMessageProcessor.subscribe(priority=1000)
+@MempoolMessageProcessor.subscribe(priority=CWIOFEEDS_PRIORITY_PUBLISH_MEMPOOL)
 def publish_mempool_tx(msg, msg_data):
     zmq_publisher_eventfeed.send_json(msg)
 
@@ -523,7 +523,7 @@ def init():
     logger.info("Starting up socket.io server (chat feed)...")
     sio_server = socketio_server.SocketIOServer(
         (module_config['SOCKETIO_CHAT_HOST'], module_config['SOCKETIO_CHAT_PORT']),
-        SocketIOChatFeedServer(config.mongo_db),
+        SocketIOChatFeedServer(),
         resource="socket.io", policy_server=False)
     sio_server.start() #start the socket.io server greenlets
 

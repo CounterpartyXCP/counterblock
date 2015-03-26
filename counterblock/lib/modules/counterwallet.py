@@ -450,16 +450,16 @@ def init():
     #load counterwallet json config
     counterwallet_config_path = os.path.join('/home/xcp/counterwallet/counterwallet.conf.json')
     if os.path.exists(counterwallet_config_path):
-        logger.info("Loading counterwallet config at '%s'" % counterwallet_config_path)
+        logger.info("Loading counterwallet client-side config at '%s'" % counterwallet_config_path)
         with open(counterwallet_config_path) as f:
             module_config['COUNTERWALLET_CONFIG_JSON'] = f.read()
     else:
-        logger.warn("Counterwallet config does not exist at '%s'. Counterwallet functionality disabled..." % counterwallet_config_path)
+        logger.warn("Counterwallet client-side config does not exist at '%s'!" % counterwallet_config_path)
         module_config['COUNTERWALLET_CONFIG_JSON'] = '{}'
     try:
         module_config['COUNTERWALLET_CONFIG'] = json.loads(module_config['COUNTERWALLET_CONFIG_JSON'])
     except Exception, e:
-        logger.error("Exception loading counterwallet config: %s" % e)
+        logger.error("Exception loading counterwallet client-side config: %s" % e)
 
     #init GEOIP
     import pygeoip

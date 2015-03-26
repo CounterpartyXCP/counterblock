@@ -44,7 +44,11 @@ class GreenletGroupWithExceptionCatching(gevent.pool.Group):
     def spawn_later(self, seconds, func, *args, **kwargs):
         parent = super(GreenletGroupWithExceptionCatching, self)
         func_wrap = self._wrap_errors(func)
-        return parent.spawn_later(seconds, func_wrap, *args, **kwargs)
+        #spawn_later doesn't exist in pool.Group, so let's implement it below
+        greenlet = parent.greenlet_class(func_wrap, *args, **kwargs)
+        parent.add(greenlet)
+        greenlet.start_later(seconds)
+        return greenlet
 
 def start_task(func, delay=None):
     def raise_in_handling_greenlet(error, greenlet):

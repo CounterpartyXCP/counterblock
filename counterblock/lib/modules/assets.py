@@ -18,6 +18,7 @@ import ConfigParser
 import dateutil.parser
 
 from counterblock.lib import config, util, blockfeed, blockchain
+from counterblock.lib.modules import ASSETS_PRIORITY_PARSE_ISSUANCE, ASSETS_PRIORITY_BALANCE_CHANGE
 from counterblock.lib.processor import MessageProcessor, MempoolMessageProcessor, BlockProcessor, StartUpProcessor, CaughtUpProcessor, RollbackProcessor, API, start_task
 
 ASSET_MAX_RETRY = 3
@@ -134,7 +135,7 @@ def get_normalized_balances(addresses):
         {'filters': filters, 'filterop': 'or'}, abort_on_error=True)['result']
 
     isowner = {}
-    owned_assets = mongo_db.tracked_assets.find( { '$or': [{'owner': a } for a in addresses] }, { '_history': 0, '_id': 0 } )
+    owned_assets = config.mongo_db.tracked_assets.find( { '$or': [{'owner': a } for a in addresses] }, { '_history': 0, '_id': 0 } )
     for o in owned_assets:
       isowner[o['owner'] + o['asset']] = o
 
@@ -142,7 +143,7 @@ def get_normalized_balances(addresses):
     for d in result:
         if not d['quantity'] and ((d['address'] + d['asset']) not in isowner):
             continue #don't include balances with a zero asset value
-        asset_info = mongo_db.tracked_assets.find_one({'asset': d['asset']})
+        asset_info = config.mongo_db.tracked_assets.find_one({'asset': d['asset']})
         divisible = True # XCP and BTC
         if asset_info and 'divisible' in asset_info:
             divisible = asset_info['divisible']
@@ -222,7 +223,8 @@ def get_escrowed_balances(addresses):
     return escrowed_balances
 
 @API.add_method
-def get_assets_info(assets):
+def get_assets_info(assetsList):
+    assets = assetsList #TODO: change the parameter name at some point in the future...shouldn't be using camel case here
     if not isinstance(assets, list):
         raise Exception("assets must be a list of asset names, even if it just contains one entry")
     assets_info = []
@@ -265,8 +267,8 @@ def get_base_quote_asset(asset1, asset2):
     """
     #DEPRECATED 1.5
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
-    base_asset_info = mongo_db.tracked_assets.find_one({'asset': base_asset})
-    quote_asset_info = mongo_db.tracked_assets.find_one({'asset': quote_asset})
+    base_asset_info = config.mongo_db.tracked_assets.find_one({'asset': base_asset})
+    quote_asset_info = config.mongo_db.tracked_assets.find_one({'asset': quote_asset})
     pair_name = "%s/%s" % (base_asset, quote_asset)
 
     if not base_asset_info or not quote_asset_info:
@@ -281,7 +283,7 @@ def get_base_quote_asset(asset1, asset2):
 @API.add_method
 def get_owned_assets(addresses):
     """Gets a list of owned assets for one or more addresses"""
-    result = mongo_db.tracked_assets.find({
+    result = config.mongo_db.tracked_assets.find({
         'owner': {"$in": addresses}
     }, {"_id":0}).sort("asset", pymongo.ASCENDING)
     return list(result)
@@ -294,15 +296,15 @@ def get_asset_pair_market_info(asset1=None, asset2=None, limit=50):
     assert (asset1 and asset2) or (asset1 is None and asset2 is None)
     if asset1 and asset2:
         base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
-        pair_info = mongo_db.asset_pair_market_info.find({'base_asset': base_asset, 'quote_asset': quote_asset}, {'_id': 0})
+        pair_info = config.mongo_db.asset_pair_market_info.find({'base_asset': base_asset, 'quote_asset': quote_asset}, {'_id': 0})
     else:
-        pair_info = mongo_db.asset_pair_market_info.find({}, {'_id': 0}).sort('completed_trades_count', pymongo.DESCENDING).limit(limit)
+        pair_info = config.mongo_db.asset_pair_market_info.find({}, {'_id': 0}).sort('completed_trades_count', pymongo.DESCENDING).limit(limit)
         #^ sort by this for now, may want to sort by a market_cap value in the future
     return list(pair_info) or []
 
 @API.add_method
 def get_asset_extended_info(asset):
-    ext_info = mongo_db.asset_extended_info.find_one({'asset': asset}, {'_id': 0})
+    ext_info = config.mongo_db.asset_extended_info.find_one({'asset': asset}, {'_id': 0})
     return ext_info or False
 
 @API.add_method
@@ -337,7 +339,7 @@ def get_asset_history(asset, reverse=False):
     * IF type = 'called_back':
       * 'percentage': The percentage of the asset called back (between 0 and 100)
     """
-    asset = mongo_db.tracked_assets.find_one({ 'asset': asset }, {"_id":0})
+    asset = config.mongo_db.tracked_assets.find_one({ 'asset': asset }, {"_id":0})
     if not asset:
         raise Exception("Unrecognized asset")
     
@@ -412,7 +414,7 @@ def get_balance_history(asset, addresses, normalize=True, start_ts=None, end_ts=
     if not isinstance(addresses, list):
         raise Exception("addresses must be a list of addresses, even if it just contains one address")
         
-    asset_info = mongo_db.tracked_assets.find_one({'asset': asset})
+    asset_info = config.mongo_db.tracked_assets.find_one({'asset': asset})
     if not asset_info:
         raise Exception("Asset does not exist.")
         
@@ -423,7 +425,7 @@ def get_balance_history(asset, addresses, normalize=True, start_ts=None, end_ts=
         start_ts = end_ts - (30 * 24 * 60 * 60)
     results = []
     for address in addresses:
-        result = mongo_db.balance_changes.find({
+        result = config.mongo_db.balance_changes.find({
             'address': address,
             'asset': asset,
             "block_time": {
@@ -443,7 +445,7 @@ def get_balance_history(asset, addresses, normalize=True, start_ts=None, end_ts=
         results.append(entry)
     return results
 
-@MessageProcessor.subscribe(priority=1000)
+@MessageProcessor.subscribe(priority=ASSETS_PRIORITY_PARSE_ISSUANCE)
 def parse_issuance(msg, msg_data):
     if msg['category'] != 'issuances': return
     if msg_data['status'] != 'valid': return
@@ -543,7 +545,7 @@ def parse_issuance(msg, msg_data):
                     '_change_type': 'issued_more',
                  },
                  "$inc": {
-                     'total_issued': int(msg_data['quantity']),
+                     'total_issued': msg_data['quantity'],
                      'total_issued_normalized': blockchain.normalize_quantity(msg_data['quantity'], msg_data['divisible'])
                  },
                  "$push": {'_history': tracked_asset} }, upsert=False)
@@ -551,23 +553,68 @@ def parse_issuance(msg, msg_data):
                 blockchain.normalize_quantity(msg_data['quantity'], msg_data['divisible']), msg_data['asset']))
     return True
 
+@MessageProcessor.subscribe(priority=ASSETS_PRIORITY_BALANCE_CHANGE) #must come after parse_issuance
+def parse_balance_change(msg, msg_data): 
+    #track balance changes for each address
+    bal_change = None
+    if msg['category'] in ['credits', 'debits',]:
+        actionName = 'credit' if msg['category'] == 'credits' else 'debit'
+        address = msg_data['address']
+        asset_info = config.mongo_db.tracked_assets.find_one({ 'asset': msg_data['asset'] })
+        if asset_info is None:
+            logger.warn("Credit/debit of %s where asset ('%s') does not exist. Ignoring..." % (msg_data['quantity'], msg_data['asset']))
+            return 'continue'
+        quantity = msg_data['quantity'] if msg['category'] == 'credits' else -msg_data['quantity']
+        quantity_normalized = blockchain.normalize_quantity(quantity, asset_info['divisible'])
+
+        #look up the previous balance to go off of
+        last_bal_change = config.mongo_db.balance_changes.find_one({
+            'address': address,
+            'asset': asset_info['asset']
+        }, sort=[("block_index", pymongo.DESCENDING), ("_id", pymongo.DESCENDING)])
+        
+        if last_bal_change \
+           and last_bal_change['block_index'] == config.state['cur_block']['block_index']:
+            #modify this record, as we want at most one entry per block index for each (address, asset) pair
+            last_bal_change['quantity'] += quantity
+            last_bal_change['quantity_normalized'] += quantity_normalized
+            last_bal_change['new_balance'] += quantity
+            last_bal_change['new_balance_normalized'] += quantity_normalized
+            config.mongo_db.balance_changes.save(last_bal_change)
+            logger.info("Procesed %s bal change (UPDATED) from tx %s :: %s" % (actionName, msg['message_index'], last_bal_change))
+            bal_change = last_bal_change
+        else: #new balance change record for this block
+            bal_change = {
+                'address': address, 
+                'asset': asset_info['asset'],
+                'block_index': config.state['cur_block']['block_index'],
+                'block_time': config.state['cur_block']['block_time_obj'],
+                'quantity': quantity,
+                'quantity_normalized': quantity_normalized,
+                'new_balance': last_bal_change['new_balance'] + quantity if last_bal_change else quantity,
+                'new_balance_normalized': last_bal_change['new_balance_normalized'] + quantity_normalized if last_bal_change else quantity_normalized,
+            }
+            config.mongo_db.balance_changes.insert(bal_change)
+            logger.info("Procesed %s bal change from tx %s :: %s" % (actionName, msg['message_index'], bal_change))
+
+
 @StartUpProcessor.subscribe()
 def init():
     #init db and indexes
     #asset_extended_info
-    mongo_db.asset_extended_info.ensure_index('asset', unique=True)
-    mongo_db.asset_extended_info.ensure_index('info_status')
+    config.mongo_db.asset_extended_info.ensure_index('asset', unique=True)
+    config.mongo_db.asset_extended_info.ensure_index('info_status')
     #balance_changes
-    mongo_db.balance_changes.ensure_index('block_index')
-    mongo_db.balance_changes.ensure_index([
+    config.mongo_db.balance_changes.ensure_index('block_index')
+    config.mongo_db.balance_changes.ensure_index([
         ("address", pymongo.ASCENDING),
         ("asset", pymongo.ASCENDING),
         ("block_time", pymongo.ASCENDING)
     ])
     #tracked_assets
-    mongo_db.tracked_assets.ensure_index('asset', unique=True)
-    mongo_db.tracked_assets.ensure_index('_at_block') #for tracked asset pruning
-    mongo_db.tracked_assets.ensure_index([
+    config.mongo_db.tracked_assets.ensure_index('asset', unique=True)
+    config.mongo_db.tracked_assets.ensure_index('_at_block') #for tracked asset pruning
+    config.mongo_db.tracked_assets.ensure_index([
         ("owner", pymongo.ASCENDING),
         ("asset", pymongo.ASCENDING),
     ])
@@ -606,8 +653,6 @@ def process_rollback(max_block_index):
         # been updated on or after the block that we are pruning back to
         assets_to_prune = config.mongo_db.tracked_assets.find({'_at_block': {"$gt": max_block_index}})
         for asset in assets_to_prune:
-            logger.info("Pruning asset %s (last modified @ block %i, pruning to state at block %i)" % (
-                asset['asset'], asset['_at_block'], max_block_index))
             prev_ver = None
             while len(asset['_history']):
                 prev_ver = asset['_history'].pop()
@@ -616,10 +661,14 @@ def process_rollback(max_block_index):
             if not prev_ver or prev_ver['_at_block'] > max_block_index:
                 #even the first history version is newer than max_block_index.
                 #in this case, just remove the asset tracking record itself
+                logger.info("Pruning asset %s (last modified @ block %i, removing as no older state available that is <= block %i)" % (
+                    asset['asset'], asset['_at_block'], max_block_index))
                 config.mongo_db.tracked_assets.remove({'asset': asset['asset']})
             else:
                 #if here, we were able to find a previous version that was saved at or before max_block_index
                 # (which should be prev_ver ... restore asset's values to its values
+                logger.info("Pruning asset %s (last modified @ block %i, pruning to state at block %i)" % (
+                    asset['asset'], asset['_at_block'], max_block_index))
                 prev_ver['_id'] = asset['_id']
                 prev_ver['_history'] = asset['_history']
                 config.mongo_db.tracked_assets.save(prev_ver)

@@ -11,15 +11,16 @@ import logging
 import decimal
 import urllib
 import json
-import pymongo
-import flask
-import jsonrpc
 import ConfigParser
 import base64
 
+import pymongo
+import flask
+import jsonrpc
 import dateutil.parser
 
 from counterblock.lib import config, util, blockfeed, blockchain
+from counterblock.lib.modules import BETTING_PRIORITY_PARSE_BROADCAST
 from counterblock.lib.processor import MessageProcessor, MempoolMessageProcessor, BlockProcessor, StartUpProcessor, CaughtUpProcessor, RollbackProcessor, API, start_task
 
 FEED_MAX_RETRY = 3
@@ -45,41 +46,9 @@ def sanitize_json_data(data):
             if isinstance(data['customs'][key], str): data['customs'][key] = util.sanitize_eliteness(data['customs'][key])
     return data
 
-def parse_base64_feed(base64_feed):
-    decoded_feed = base64.b64decode(base64_feed)
-    feed = json.loads(decoded_feed)
-    if isinstance(feed, dict) and 'feed' in feed:
-        errors = util.is_valid_json(feed['feed'], config.FEED_SCHEMA)
-        if len(errors) > 0:
-            raise Exception("Invalid json: {}".format(", ".join(errors)))
-        # get broadcast infos
-        params = {
-            'filters': {
-                'field': 'source',
-                'op': '=',
-                'value': feed['feed']['address']
-            },
-            'order_by': 'tx_index',
-            'order_dir': 'DESC',
-            'limit': 1
-        }
-        broadcasts = util.call_jsonrpc_api('get_broadcasts', params)['result']
-        if len(broadcasts) == 0:
-            raise Exception("invalid feed address")
-
-        complete_feed = {}
-        complete_feed['fee_fraction_int'] = broadcasts[0]['fee_fraction_int']
-        complete_feed['source'] = broadcasts[0]['source']
-        complete_feed['locked'] = broadcasts[0]['locked']
-        complete_feed['counters'] = get_feed_counters(broadcasts[0]['source'])
-        complete_feed['info_data'] = sanitize_json_data(feed['feed'])
-        
-        feed['feed'] = complete_feed
-        return feed
-
-def get_feeds_by_source(addresses):
+def get_feeds_by_source_addresses(addresses):
     conditions = { 'source': { '$in': addresses }}
-    feeds = config.mongo_dbfeeds.find(spec=conditions, fields={'_id': False})
+    feeds = config.mongo_db.feeds.find(spec=conditions, fields={'_id': False})
     feeds_by_source = {}
     for feed in feeds: feeds_by_source[feed['source']] = feed
     return feeds_by_source
@@ -96,41 +65,9 @@ def get_feed_counters(feed_address):
     counters['bets'] = util.call_jsonrpc_api('sql', params)['result']
     return counters;
 
-def find_feed(url_or_address):
-    conditions = {
-        '$or': [{'source': url_or_address}, {'info_url': url_or_address}],
-        'info_status': 'valid'
-    }
-    result = {}
-    feeds = config.mongo_dbfeeds.find(spec=conditions, fields={'_id': False}, limit=1)
-    for feed in feeds:
-        if 'targets' not in feed['info_data'] or ('type' in feed['info_data'] and feed['info_data']['type'] in ['all', 'cfd']):
-            feed['info_data']['next_broadcast'] = util.next_interval_date(feed['info_data']['broadcast_date'])
-            feed['info_data']['next_deadline'] = util.next_interval_date(feed['info_data']['deadline'])
-        result = feed
-        result['counters'] = get_feed_counters(feed['source'])
-    
-    if 'counters' not in result:
-        params = {
-            'filters': {
-                'field': 'source',
-                'op': '=',
-                'value': url_or_address
-            },
-            'order_by': 'tx_index',
-            'order_dir': 'DESC',
-            'limit': 10
-        }
-        broadcasts = util.call_jsonrpc_api('get_broadcasts', params)['result']
-        if broadcasts:
-            return {
-                'broadcasts': broadcasts,
-                'counters': get_feed_counters(url_or_address)
-            }
-      
-    return result
-
-def find_bets(bet_type, feed_address, deadline, target_value=None, leverage=5040, limit=50):  
+@API.add_method
+def get_bets(bet_type, feed_address, deadline, target_value=None, leverage=5040):
+    limit = 50
     bindings = []       
     sql  = 'SELECT * FROM bets WHERE counterwager_remaining>0 AND '
     sql += 'bet_type=? AND feed_address=? AND leverage=? AND deadline=? '
@@ -146,7 +83,8 @@ def find_bets(bet_type, feed_address, deadline, target_value=None, leverage=5040
     }   
     return util.call_jsonrpc_api('sql', params)['result']
 
-def find_user_bets(addresses, status='open'):
+@API.add_method
+def get_user_bets(addresses = [], status="open"):
     params = {
         'filters': {
             'field': 'source',
@@ -166,41 +104,90 @@ def find_user_bets(addresses, status='open'):
     
     return {
         'bets': bets,
-        'feeds': get_feeds_by_source(sources.keys())
+        'feeds': get_feeds_by_source_addresses(sources.keys())
     }
 
 @API.add_method
-def get_bets(bet_type, feed_address, deadline, target_value=None, leverage=5040):
-    bets = betting.find_bets(bet_type, feed_address, deadline, target_value=target_value, leverage=leverage)
-    return bets
-
-@API.add_method
-def get_user_bets(addresses = [], status="open"):
-    bets = betting.find_user_bets(addresses, status)
-    return bets
-
-@API.add_method
 def get_feed(address_or_url = ''):
-    feed = betting.find_feed(address_or_url)
-    return feed
+    conditions = {
+        '$or': [{'source': address_or_url}, {'info_url': address_or_url}],
+        'info_status': 'valid'
+    }
+    result = {}
+    feeds = config.mongo_db.feeds.find(spec=conditions, fields={'_id': False}, limit=1)
+    for feed in feeds:
+        if 'targets' not in feed['info_data'] or ('type' in feed['info_data'] and feed['info_data']['type'] in ['all', 'cfd']):
+            feed['info_data']['next_broadcast'] = util.next_interval_date(feed['info_data']['broadcast_date'])
+            feed['info_data']['next_deadline'] = util.next_interval_date(feed['info_data']['deadline'])
+        result = feed
+        result['counters'] = get_feed_counters(feed['source'])
+    
+    if 'counters' not in result:
+        params = {
+            'filters': {
+                'field': 'source',
+                'op': '=',
+                'value': address_or_url
+            },
+            'order_by': 'tx_index',
+            'order_dir': 'DESC',
+            'limit': 10
+        }
+        broadcasts = util.call_jsonrpc_api('get_broadcasts', params)['result']
+        if broadcasts:
+            return {
+                'broadcasts': broadcasts,
+                'counters': get_feed_counters(address_or_url)
+            }
+    return result
 
 @API.add_method
 def get_feeds_by_source(addresses = []):
-    feed = betting.get_feeds_by_source(addresses)
+    feed = get_feeds_by_source_addresses(addresses)
     return feed
 
 @API.add_method
 def parse_base64_feed(base64_feed):
-    feed = betting.parse_base64_feed(base64_feed)
+    decoded_feed = base64.b64decode(base64_feed)
+    feed = json.loads(decoded_feed)
+    if not isinstance(feed, dict) or 'feed' not in feed:
+        return False
+    
+    errors = util.is_valid_json(feed['feed'], config.FEED_SCHEMA)
+    if len(errors) > 0:
+        raise Exception("Invalid json: {}".format(", ".join(errors)))
+    # get broadcast infos
+    params = {
+        'filters': {
+            'field': 'source',
+            'op': '=',
+            'value': feed['feed']['address']
+        },
+        'order_by': 'tx_index',
+        'order_dir': 'DESC',
+        'limit': 1
+    }
+    broadcasts = util.call_jsonrpc_api('get_broadcasts', params)['result']
+    if len(broadcasts) == 0:
+        raise Exception("invalid feed address")
+
+    complete_feed = {}
+    complete_feed['fee_fraction_int'] = broadcasts[0]['fee_fraction_int']
+    complete_feed['source'] = broadcasts[0]['source']
+    complete_feed['locked'] = broadcasts[0]['locked']
+    complete_feed['counters'] = get_feed_counters(broadcasts[0]['source'])
+    complete_feed['info_data'] = sanitize_json_data(feed['feed'])
+    
+    feed['feed'] = complete_feed
     return feed
 
-@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 7)
+@MessageProcessor.subscribe(priority=BETTING_PRIORITY_PARSE_BROADCAST)
 def parse_broadcast(msg, msg_data): 
     if msg['category'] != 'broadcasts':
         return
 
     save = False
-    feed = config.mongo_dbfeeds.find_one({'source': msg_data['source']})
+    feed = config.mongo_db.feeds.find_one({'source': msg_data['source']})
     
     if util.is_valid_url(msg_data['text'], allow_no_protocol=True) and msg_data['value'] == -1.0:
         if feed is None: 
@@ -225,14 +212,12 @@ def parse_broadcast(msg, msg_data):
             }
             feed['fee_fraction_int'] = msg_data['fee_fraction_int']
         save = True
-
     if save:  
-        config.mongo_dbfeeds.save(feed)
-        return True
-    return False
+        config.mongo_db.feeds.save(feed)
+    return save
 
 def task_compile_extended_feed_info():
-    feeds = list(config.mongo_dbfeeds.find({'info_status': 'needfetch'}))
+    feeds = list(config.mongo_db.feeds.find({'info_status': 'needfetch'}))
     feed_info_urls = []
     
     def inc_fetch_retry(feed, max_retry=FEED_MAX_RETRY, new_status='error', errors=[]):
@@ -240,7 +225,7 @@ def task_compile_extended_feed_info():
         feed['errors'] = errors
         if feed['fetch_info_retry'] == max_retry:
             feed['info_status'] = new_status
-        config.mongo_dbfeeds.save(feed)
+        config.mongo_db.feeds.save(feed)
 
     def process_feed_info(feed, info_data):
         # sanity check
@@ -277,12 +262,12 @@ def task_compile_extended_feed_info():
                         info_data['targets'][i]['image'], config.SUBDIR_FEED_IMAGES, image_name, fetch_timeout=5)
     
         feed['info_data'] = sanitize_json_data(info_data)
-        config.mongo_dbfeeds.save(feed)
+        config.mongo_db.feeds.save(feed)
         return (True, None)
     
     def feed_fetch_complete_hook(urls_data):
         logger.info("Enhanced feed info fetching complete. %s unique URLs fetched. Processing..." % len(urls_data))
-        feeds = config.mongo_dbfeeds.find({'info_status': 'needfetch'})
+        feeds = config.mongo_db.feeds.find({'info_status': 'needfetch'})
         for feed in feeds:
             #logger.debug("Looking at feed %s: %s" % (feed, feed['info_url']))
             if feed['info_url']:

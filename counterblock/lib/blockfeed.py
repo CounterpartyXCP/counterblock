@@ -78,7 +78,6 @@ def process_cp_blockfeed():
             tx['_category'] = tx['category']
             tx['_message_index'] = 'mempool'
             logger.debug("Spotted mempool tx: %s" % tx)
-            
             for function in MempoolMessageProcessor.active_functions():
                 logger.debug('starting {} (mempool)'.format(function['function']))
                 # TODO: Better handling of double parsing

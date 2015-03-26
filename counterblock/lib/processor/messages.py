@@ -11,17 +11,14 @@ D = decimal.Decimal
 logger = logging.getLogger(__name__)
 
 @MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 0)
-def handle_exceptional(msg, msg_data): 
+def do_sanity_checks(msg, msg_data): 
     if msg['message_index'] != config.state['last_message_index'] + 1 and config.state['last_message_index'] != -1:
         logger.error("BUG: MESSAGE RECEIVED NOT WHAT WE EXPECTED. EXPECTED: %s, GOT: %s: %s (ALL MSGS IN get_messages PAYLOAD: %s)..." % (
             config.state['last_message_index'] + 1, msg['message_index'], msg,
             [m['message_index'] for m in config.state['cur_block']['_messages']]))
         sys.exit(1) #FOR NOW
     
-    #BUG: sometimes counterpartyd seems to return OLD messages out of the message feed. deal with those
-    if msg['message_index'] <= config.state['last_message_index']:
-        logger.warn("BUG: IGNORED old RAW message %s: %s ..." % (msg['message_index'], msg))
-        return 'continue'
+    assert msg['message_index'] > config.state['last_message_index']
 
 @MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 1)
 def handle_invalid(msg, msg_data): 

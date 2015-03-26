@@ -1,6 +1,8 @@
 """
 Implements counterwallet asset-related support as a counterblock plugin
 
+DEPENDENCIES: This module requires the assets module to be loaded before it.
+
 Python 2.x, as counterblock is still python 2.x
 """
 import os
@@ -11,13 +13,16 @@ import logging
 import decimal
 import urllib
 import json
+import operator
 import base64
-import pymongo
 import ConfigParser
 
+import pymongo
+from bson.son import SON
 import dateutil.parser
 
 from counterblock.lib import config, util, blockfeed, blockchain
+from counterblock.lib.modules import DEX_PRIORITY_PARSE_TRADEBOOK
 from counterblock.lib.processor import MessageProcessor, MempoolMessageProcessor, BlockProcessor, StartUpProcessor, CaughtUpProcessor, RollbackProcessor, API, start_task
 from . import assets_trading, dex
 
@@ -46,7 +51,7 @@ def get_market_cap_history(start_ts=None, end_ts=None):
     results = {}
     #^ format is result[market_cap_as][asset] = [[block_time, market_cap], [block_time2, market_cap2], ...] 
     for market_cap_as in (config.XCP, config.BTC):
-        caps = mongo_db.asset_marketcap_history.aggregate([
+        caps = config.mongo_db.asset_marketcap_history.aggregate([
             {"$match": {
                 "market_cap_as": market_cap_as,
                 "block_time": {
@@ -85,8 +90,8 @@ def get_market_cap_history(start_ts=None, end_ts=None):
 
 @API.add_method
 def get_market_info(assets):
-    assets_market_info = list(mongo_db.asset_market_info.find({'asset': {'$in': assets}}, {'_id': 0}))
-    extended_asset_info = mongo_db.asset_extended_info.find({'asset': {'$in': assets}})
+    assets_market_info = list(config.mongo_db.asset_market_info.find({'asset': {'$in': assets}}, {'_id': 0}))
+    extended_asset_info = config.mongo_db.asset_extended_info.find({'asset': {'$in': assets}})
     extended_asset_info_dict = {}
     for e in extended_asset_info:
         if not e.get('disabled', False): #skip assets marked disabled
@@ -107,15 +112,15 @@ def get_market_info_leaderboard(limit=100):
     """returns market leaderboard data for both the XCP and BTC markets"""
     #do two queries because we limit by our sorted results, and we might miss an asset with a high BTC trading value
     # but with little or no XCP trading activity, for instance if we just did one query
-    assets_market_info_xcp = list(mongo_db.asset_market_info.find({}, {'_id': 0}).sort('market_cap_in_{}'.format(config.XCP.lower()), pymongo.DESCENDING).limit(limit))
-    assets_market_info_btc = list(mongo_db.asset_market_info.find({}, {'_id': 0}).sort('market_cap_in_{}'.format(config.BTC.lower()), pymongo.DESCENDING).limit(limit))
+    assets_market_info_xcp = list(config.mongo_db.asset_market_info.find({}, {'_id': 0}).sort('market_cap_in_{}'.format(config.XCP.lower()), pymongo.DESCENDING).limit(limit))
+    assets_market_info_btc = list(config.mongo_db.asset_market_info.find({}, {'_id': 0}).sort('market_cap_in_{}'.format(config.BTC.lower()), pymongo.DESCENDING).limit(limit))
     assets_market_info = {
         config.XCP.lower(): [a for a in assets_market_info_xcp if a['price_in_{}'.format(config.XCP.lower())]],
         config.BTC.lower(): [a for a in assets_market_info_btc if a['price_in_{}'.format(config.BTC.lower())]]
     }
     #throw on extended info, if it exists for a given asset
     assets = list(set([a['asset'] for a in assets_market_info[config.XCP.lower()]] + [a['asset'] for a in assets_market_info[config.BTC.lower()]]))
-    extended_asset_info = mongo_db.asset_extended_info.find({'asset': {'$in': assets}})
+    extended_asset_info = config.mongo_db.asset_extended_info.find({'asset': {'$in': assets}})
     extended_asset_info_dict = {}
     for e in extended_asset_info:
         if not e.get('disabled', False): #skip assets marked disabled
@@ -150,7 +155,7 @@ def get_market_price_history(asset1, asset2, start_ts=None, end_ts=None, as_dict
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
     
     #get ticks -- open, high, low, close, volume
-    result = mongo_db.trades.aggregate([
+    result = config.mongo_db.trades.aggregate([
         {"$match": {
             "base_asset": base_asset,
             "quote_asset": quote_asset,
@@ -234,7 +239,7 @@ def get_trade_history(asset1=None, asset2=None, start_ts=None, end_ts=None, limi
         filters["base_asset"] = base_asset
         filters["quote_asset"] = quote_asset
 
-    last_trades = mongo_db.trades.find(filters, {'_id': 0}).sort("block_time", pymongo.DESCENDING).limit(limit)
+    last_trades = config.mongo_db.trades.find(filters, {'_id': 0}).sort("block_time", pymongo.DESCENDING).limit(limit)
     if not last_trades.count():
         return False #no suitable trade data to form a market price
     last_trades = list(last_trades)
@@ -250,8 +255,8 @@ ask_book_min_pct_fee_provided=None, ask_book_min_pct_fee_required=None, ask_book
     @param: normalized_fee_provided: Only specify if selling BTC. If specified, the order book will be pruned down to only
      show orders at and above this fee_provided
     """
-    base_asset_info = mongo_db.tracked_assets.find_one({'asset': base_asset})
-    quote_asset_info = mongo_db.tracked_assets.find_one({'asset': quote_asset})
+    base_asset_info = config.mongo_db.tracked_assets.find_one({'asset': base_asset})
+    quote_asset_info = config.mongo_db.tracked_assets.find_one({'asset': quote_asset})
     
     if not base_asset_info or not quote_asset_info:
         raise Exception("Invalid asset(s)")
@@ -484,11 +489,11 @@ def get_market_trades(asset1, asset2, addresses=[], limit=50):
 
 @API.add_method
 def get_markets_list(quote_asset = None, order_by=None):
-    return dex.get_markets_list(mongo_db, quote_asset=quote_asset, order_by=order_by)
+    return dex.get_markets_list(quote_asset=quote_asset, order_by=order_by)
 
 @API.add_method
 def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95):
-    return dex.get_market_details(asset1, asset2, min_fee_provided, max_fee_required, mongo_db)
+    return dex.get_market_details(asset1, asset2, min_fee_provided, max_fee_required)
 
 
 def task_compile_asset_pair_market_info():
@@ -502,51 +507,7 @@ def task_compile_asset_market_info():
     start_task(task_compile_asset_market_info, delay=COMPILE_ASSET_MARKET_INFO_PERIOD)                         
 
 
-@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 5)
-def parse_balance_change(msg, msg_data): 
-    #track balance changes for each address
-    bal_change = None
-    if msg['category'] in ['credits', 'debits',]:
-        actionName = 'credit' if msg['category'] == 'credits' else 'debit'
-        address = msg_data['address']
-        asset_info = config.mongo_db.tracked_assets.find_one({ 'asset': msg_data['asset'] })
-        if asset_info is None:
-            logger.warn("Credit/debit of %s where asset ('%s') does not exist. Ignoring..." % (msg_data['quantity'], msg_data['asset']))
-            return 'continue'
-        quantity = msg_data['quantity'] if msg['category'] == 'credits' else -msg_data['quantity']
-        quantity_normalized = blockchain.normalize_quantity(quantity, asset_info['divisible'])
-
-        #look up the previous balance to go off of
-        last_bal_change = config.mongo_db.balance_changes.find_one({
-            'address': address,
-            'asset': asset_info['asset']
-        }, sort=[("block_index", pymongo.DESCENDING), ("_id", pymongo.DESCENDING)])
-        
-        if last_bal_change \
-           and last_bal_change['block_index'] == config.state['cur_block']['block_index']:
-            #modify this record, as we want at most one entry per block index for each (address, asset) pair
-            last_bal_change['quantity'] += quantity
-            last_bal_change['quantity_normalized'] += quantity_normalized
-            last_bal_change['new_balance'] += quantity
-            last_bal_change['new_balance_normalized'] += quantity_normalized
-            config.mongo_db.balance_changes.save(last_bal_change)
-            logger.info("Procesed %s bal change (UPDATED) from tx %s :: %s" % (actionName, msg['message_index'], last_bal_change))
-            bal_change = last_bal_change
-        else: #new balance change record for this block
-            bal_change = {
-                'address': address, 
-                'asset': asset_info['asset'],
-                'block_index': config.state['cur_block']['block_index'],
-                'block_time': config.state['cur_block']['block_time_obj'],
-                'quantity': quantity,
-                'quantity_normalized': quantity_normalized,
-                'new_balance': last_bal_change['new_balance'] + quantity if last_bal_change else quantity,
-                'new_balance_normalized': last_bal_change['new_balance_normalized'] + quantity_normalized if last_bal_change else quantity_normalized,
-            }
-            config.mongo_db.balance_changes.insert(bal_change)
-            logger.info("Procesed %s bal change from tx %s :: %s" % (actionName, msg['message_index'], bal_change))
-    
-@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 6)
+@MessageProcessor.subscribe(priority=DEX_PRIORITY_PARSE_TRADEBOOK)
 def parse_trade_book(msg, msg_data):
     #book trades
     if (msg['category'] == 'order_matches'
