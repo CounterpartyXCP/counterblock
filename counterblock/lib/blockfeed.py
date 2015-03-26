@@ -157,10 +157,14 @@ def process_cp_blockfeed(zmq_publisher_eventfeed):
     else:
         app_config = app_config[0]
         #get the last processed block out of mongo
-        my_latest_block = config.mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)]) or config.LATEST_BLOCK_INIT
-        #remove any data we have for blocks higher than this (would happen if counterblockd or mongo died
-        # or errored out while processing a block)
-        config.state['my_latest_block'] = database.rollback(my_latest_block['block_index'])
+        my_latest_block = config.mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)])
+        if my_latest_block:
+            #remove any data we have for blocks higher than this (would happen if counterblockd or mongo died
+            # or errored out while processing a block)
+            config.state['my_latest_block'] = database.rollback(my_latest_block['block_index'])
+        else:
+            #no block state in the database yet
+            config.state['my_latest_block'] = config.LATEST_BLOCK_INIT
     
     #avoid contacting counterpartyd (on reparse, to speed up)
     autopilot = False
