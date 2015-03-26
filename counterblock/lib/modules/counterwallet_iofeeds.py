@@ -1,3 +1,11 @@
+"""
+Implements counterwallet chat and activity feed (socket IO driven) support as a counterblock plugin
+
+Python 2.x, as counterblock is still python 2.x
+"""
+
+import os
+import sys
 import re
 import logging
 import datetime
@@ -5,6 +13,7 @@ import time
 import socket
 import collections
 import json
+import ConfigParser
 
 import zmq.green as zmq
 import pymongo
@@ -12,11 +21,146 @@ from socketio import socketio_manage
 from socketio.mixins import BroadcastMixin
 from socketio.namespace import BaseNamespace
 
-from counterblock.lib import config, util
+from counterblock.lib import config, util, blockchain
+from counterblock.lib.processor import MessageProcessor, MempoolMessageProcessor, BlockProcessor, StartUpProcessor, CaughtUpProcessor, RollbackProcessor, API
 
 logger = logging.getLogger(__name__)
-onlineClients = {} #key = walletID, value = datetime when connected
+online_clients = {} #key = walletID, value = datetime when connected
 #^ tracks "online status" via the chat feed
+module_config = {}
+zmq_publisher_eventfeed = None #set on init
+
+def _read_config():
+    configfile = ConfigParser.ConfigParser()
+    config_path = os.path.join(config.config_dir, 'counterwallet_iofeeds.conf')
+    logger.info("Loading config at: %s" % config_path)
+    try:
+        configfile.read(config_path)
+        assert configfile.has_section('Default')
+    except:
+        logging.warn("Could not find or parse counterwallet_iofeeds.conf config file!")
+    
+    if configfile.has_option('Default', 'socketio-host'):
+        module_config['SOCKETIO_HOST'] = configfile.get('Default', 'socketio-host')
+    else:
+        module_config['SOCKETIO_HOST'] = "localhost"
+    
+    if configfile.has_option('Default', 'socketio-port'):
+        module_config['SOCKETIO_PORT'] = configfile.get('Default', 'socketio-port')
+    else:
+        module_config['SOCKETIO_PORT'] = 14101 if config.TESTNET else 4101
+    try:
+        module_config['SOCKETIO_PORT'] = int(module_config['SOCKETIO_PORT'])
+        assert int(module_config['SOCKETIO_PORT']) > 1 and int(module_config['SOCKETIO_PORT']) < 65535
+    except:
+        raise Exception("Please specific a valid port number socketio-port configuration parameter")
+    
+    if configfile.has_option('Default', 'socketio-chat-host'):
+        module_config['SOCKETIO_CHAT_HOST'] = configfile.get('Default', 'socketio-chat-host')
+    else:
+        module_config['SOCKETIO_CHAT_HOST'] = "localhost"
+    
+    if configfile.has_option('Default', 'socketio-chat-port'):
+        module_config['SOCKETIO_CHAT_PORT'] = configfile.get('Default', 'socketio-chat-port')
+    else:
+        module_config['SOCKETIO_CHAT_PORT'] = 14102 if config.TESTNET else 4102
+    try:
+        module_config['SOCKETIO_CHAT_PORT'] = int(module_config['SOCKETIO_CHAT_PORT'])
+        assert int(module_config['SOCKETIO_CHAT_PORT']) > 1 and int(module_config['SOCKETIO_CHAT_PORT']) < 65535
+    except:
+        raise Exception("Please specific a valid port number socketio-chat-port configuration parameter")
+
+
+@API.add_method
+def get_num_users_online():
+    #gets the current number of users attached to the server's chat feed
+    return len(online_clients) 
+
+@API.add_method
+def is_chat_handle_in_use(handle):
+    #DEPRECATED 1.5
+    results = mongo_db.chat_handles.find({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
+    return True if results.count() else False 
+
+@API.add_method
+def get_chat_handle(wallet_id):
+    result = mongo_db.chat_handles.find_one({"wallet_id": wallet_id})
+    if not result: return False #doesn't exist
+    result['last_touched'] = time.mktime(time.gmtime())
+    mongo_db.chat_handles.save(result)
+    data = {
+        'handle': re.sub('[^\sA-Za-z0-9_-]', "", result['handle']),
+        'is_op': result.get('is_op', False),
+        'last_updated': result.get('last_updated', None)
+        } if result else {}
+    banned_until = result.get('banned_until', None) 
+    if banned_until != -1 and banned_until is not None:
+        data['banned_until'] = int(time.mktime(banned_until.timetuple())) * 1000 #convert to epoch ts in ms
+    else:
+        data['banned_until'] = banned_until #-1 or None
+    return data
+
+@API.add_method
+def store_chat_handle(wallet_id, handle):
+    """Set or update a chat handle"""
+    if not isinstance(handle, basestring):
+        raise Exception("Invalid chat handle: bad data type")
+    if not re.match(r'^[\sA-Za-z0-9_-]{4,12}$', handle):
+        raise Exception("Invalid chat handle: bad syntax/length")
+    
+    #see if this handle already exists (case insensitive)
+    results = mongo_db.chat_handles.find({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
+    if results.count():
+        if results[0]['wallet_id'] == wallet_id:
+            return True #handle already saved for this wallet ID
+        else:
+            raise Exception("Chat handle already is in use")
+
+    mongo_db.chat_handles.update(
+        {'wallet_id': wallet_id},
+        {"$set": {
+            'wallet_id': wallet_id,
+            'handle': handle,
+            'last_updated': time.mktime(time.gmtime()),
+            'last_touched': time.mktime(time.gmtime()) 
+            }
+        }, upsert=True)
+    #^ last_updated MUST be in UTC, as it will be compaired again other servers
+    return True
+
+@API.add_method
+def get_chat_history(start_ts=None, end_ts=None, handle=None, limit=1000):
+    #DEPRECATED 1.5
+    now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+    if not end_ts: #default to current datetime
+        end_ts = now_ts
+    if not start_ts: #default to 5 days before the end date
+        start_ts = end_ts - (30 * 24 * 60 * 60)
+        
+    if limit >= 5000:
+        raise Exception("Requesting too many lines (limit too high")
+    
+    
+    filters = {
+        "when": {
+            "$gte": datetime.datetime.utcfromtimestamp(start_ts)
+        } if end_ts == now_ts else {
+            "$gte": datetime.datetime.utcfromtimestamp(start_ts),
+            "$lte": datetime.datetime.utcfromtimestamp(end_ts)
+        }
+    }
+    if handle:
+        filters['handle'] = handle
+    chat_history = mongo_db.chat_history.find(filters, {'_id': 0}).sort("when", pymongo.DESCENDING).limit(limit)
+    if not chat_history.count():
+        return False #no suitable trade data to form a market price
+    chat_history = list(chat_history)
+    return chat_history 
+
+@API.add_method
+def is_wallet_online(wallet_id):
+    return wallet_id in online_clients
+
 
 class MessagesFeedServerNamespace(BaseNamespace):
     def __init__(self, *args, **kwargs):
@@ -85,15 +229,15 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
         if 'wallet_id' not in self.socket.session:
             logger.warn("wallet_id not found in socket session: %s" % socket.session)
             return super(ChatFeedServerNamespace, self).disconnect(silent=silent)
-        if self.socket.session['wallet_id'] in onlineClients:
-            del onlineClients[self.socket.session['wallet_id']]
+        if self.socket.session['wallet_id'] in online_clients:
+            del online_clients[self.socket.session['wallet_id']]
         return super(ChatFeedServerNamespace, self).disconnect(silent=silent)
     
     def on_ping(self, wallet_id):
         """used to force a triggering of the connection tracking""" 
         #record the client as online
         self.socket.session['wallet_id'] = wallet_id
-        onlineClients[wallet_id] = {'when': datetime.datetime.utcnow(), 'state': self}
+        online_clients[wallet_id] = {'when': datetime.datetime.utcnow(), 'state': self}
         return True
     
     def on_start_chatting(self, wallet_id, is_primary_server):
@@ -142,7 +286,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
-            return self.emit("online_status", p['handle'], p['wallet_id'] in onlineClients)
+            return self.emit("online_status", p['handle'], p['wallet_id'] in online_clients)
         elif command == 'msg': #/msg <handle> <message text>
             if not self.socket.session['is_primary_server']: return
             if len(args) < 2:
@@ -162,11 +306,11 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             p = self.request['mongo_db'].chat_handles.find_one({ 'handle': { '$regex': '^%s$' % handle, '$options': 'i' } })
             if not p:
                 return self.error('invalid_args', "Handle '%s' not found" % handle)
-            if p['wallet_id'] not in onlineClients:
+            if p['wallet_id'] not in online_clients:
                 return self.error('invalid_args', "Handle '%s' is not online" % p['handle'])
             
             message = util.sanitize_eliteness(message[:self.MAX_TEXT_LEN]) #truncate to max allowed and sanitize
-            onlineClients[p['wallet_id']]['state'].emit("emote", self.socket.session['handle'],
+            online_clients[p['wallet_id']]['state'].emit("emote", self.socket.session['handle'],
                 message, self.socket.session['is_op'], True, False) #isPrivate = True, viaCommand = False
         elif command in ['op', 'unop']: #/op|unop <handle>
             if len(args) != 1:
@@ -316,7 +460,6 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
                 'when': self.socket.session['last_action']
             })
         
-
 class SocketIOChatFeedServer(object):
     """
     Funnel messages from counterparty.io client chats to other clients
@@ -333,27 +476,64 @@ class SocketIOChatFeedServer(object):
             return ''
         socketio_manage(environ, {'': ChatFeedServerNamespace}, self.request)
 
+@MessageProcessor.subscribe(priority=1000)
+def parse_for_socketio(msg, msg_data):
+    #if we're catching up beyond MAX_REORG_NUM_BLOCKS blocks out, make sure not to send out any socket.io
+    # events, as to not flood on a resync (as we may give a 525 to kick the logged in clients out, but we
+    # can't guarantee that the socket.io connection will always be severed as well??)
+    if config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
+        #send out the message to listening clients
+        event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
+        zmq_publisher_eventfeed.send_json(event)
 
-def set_up():
+@MempoolMessageProcessor.subscribe(priority=1000)
+def publish_mempool_tx(msg, msg_data):
+    zmq_publisher_eventfeed.send_json(msg)
+
+@StartUpProcessor.subscribe()
+def init():
+    _read_config()
+    
+    #init db and indexes
+    #chat_handles
+    config.mongo_db.chat_handles.ensure_index('wallet_id', unique=True)
+    config.mongo_db.chat_handles.ensure_index('handle', unique=True)
+    #chat_history
+    config.mongo_db.chat_history.ensure_index('when')
+    config.mongo_db.chat_history.ensure_index([
+        ("handle", pymongo.ASCENDING),
+        ("when", pymongo.DESCENDING),
+    ])
+    
     #set up zeromq publisher for sending out received events to connected socket.io clients
     import zmq.green as zmq
     from socketio import server as socketio_server
     zmq_context = zmq.Context()
+    global zmq_publisher_eventfeed
     zmq_publisher_eventfeed = zmq_context.socket(zmq.PUB)
     zmq_publisher_eventfeed.bind('inproc://queue_eventfeed')
-    #set event feed for shared access
-    config.ZMQ_PUBLISHER_EVENTFEED = zmq_publisher_eventfeed
 
     logger.info("Starting up socket.io server (block event feed)...")
     sio_server = socketio_server.SocketIOServer(
-        (config.SOCKETIO_HOST, config.SOCKETIO_PORT),
+        (module_config['SOCKETIO_HOST'], module_config['SOCKETIO_PORT']),
         SocketIOMessagesFeedServer(zmq_context),
         resource="socket.io", policy_server=False)
     sio_server.start() #start the socket.io server greenlets
 
     logger.info("Starting up socket.io server (chat feed)...")
     sio_server = socketio_server.SocketIOServer(
-        (config.SOCKETIO_CHAT_HOST, config.SOCKETIO_CHAT_PORT),
+        (module_config['SOCKETIO_CHAT_HOST'], module_config['SOCKETIO_CHAT_PORT']),
         SocketIOChatFeedServer(config.mongo_db),
         resource="socket.io", policy_server=False)
     sio_server.start() #start the socket.io server greenlets
+
+@CaughtUpProcessor.subscribe()
+def start_tasks(): 
+    pass
+
+@RollbackProcessor.subscribe()
+def process_rollback(max_block_index):
+    if not max_block_index: #full reparse
+        pass
+    else: #rollback
+        pass

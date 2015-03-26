@@ -59,23 +59,11 @@ def main():
     parser.add_argument('--redis-port', type=int, help='the port used to connect to the redis server for caching (if enabled)')
     parser.add_argument('--redis-database', type=int, help='the redis database ID (int) used to connect to the redis server for caching (if enabled)')
 
-    parser.add_argument('--armory-utxsvr-enable', help='enable use of armory_utxsvr service (for signing offline armory txns')
-
-    #Vending machine provider
-    parser.add_argument('--vending-machine-provider', help='JSON url containing vending machines list')
-
-    #THINGS WE HOST
+    #COUNTERBLOCK API
     parser.add_argument('--rpc-host', help='the IP of the interface to bind to for providing JSON-RPC API access (0.0.0.0 for all interfaces)')
     parser.add_argument('--rpc-port', type=int, help='port on which to provide the counterblockd JSON-RPC API')
     parser.add_argument('--rpc-allow-cors', action='store_true', default=True, help='Allow ajax cross domain request')
-    parser.add_argument('--socketio-host', help='the interface on which to host the counterblockd socket.io API')
-    parser.add_argument('--socketio-port', type=int, help='port on which to provide the counterblockd socket.io API')
-    parser.add_argument('--socketio-chat-host', help='the interface on which to host the counterblockd socket.io chat API')
-    parser.add_argument('--socketio-chat-port', type=int, help='port on which to provide the counterblockd socket.io chat API')
 
-    parser.add_argument('--support-email', help='the email address where support requests should go')
-    parser.add_argument('--email-server', help='the email server to send support requests out from. Defaults to \'localhost\'')
-    
     #actions
     subparsers = parser.add_subparsers(dest='action', help='the action to be taken')
     parser_server = subparsers.add_parser('server', help='Run Counterblockd')

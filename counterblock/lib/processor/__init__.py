@@ -1,9 +1,59 @@
 import logging
 import collections
+import gevent.pool
+import gevent.util
 
 CORE_FIRST_PRIORITY = 65535 #arbitrary, must be > 1000, as custom plugins utilize the range of <= 1000
 CORE_LAST_PRIORITY = -1 #arbitrary, must be < 0
-logger = logging.getLogger(__name__)
+
+class GreenletGroupWithExceptionCatching(gevent.pool.Group):
+    """See https://gist.github.com/progrium/956006"""
+    def __init__(self, *args):
+        super(GreenletGroupWithExceptionCatching, self).__init__(*args)
+        self._error_handlers = {}
+    
+    def _wrap_errors(self, func):
+        """Wrap a callable for triggering error handlers
+        
+        This is used by the greenlet spawn methods so you can handle known
+        exception cases instead of gevent's default behavior of just printing
+        a stack trace for exceptions running in parallel greenlets.
+        
+        """
+        def wrapped_f(*args, **kwargs):
+            exceptions = tuple(self._error_handlers.keys())
+            try:
+                return func(*args, **kwargs)
+            except exceptions, exception:
+                for type in self._error_handlers:
+                    if isinstance(exception, type):
+                        handler, greenlet = self._error_handlers[type]
+                        self._wrap_errors(handler)(exception, greenlet)
+                return exception
+        return wrapped_f
+    
+    def catch(self, type, handler):
+        """Set an error handler for exceptions of `type` raised in greenlets"""
+        self._error_handlers[type] = (handler, gevent.getcurrent())
+    
+    def spawn(self, func, *args, **kwargs):
+        parent = super(GreenletGroupWithExceptionCatching, self)
+        func_wrap = self._wrap_errors(func)
+        return parent.spawn(func_wrap, *args, **kwargs)
+        
+    def spawn_later(self, seconds, func, *args, **kwargs):
+        parent = super(GreenletGroupWithExceptionCatching, self)
+        func_wrap = self._wrap_errors(func)
+        return parent.spawn_later(seconds, func_wrap, *args, **kwargs)
+
+def start_task(func, delay=None):
+    def raise_in_handling_greenlet(error, greenlet):
+        greenlet.throw(error)
+    group = GreenletGroupWithExceptionCatching()
+    group.catch(Exception, raise_in_handling_greenlet)
+    group.spawn(func) if not delay else group.spawn_later(delay, func)
+    return group
+
 
 class Dispatcher(collections.MutableMapping):
     """ API Method dispatcher.
@@ -76,6 +126,8 @@ class Dispatcher(collections.MutableMapping):
 
 
 class Processor(Dispatcher):
+    logger = logging.getLogger(__name__)
+    
     def subscribe(self, name=None, priority=0, enabled=True):
         def inner(f): 
             default = f.__name__
@@ -98,10 +150,11 @@ class Processor(Dispatcher):
     
     def run_active_functions(self, *args, **kwargs): 
         for func in self.active_functions(): 
-            logger.debug('starting {}'.format(func['name']))
+            self.logger.debug('starting {}'.format(func['name']))
             func['function'](*args, **kwargs)
-            
+                
 MessageProcessor = Processor()
+MempoolMessageProcessor = Processor()
 BlockProcessor = Processor()
 StartUpProcessor= Processor()
 CaughtUpProcessor = Processor()                

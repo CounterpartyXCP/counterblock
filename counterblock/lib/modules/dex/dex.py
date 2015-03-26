@@ -396,7 +396,7 @@ def get_assets_supply(assets=[]):
     supplies = {}
 
     if 'XCP' in assets:
-        supplies['XCP'] = (util.call_jsonrpc_api('get_xcp_supply', [])['result'], True)
+        supplies['XCP'] = (util.call_jsonrpc_api("get_supply", {'asset': 'XCP'})['result'], True)
         assets.remove('XCP')
 
     if 'BTC' in assets:
