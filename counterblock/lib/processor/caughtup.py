@@ -3,7 +3,7 @@ import logging
 import time
 
 from counterblock.lib import config
-from counterblock.lib.processor import CaughtUpProcessor, CORE_FIRST_PRIORITY, CORE_LAST_PRIORITY, tasks, start_task
+from counterblock.lib.processor import CaughtUpProcessor, CORE_FIRST_PRIORITY, CORE_LAST_PRIORITY, start_task
 
 logger = logging.getLogger(__name__)
 
