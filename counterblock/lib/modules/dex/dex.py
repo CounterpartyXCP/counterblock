@@ -396,7 +396,7 @@ def get_assets_supply(assets=[]):
     supplies = {}
 
     if 'XCP' in assets:
-        supplies['XCP'] = (util.call_jsonrpc_api('get_xcp_supply', [])['result'], True)
+        supplies['XCP'] = (util.call_jsonrpc_api("get_supply", {'asset': 'XCP'})['result'], True)
         assets.remove('XCP')
 
     if 'BTC' in assets:
@@ -475,7 +475,7 @@ def get_price_movement(base_asset, quote_asset, supplies=None):
     return price, trend, price24h, progression
 
 @cache.block_cache
-def get_markets_list(mongo_db=None, quote_asset=None, order_by=None):
+def get_markets_list(quote_asset=None, order_by=None):
     
     yesterday = int(time.time() - (24*60*60))
     markets = []
@@ -495,8 +495,8 @@ def get_markets_list(mongo_db=None, quote_asset=None, order_by=None):
     supplies = get_assets_supply(all_assets)
 
     asset_with_image = {}
-    if mongo_db:
-        infos = mongo_db.asset_extended_info.find({'asset': {'$in': all_assets}}, {'_id': 0}) or False
+    if config.mongo_db:
+        infos = config.mongo_db.asset_extended_info.find({'asset': {'$in': all_assets}}, {'_id': 0}) or False
         for info in infos:
             if 'info_data' in info and 'valid_image' in info['info_data'] and info['info_data']['valid_image']:
                 asset_with_image[info['asset']] = True
@@ -532,7 +532,7 @@ def get_markets_list(mongo_db=None, quote_asset=None, order_by=None):
     return markets
 
 @cache.block_cache
-def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95, mongo_db=None):
+def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95):
 
     yesterday = int(time.time() - (24*60*60))
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
@@ -553,8 +553,8 @@ def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0
     last_trades =  get_market_trades(base_asset, quote_asset, supplies=supplies)
 
     ext_info = False
-    if mongo_db:
-        ext_info = mongo_db.asset_extended_info.find_one({'asset': base_asset}, {'_id': 0})
+    if config.mongo_db:
+        ext_info = config.mongo_db.asset_extended_info.find_one({'asset': base_asset}, {'_id': 0})
         if ext_info and 'info_data' in ext_info:
             ext_info = ext_info['info_data']
         else:

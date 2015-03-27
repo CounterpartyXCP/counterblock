@@ -16,7 +16,7 @@ import pymongo
 import gevent
 
 from counterblock.lib import config, util, blockchain, cache, database
-from counterblock.lib.processor import MessageProcessor, BlockProcessor, CaughtUpProcessor
+from counterblock.lib.processor import MessageProcessor, MempoolMessageProcessor, BlockProcessor, CaughtUpProcessor
 
 D = decimal.Decimal 
 logger = logging.getLogger(__name__)
@@ -29,10 +29,9 @@ def fuzzy_is_caught_up():
                and config.state['my_latest_block']['block_index'] >= config.state['cp_backend_block_index'] - 1
               )
         
-def process_cp_blockfeed(zmq_publisher_eventfeed):
+def process_cp_blockfeed():
     config.LATEST_BLOCK_INIT = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
-    zmq_publisher_eventfeed = config.ZMQ_PUBLISHER_EVENTFEED
-    
+
     #initialize state
     config.state['cur_block'] = {'block_index': 0, } #block being currently processed
     config.state['my_latest_block'] = {'block_index': 0 } #last block that was successfully processed by counterblockd
@@ -79,7 +78,14 @@ def process_cp_blockfeed(zmq_publisher_eventfeed):
             tx['_category'] = tx['category']
             tx['_message_index'] = 'mempool'
             logger.debug("Spotted mempool tx: %s" % tx)
-            zmq_publisher_eventfeed.send_json(tx)
+            for function in MempoolMessageProcessor.active_functions():
+                logger.debug('starting {} (mempool)'.format(function['function']))
+                # TODO: Better handling of double parsing
+                try:
+                    cmd = function['function'](tx, json.loads(tx['bindings'])) or None
+                except pymongo.errors.DuplicateKeyError, e:
+                    logging.exception(e)
+                if cmd == 'continue': break
             
     def clean_mempool_tx():
         """clean mempool transactions older than MAX_REORG_NUM_BLOCKS blocks"""
@@ -157,10 +163,14 @@ def process_cp_blockfeed(zmq_publisher_eventfeed):
     else:
         app_config = app_config[0]
         #get the last processed block out of mongo
-        my_latest_block = config.mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)]) or config.LATEST_BLOCK_INIT
-        #remove any data we have for blocks higher than this (would happen if counterblockd or mongo died
-        # or errored out while processing a block)
-        config.state['my_latest_block'] = database.rollback(my_latest_block['block_index'])
+        my_latest_block = config.mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)])
+        if my_latest_block:
+            #remove any data we have for blocks higher than this (would happen if counterblockd or mongo died
+            # or errored out while processing a block)
+            config.state['my_latest_block'] = database.rollback(my_latest_block['block_index'])
+        else:
+            #no block state in the database yet
+            config.state['my_latest_block'] = config.LATEST_BLOCK_INIT
     
     #avoid contacting counterpartyd (on reparse, to speed up)
     autopilot = False

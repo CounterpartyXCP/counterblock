@@ -5,6 +5,8 @@ import os
 import sys
 import logging
 
+VERSION="1.2.0"
+
 required_packages = [
     'appdirs>=1.4.0',
     'prettytable>=0.7.2',
@@ -42,8 +44,6 @@ required_repos = [
     'https://github.com/natecode/grequests/archive/ea00e193074fc11d71b4ff74138251f6055ca364.zip#egg=grequests-0.2.1',
     #^ grequests (waiting until the next point release with natecode's pull request factored in)
 ]
-
-VERSION="1.1.1"
 
 setup_options = {
     'name': 'counterblock',

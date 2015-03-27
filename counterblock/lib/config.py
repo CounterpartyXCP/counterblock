@@ -3,7 +3,7 @@
 ##
 ## CONSTANTS
 ##
-VERSION = "1.1.1" #should keep up with counterblockd repo's release tag
+VERSION = "1.2.0" #should keep up with counterblockd repo's release tag
 
 DB_VERSION = 23 #a db version increment will cause counterblockd to rebuild its database off of counterpartyd 
 
@@ -26,9 +26,6 @@ APP_NAME = "counterblock"
 
 MAX_REORG_NUM_BLOCKS = 10 #max reorg we'd likely ever see
 MAX_FORCED_REORG_NUM_BLOCKS = 20 #but let us go deeper when messages are out of sync
-
-ARMORY_UTXSVR_PORT_MAINNET = 6590
-ARMORY_UTXSVR_PORT_TESTNET = 6591
 
 QUOTE_ASSETS = ['BTC', 'XBTC', 'XCP'] # define the priority for quote asset
 MARKET_LIST_QUOTE_ASSETS = ['XCP', 'XBTC', 'BTC'] # define the order in the market list
@@ -326,51 +323,12 @@ def load(args):
         RPC_ALLOW_CORS = configfile.getboolean('Default', 'rpc-allow-cors')
     else:
         RPC_ALLOW_CORS = True
-
-    global SOCKETIO_HOST
-    if args.socketio_host:
-        SOCKETIO_HOST = args.socketio_host
-    elif has_config and configfile.has_option('Default', 'socketio-host') and configfile.get('Default', 'socketio-host'):
-        SOCKETIO_HOST = configfile.get('Default', 'socketio-host')
-    else:
-        SOCKETIO_HOST = 'localhost'
-
-    global SOCKETIO_PORT
-    if args.socketio_port:
-        SOCKETIO_PORT = args.socketio_port
-    elif has_config and configfile.has_option('Default', 'socketio-port') and configfile.get('Default', 'socketio-port'):
-        SOCKETIO_PORT = configfile.get('Default', 'socketio-port')
-    else:
-        SOCKETIO_PORT = 14101 if TESTNET else 4101
-      
-    try:
-        SOCKETIO_PORT = int(SOCKETIO_PORT)
-        assert int(SOCKETIO_PORT) > 1 and int(SOCKETIO_PORT) < 65535
-    except:
-        raise Exception("Please specific a valid port number socketio-port configuration parameter")
-    
-    global SOCKETIO_CHAT_HOST
-    if args.socketio_chat_host:
-        SOCKETIO_CHAT_HOST = args.socketio_chat_host
-    elif has_config and configfile.has_option('Default', 'socketio-chat-host') and configfile.get('Default', 'socketio-chat-host'):
-        SOCKETIO_CHAT_HOST = configfile.get('Default', 'socketio-chat-host')
-    else:
-        SOCKETIO_CHAT_HOST = 'localhost'
-
-    global SOCKETIO_CHAT_PORT
-    if args.socketio_chat_port:
-        SOCKETIO_CHAT_PORT = args.socketio_chat_port
-    elif has_config and configfile.has_option('Default', 'socketio-chat-port') and configfile.get('Default', 'socketio-chat-port'):
-        SOCKETIO_CHAT_PORT = configfile.get('Default', 'socketio-chat-port')
-    else:
-        SOCKETIO_CHAT_PORT = 14102 if TESTNET else 4102
-    
-    try:
-        SOCKETIO_CHAT_PORT = int(SOCKETIO_CHAT_PORT)
-        assert int(SOCKETIO_CHAT_PORT) > 1 and int(SOCKETIO_CHAT_PORT) < 65535
-    except:
-        raise Exception("Please specific a valid port number socketio-chat-port configuration parameter")
-
+        
+    #Other things
+    global SUBDIR_ASSET_IMAGES
+    SUBDIR_ASSET_IMAGES = "asset_img%s" % net_path_part #goes under the data dir and stores retrieved asset images
+    global SUBDIR_FEED_IMAGES
+    SUBDIR_FEED_IMAGES = "feed_img%s" % net_path_part #goes under the data dir and stores retrieved feed images
 
     ##############
     # OTHER SETTINGS
@@ -403,51 +361,6 @@ def load(args):
     else:
         PID = os.path.join(data_dir, 'server%s.pid' % net_path_part)
 
-    #email-related
-    global SUPPORT_EMAIL
-    if args.support_email:
-        SUPPORT_EMAIL = args.support_email
-    elif has_config and configfile.has_option('Default', 'support-email') and configfile.get('Default', 'support-email'):
-        SUPPORT_EMAIL = configfile.get('Default', 'support-email')
-    else:
-        SUPPORT_EMAIL = None #disable support tickets
-    if SUPPORT_EMAIL:
-        if not email.utils.parseaddr(SUPPORT_EMAIL)[1]:
-            raise Exception("Invalid support email address")
-
-    global EMAIL_SERVER
-    if args.email_server:
-        EMAIL_SERVER = args.email_server
-    elif has_config and configfile.has_option('Default', 'email-server') and configfile.get('Default', 'email-server'):
-        EMAIL_SERVER = configfile.get('Default', 'email-server')
-    else:
-        EMAIL_SERVER = "localhost"
-        
-    #Other things
-    global SUBDIR_ASSET_IMAGES
-    SUBDIR_ASSET_IMAGES = "asset_img%s" % net_path_part #goes under the data dir and stores retrieved asset images
-    global SUBDIR_FEED_IMAGES
-    SUBDIR_FEED_IMAGES = "feed_img%s" % net_path_part #goes under the data dir and stores retrieved feed images
-
-    ###
-    # TODO: MOVE OUT INTO THEIR OWN PLUGINS
-    # armory integration
-    global ARMORY_UTXSVR_ENABLE
-    if args.armory_utxsvr_enable:
-        ARMORY_UTXSVR_ENABLE = args.armory_utxsvr_enable
-    elif has_config and configfile.has_option('Default', 'armory-utxsvr-enable') and configfile.getboolean('Default', 'armory-utxsvr-enable'):
-        ARMORY_UTXSVR_ENABLE = configfile.get('Default', 'armory-utxsvr-enable')
-    else:
-        ARMORY_UTXSVR_ENABLE = False
-
-    #vending machine integration
-    global VENDING_MACHINE_PROVIDER
-    if args.vending_machine_provider:
-        VENDING_MACHINE_PROVIDER = args.vending_machine_provider
-    elif has_config and configfile.has_option('Default', 'vending-machine-provider') and configfile.get('Default', 'vending-machine-provider'):
-        VENDING_MACHINE_PROVIDER = configfile.get('Default', 'vending-machine-provider')
-    else:
-        VENDING_MACHINE_PROVIDER = None
 
 def load_schemas():
     """initialize json schema for json asset and feed validation"""
