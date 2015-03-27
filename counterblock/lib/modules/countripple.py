@@ -1,1 +1,0 @@
-/home/local/countripple/countripple.py
