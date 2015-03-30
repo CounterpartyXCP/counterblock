@@ -5,7 +5,7 @@ import time
 import logging
 
 from counterblock.lib import blockfeed, blockchain, config, cache, database, util
-from counterblock.lib.processor import StartUpProcessor, CORE_FIRST_PRIORITY, CORE_LAST_PRIORITY, api, tasks, start_task
+from counterblock.lib.processor import StartUpProcessor, CORE_FIRST_PRIORITY, CORE_LAST_PRIORITY, api, start_task
 
 logger = logging.getLogger(__name__)
 
