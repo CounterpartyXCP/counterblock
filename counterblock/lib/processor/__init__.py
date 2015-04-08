@@ -54,7 +54,8 @@ def start_task(func, delay=None):
     def raise_in_handling_greenlet(error, greenlet):
         greenlet.throw(error)
     group = GreenletGroupWithExceptionCatching()
-    group.catch(Exception, raise_in_handling_greenlet)
+    #robbyd: comment this out for now, for better tracebacks
+    #group.catch(Exception, raise_in_handling_greenlet)
     group.spawn(func) if not delay else group.spawn_later(delay, func)
     return group
 
