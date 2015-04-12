@@ -97,6 +97,7 @@ def process_cp_blockfeed():
         logger.debug("Received message %s: %s ..." % (msg['message_index'], msg))
         
         #out of order messages should not happen (anymore), but just to be sure
+        logging.info("msg index: %s, last_msg_index : %s" % (msg['message_index'], config.state['last_message_index']))
         assert msg['message_index'] == config.state['last_message_index'] + 1 or config.state['last_message_index'] == -1
         
         for function in MessageProcessor.active_functions():
@@ -167,7 +168,7 @@ def process_cp_blockfeed():
         if my_latest_block:
             #remove any data we have for blocks higher than this (would happen if counterblockd or mongo died
             # or errored out while processing a block)
-            config.state['my_latest_block'] = database.rollback(my_latest_block['block_index'])
+            database.rollback(my_latest_block['block_index'])
         else:
             #no block state in the database yet
             config.state['my_latest_block'] = config.LATEST_BLOCK_INIT
@@ -267,8 +268,7 @@ def process_cp_blockfeed():
             # before what counterpartyd is saying if we see this
             logger.error("Very odd: Ahead of counterpartyd with block indexes! Pruning back %s blocks to be safe."
                 % config.MAX_REORG_NUM_BLOCKS)
-            config.state['my_latest_block'] = database.rollback(
-                config.state['cp_latest_block_index'] - config.MAX_REORG_NUM_BLOCKS)
+            database.rollback(config.state['cp_latest_block_index'] - config.MAX_REORG_NUM_BLOCKS)
         else:
             #...we may be caught up (to counterpartyd), but counterpartyd may not be (to the blockchain). And if it isn't, we aren't
             config.state['caught_up'] = cp_running_info['db_caught_up']

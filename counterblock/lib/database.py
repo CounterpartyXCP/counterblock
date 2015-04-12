@@ -89,11 +89,11 @@ def rollback(max_block_index):
     logger.warn("Pruning to block %i ..." % (max_block_index))        
     config.mongo_db.processed_blocks.remove({"block_index": {"$gt": max_block_index}})
 
-    #call any rollback processors for any extension modules
-    RollbackProcessor.run_active_functions(max_block_index)
-    
     config.state['last_message_index'] = -1
     config.state['caught_up'] = False
     cache.blockinfo_cache.clear()
-    latest_block = config.mongo_db.processed_blocks.find_one({"block_index": max_block_index}) or config.LATEST_BLOCK_INIT
-    return latest_block
+    config.state['my_latest_block'] = config.mongo_db.processed_blocks.find_one({"block_index": max_block_index}) or config.LATEST_BLOCK_INIT
+
+    #call any rollback processors for any extension modules
+    RollbackProcessor.run_active_functions(max_block_index)
+

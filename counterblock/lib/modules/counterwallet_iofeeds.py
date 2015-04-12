@@ -23,7 +23,7 @@ from socketio.namespace import BaseNamespace
 
 from counterblock.lib import config, util, blockchain, messages
 from counterblock.lib.modules import CWIOFEEDS_PRIORITY_PARSE_FOR_SOCKETIO, CWIOFEEDS_PRIORITY_PUBLISH_MEMPOOL
-from counterblock.lib.processor import MessageProcessor, MempoolMessageProcessor, BlockProcessor, StartUpProcessor, CaughtUpProcessor, RollbackProcessor, API
+from counterblock.lib.processor import MessageProcessor, MempoolMessageProcessor, BlockProcessor, StartUpProcessor, CaughtUpProcessor, RollbackProcessor, API, CORE_FIRST_PRIORITY
 
 logger = logging.getLogger(__name__)
 online_clients = {} #key = walletID, value = datetime when connected
@@ -475,6 +475,28 @@ class SocketIOChatFeedServer(object):
             start_response('401 UNAUTHORIZED', [])
             return ''
         socketio_manage(environ, {'': ChatFeedServerNamespace}, self.request)
+
+@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 0.5)
+def handle_invalid(msg, msg_data):
+    #don't process invalid messages, but do forward them along to clients
+    status = msg_data.get('status', 'valid').lower()
+    if status.startswith('invalid'):
+        if config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
+            #forward along via message feed, except while we're catching up
+            event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
+            zmq_publisher_eventfeed.send_json(event)
+        config.state['last_message_index'] = msg['message_index']
+        return 'continue'
+
+@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 1.5)
+def handle_reorg(msg, msg_data):
+    if msg['command'] == 'reorg':
+       #send out the message to listening clients (but don't forward along while we're catching up)
+        if config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
+            msg_data['_last_message_index'] = config.state['last_message_index']
+            event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
+            zmq_publisher_eventfeed.send_json(event)  
+        return 'break' #break out of inner loop
 
 @MessageProcessor.subscribe(priority=CWIOFEEDS_PRIORITY_PARSE_FOR_SOCKETIO)
 def parse_for_socketio(msg, msg_data):
