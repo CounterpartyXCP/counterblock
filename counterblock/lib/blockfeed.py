@@ -97,7 +97,6 @@ def process_cp_blockfeed():
         logger.debug("Received message %s: %s ..." % (msg['message_index'], msg))
         
         #out of order messages should not happen (anymore), but just to be sure
-        logging.info("msg index: %s, last_msg_index : %s" % (msg['message_index'], config.state['last_message_index']))
         assert msg['message_index'] == config.state['last_message_index'] + 1 or config.state['last_message_index'] == -1
         
         for function in MessageProcessor.active_functions():
