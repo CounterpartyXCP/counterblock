@@ -245,7 +245,7 @@ def create_support_case(name, from_email, problem, screenshot=None, addtl_info='
     from email.MIMEText import MIMEText
     from email.mime.image import MIMEImage
     
-    if not config.SUPPORT_EMAIL:
+    if not module_config['SUPPORT_EMAIL']:
         raise Exception("Sending of support emails are disabled on the server: no SUPPORT_EMAIL address set")
     
     if not email.utils.parseaddr(from_email)[1]: #should have been validated in the form
@@ -269,7 +269,7 @@ def create_support_case(name, from_email, problem, screenshot=None, addtl_info='
     msg['Subject'] = Header((problem[:75] + '...') if len(problem) > 75 else problem, 'utf-8') 
     msg['From'] = from_email_formatted
     msg['Reply-to'] = from_email_formatted
-    msg['To'] = config.SUPPORT_EMAIL
+    msg['To'] = module_config['SUPPORT_EMAIL']
     msg['Date'] = email.utils.formatdate(localtime=True)
     
     msg_text = MIMEText("""Problem: %s\n\nAdditional Info:\n%s""" % (problem, addtl_info))
@@ -279,8 +279,8 @@ def create_support_case(name, from_email, problem, screenshot=None, addtl_info='
         image = MIMEImage(screenshot_data_decoded, name="screenshot.png")
         msg.attach(image)
     
-    server = smtplib.SMTP(config.EMAIL_SERVER)
-    server.sendmail(from_email, config.SUPPORT_EMAIL, msg.as_string())
+    server = smtplib.SMTP(module_config['EMAIL_SERVER'])
+    server.sendmail(from_email, module_config['SUPPORT_EMAIL'], msg.as_string())
     return True
 
 @API.add_method
