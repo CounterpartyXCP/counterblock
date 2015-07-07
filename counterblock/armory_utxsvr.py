@@ -94,7 +94,9 @@ def main():
     print("**** Initializing armory ...")
     #require armory to be installed, adding the configured armory path to PYTHONPATH
     TheBDM.btcdir = btcdir
-    TheBDM.goOnline()
+    #TheBDM.goOnline()
+    TheBDM.setBlocking(True)
+    TheBDM.setOnlineMode(True)
     blockchainUpdaterThread = ArmoryBlockchainUpdaterThread()
     blockchainUpdaterThread.start()
 
