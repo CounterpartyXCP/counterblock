@@ -62,30 +62,30 @@ def process_cp_blockfeed():
                 'filterop': 'AND'
             }
         new_txs = util.jsonrpc_api("get_mempool", params, abort_on_error=True)
-    
-        for new_tx in new_txs['result']:
-            tx = {
-                'tx_hash': new_tx['tx_hash'],
-                'command': new_tx['command'],
-                'category': new_tx['category'],
-                'bindings': new_tx['bindings'],
-                'timestamp': new_tx['timestamp'],
-                'viewed_in_block': config.state['my_latest_block']['block_index']
-            }
-            
-            config.mongo_db.mempool.insert(tx)
-            del(tx['_id'])
-            tx['_category'] = tx['category']
-            tx['_message_index'] = 'mempool'
-            logger.debug("Spotted mempool tx: %s" % tx)
-            for function in MempoolMessageProcessor.active_functions():
-                logger.debug('starting {} (mempool)'.format(function['function']))
-                # TODO: Better handling of double parsing
-                try:
-                    cmd = function['function'](tx, json.loads(tx['bindings'])) or None
-                except pymongo.errors.DuplicateKeyError, e:
-                    logging.exception(e)
-                if cmd == 'continue': break
+        if new_txs:
+            for new_tx in new_txs['result']:
+                tx = {
+                    'tx_hash': new_tx['tx_hash'],
+                    'command': new_tx['command'],
+                    'category': new_tx['category'],
+                    'bindings': new_tx['bindings'],
+                    'timestamp': new_tx['timestamp'],
+                    'viewed_in_block': config.state['my_latest_block']['block_index']
+                }
+                
+                config.mongo_db.mempool.insert(tx)
+                del(tx['_id'])
+                tx['_category'] = tx['category']
+                tx['_message_index'] = 'mempool'
+                logger.debug("Spotted mempool tx: %s" % tx)
+                for function in MempoolMessageProcessor.active_functions():
+                    logger.debug('starting {} (mempool)'.format(function['function']))
+                    # TODO: Better handling of double parsing
+                    try:
+                        cmd = function['function'](tx, json.loads(tx['bindings'])) or None
+                    except pymongo.errors.DuplicateKeyError, e:
+                        logging.exception(e)
+                    if cmd == 'continue': break
             
     def clean_mempool_tx():
         """clean mempool transactions older than MAX_REORG_NUM_BLOCKS blocks"""
