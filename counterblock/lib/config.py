@@ -352,7 +352,7 @@ def load(args):
         LOG_SIZE_KB = int(LOG_SIZE_KB)
         assert LOG_SIZE_KB > 0
     except:
-        raise Exception("Please specific a valid log-size-kb size (in kilobytes)")
+        raise Exception("Please specific a valid log-size-kb value (in kilobytes)")
 
     global LOG_NUM_FILES
     if args.log_num_files:
@@ -365,7 +365,7 @@ def load(args):
         LOG_NUM_FILES = int(LOG_NUM_FILES)
         assert LOG_NUM_FILES > 0 and LOG_NUM_FILES <= 100
     except:
-        raise Exception("Please specific a valid log-num-files (must be less than 100)")
+        raise Exception("Please specific a valid log-num-files value (must be less than 100)")
                 
     global TX_LOG
     if args.tx_log_file:
