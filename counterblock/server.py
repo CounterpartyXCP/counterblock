@@ -34,6 +34,8 @@ def main():
     
     parser.add_argument('--config-file', help='the location of the configuration file')
     parser.add_argument('--log-file', help='the location of the log file')
+    parser.add_argument('--log-size-kb', help='maximum log file size, in kilobytes (default 20000)')
+    parser.add_argument('--log-num-files', help='maximum number of rotated log files (default 5)')
     parser.add_argument('--tx-log-file', help='the location of the transaction log file')
     parser.add_argument('--pid-file', help='the location of the pid file')
 

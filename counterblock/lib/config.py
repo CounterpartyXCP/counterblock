@@ -124,7 +124,6 @@ def load(args):
         BACKEND_PORT = configfile.get('Default', 'backend-port')
     else:
         BACKEND_PORT = DEFAULT_BACKEND_PORT_TESTNET if TESTNET else DEFAULT_BACKEND_PORT
-
     try:
         BACKEND_PORT = int(BACKEND_PORT)
         assert int(BACKEND_PORT) > 1 and int(BACKEND_PORT) < 65535
@@ -172,7 +171,6 @@ def load(args):
         COUNTERPARTY_PORT = configfile.get('Default', 'counterparty-port')
     else:
         COUNTERPARTY_PORT = 14000 if TESTNET else 4000
-
     try:
         COUNTERPARTY_PORT = int(COUNTERPARTY_PORT)
         assert int(COUNTERPARTY_PORT) > 1 and int(COUNTERPARTY_PORT) < 65535
@@ -276,7 +274,6 @@ def load(args):
         REDIS_DATABASE = configfile.get('Default', 'redis-database')
     else:
         REDIS_DATABASE = 1 if TESTNET else 0
-
     try:
         REDIS_DATABASE = int(REDIS_DATABASE)
         assert int(REDIS_DATABASE) >= 0 and int(REDIS_DATABASE) <= 16
@@ -309,7 +306,6 @@ def load(args):
         RPC_PORT = configfile.get('Default', 'rpc-port')
     else:
         RPC_PORT = 14100 if TESTNET else 4100
-       
     try:
         RPC_PORT = int(RPC_PORT)
         assert int(RPC_PORT) > 1 and int(RPC_PORT) < 65535
@@ -344,6 +340,32 @@ def load(args):
         LOG = configfile.get('Default', 'log-file')
     else:
         LOG = os.path.join(log_dir, 'server%s.log' % net_path_part)
+
+    global LOG_SIZE_KB
+    if args.log_size_kb:
+        LOG_SIZE_KB = args.log_size_kb
+    elif has_config and configfile.has_option('Default', 'log-size-kb') and configfile.get('Default', 'log-size-kb'):
+        LOG_SIZE_KB = configfile.get('Default', 'log-size-kb')
+    else:
+        LOG_SIZE_KB = 20000
+    try:
+        LOG_SIZE_KB = int(LOG_SIZE_KB)
+        assert LOG_SIZE_KB > 0
+    except:
+        raise Exception("Please specific a valid log-size-kb size (in kilobytes)")
+
+    global LOG_NUM_FILES
+    if args.log_num_files:
+        LOG_NUM_FILES = args.log_num_files
+    elif has_config and configfile.has_option('Default', 'log-num-files') and configfile.get('Default', 'log-num-files'):
+        LOG_NUM_FILES = configfile.get('Default', 'log-num-files')
+    else:
+        LOG_NUM_FILES = 5
+    try:
+        LOG_NUM_FILES = int(LOG_NUM_FILES)
+        assert LOG_NUM_FILES > 0 and LOG_NUM_FILES <= 100
+    except:
+        raise Exception("Please specific a valid log-num-files (must be less than 100)")
                 
     global TX_LOG
     if args.tx_log_file:
