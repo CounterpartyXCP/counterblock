@@ -3,8 +3,8 @@ import logging
 
 from counterblock.lib import config
 
-MAX_LOG_SIZE = 20 * 1024 * 1024 #max log size of 20 MB before rotation (make configurable later)
-MAX_LOG_COUNT = 5
+MAX_LOG_SIZE = LOG_SIZE_KB * 1024 #max log size of 20 MB before rotation (make configurable later)
+MAX_LOG_COUNT = LOG_NUM_FILES
 
 def set_up(verbose):
     # Initialize logging (to file and console)
