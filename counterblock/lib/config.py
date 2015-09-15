@@ -128,7 +128,7 @@ def load(args):
         BACKEND_PORT = int(BACKEND_PORT)
         assert int(BACKEND_PORT) > 1 and int(BACKEND_PORT) < 65535
     except:
-        raise Exception("Please specific a valid port number backend-port configuration parameter")
+        raise Exception("Please specify a valid port number for the backend-port configuration parameter")
             
     global BACKEND_USER
     if args.backend_user:
@@ -175,7 +175,7 @@ def load(args):
         COUNTERPARTY_PORT = int(COUNTERPARTY_PORT)
         assert int(COUNTERPARTY_PORT) > 1 and int(COUNTERPARTY_PORT) < 65535
     except:
-        raise Exception("Please specific a valid port number counterparty-port configuration parameter")
+        raise Exception("Please specify a valid port number for the counterparty-port configuration parameter")
     
     global COUNTERPARTY_USER
     if args.counterparty_user:
@@ -219,7 +219,7 @@ def load(args):
         MONGODB_PORT = int(MONGODB_PORT)
         assert int(MONGODB_PORT) > 1 and int(MONGODB_PORT) < 65535
     except:
-        raise Exception("Please specific a valid port number mongodb-port configuration parameter")
+        raise Exception("Please specify a valid port number for the mongodb-port configuration parameter")
             
     global MONGODB_DATABASE
     if args.mongodb_database:
@@ -265,7 +265,7 @@ def load(args):
         REDIS_PORT = int(REDIS_PORT)
         assert int(REDIS_PORT) > 1 and int(REDIS_PORT) < 65535
     except:
-        raise Exception("Please specific a valid port number redis-port configuration parameter")
+        raise Exception("Please specify a valid port number for the redis-port configuration parameter")
 
     global REDIS_DATABASE
     if args.redis_database:
@@ -278,7 +278,7 @@ def load(args):
         REDIS_DATABASE = int(REDIS_DATABASE)
         assert int(REDIS_DATABASE) >= 0 and int(REDIS_DATABASE) <= 16
     except:
-        raise Exception("Please specific a valid redis-database configuration parameter (between 0 and 16 inclusive)")
+        raise Exception("Please specify a valid redis-database configuration parameter (between 0 and 16 inclusive)")
 
     global REDIS_ENABLE_APICACHE
     if args.redis_enable_apicache:
@@ -310,7 +310,7 @@ def load(args):
         RPC_PORT = int(RPC_PORT)
         assert int(RPC_PORT) > 1 and int(RPC_PORT) < 65535
     except:
-        raise Exception("Please specific a valid port number rpc-port configuration parameter")
+        raise Exception("Please specify a valid port number for the rpc-port configuration parameter")
 
     global RPC_ALLOW_CORS
     if args.rpc_allow_cors:
@@ -352,7 +352,7 @@ def load(args):
         LOG_SIZE_KB = int(LOG_SIZE_KB)
         assert LOG_SIZE_KB > 0
     except:
-        raise Exception("Please specific a valid log-size-kb value (in kilobytes)")
+        raise Exception("Please specify a valid log-size-kb value (in kilobytes)")
 
     global LOG_NUM_FILES
     if args.log_num_files:
@@ -365,7 +365,7 @@ def load(args):
         LOG_NUM_FILES = int(LOG_NUM_FILES)
         assert LOG_NUM_FILES > 0 and LOG_NUM_FILES <= 100
     except:
-        raise Exception("Please specific a valid log-num-files value (must be less than 100)")
+        raise Exception("Please specify a valid log-num-files value (must be less than 100)")
                 
     global TX_LOG
     if args.tx_log_file:
