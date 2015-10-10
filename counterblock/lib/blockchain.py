@@ -114,27 +114,30 @@ def getaddressinfo(address):
         'unconfirmedBalanceSat': str(unconfirmed_balance * config.UNIT),
         'transactions': transactions
     }
-    
-    return None
 
+def gettransaction_batch(txhash_list):
+    raw_txes = util.call_jsonrpc_api("getrawtransaction_batch", {'txhash_list': txhash_list, 'verbose': True}, abort_on_error=True)['result']
+    txes = {}
+    for tx_hash, tx in raw_txes:
+        valueOut = 0
+        for vout in tx['vout']:
+            valueOut += vout['value']
+        txes[tx_hash] = {
+            'txid': tx_hash,
+            'version': tx['version'],
+            'locktime': tx['locktime'],
+            'confirmations': tx['confirmations'] if 'confirmations' in tx else 0,
+            'blocktime': tx['blocktime'] if 'blocktime' in tx else 0,
+            'blockhash': tx['blockhash'] if 'blockhash' in tx else 0,
+            'time': tx['time'] if 'time' in tx else 0,
+            'valueOut': valueOut,
+            'vin': tx['vin'],
+            'vout': tx['vout']
+        }
+    return txes
+        
 def gettransaction(tx_hash):
-    tx = get_cached_raw_transaction(tx_hash)
-    valueOut = 0
-    for vout in tx['vout']:
-        valueOut += vout['value']
-    return {
-        'txid': tx_hash,
-        'version': tx['version'],
-        'locktime': tx['locktime'],
-        'confirmations': tx['confirmations'] if 'confirmations' in tx else 0,
-        'blocktime': tx['blocktime'] if 'blocktime' in tx else 0,
-        'blockhash': tx['blockhash'] if 'blockhash' in tx else 0,
-        'time': tx['time'] if 'time' in tx else 0,
-        'valueOut': valueOut,
-        'vin': tx['vin'],
-        'vout': tx['vout']
-    }
-    return None
+    return gettransaction_batch([tx_hash,])[tx_hash]
 
 def get_pubkey_from_transactions(address, raw_transactions):
     #for each transaction we got back, extract the vin, pubkey, go through, convert it to binary, and see if it reduces down to the given address
@@ -166,10 +169,6 @@ def get_pubkey_for_address(address):
         if pubkey: pubkeys.append(pubkey)
 
     return pubkeys
-
-@lru_cache(maxsize=2048)
-def get_cached_raw_transaction(tx_hash):
-    return bitcoind_rpc('getrawtransaction', [tx_hash, 1])
 
 def search_raw_transactions(address, unconfirmed=True):
     return util.call_jsonrpc_api("search_raw_transactions", {'address': address, 'unconfirmed': unconfirmed}, abort_on_error=True)['result']
