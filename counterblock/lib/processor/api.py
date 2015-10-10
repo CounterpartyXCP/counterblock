@@ -431,9 +431,10 @@ def serve_api():
             'counterblock_error': cb_result_error_code,
             'counterblock_last_message_index': config.state['last_message_index'],
             'counterblock_caught_up': blockfeed.fuzzy_is_caught_up(),
-            'counterblock_cur_block': config.state['cur_block'],
-            'counterblock_last_processed_block': {'block_hash': config.state['my_latest_block']['block_hash'],
-                                                  'block_index': config.state['my_latest_block']['block_index']},
+            'counterblock_cur_block': {'block_hash': config.state['cur_block'].get('block_hash', '??'),
+                                       'block_index': config.state['cur_block'].get('block_index', '??')},
+            'counterblock_last_processed_block': {'block_hash': config.state['my_latest_block'].get('block_hash', '??'),
+                                                  'block_index': config.state['my_latest_block'].get('block_index', '??')},
         }
         
         response_code = 200
