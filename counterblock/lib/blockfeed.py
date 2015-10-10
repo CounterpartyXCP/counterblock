@@ -296,6 +296,5 @@ def process_cp_blockfeed():
                 
                 config.state['caught_up_started_events'] = True
 
-            blockchain.update_unconfirmed_addrindex()
             publish_mempool_tx()
             time.sleep(2) #counterblockd itself is at least caught up, wait a bit to query again for the latest block from cpd

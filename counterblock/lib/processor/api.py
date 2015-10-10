@@ -432,20 +432,22 @@ def serve_api():
             'counterblock_last_message_index': config.state['last_message_index'],
             'counterblock_caught_up': blockfeed.fuzzy_is_caught_up(),
             'counterblock_cur_block': config.state['cur_block'],
-            'counterblock_last_processed_block': config.state['my_latest_block'],
+            'counterblock_last_processed_block': {'block_hash': config.state['my_latest_block']['block_hash'],
+                                                  'block_index': config.state['my_latest_block']['block_index']},
         }
         
         response_code = 200
         #error if we couldn't make a successful call to counterparty-server or counterblock's API (500)
         if not cp_result_valid or not cb_result_valid:
             response_code = 500
-            result['_ERROR'] = "api_contact_error"
+            result['ERROR'] = "api_contact_error"
         #error if the counterblock last block is more than 1 behind cp, also return an error (510)
-        if    not blockfeed.fuzzy_is_caught_up() \
-           or (cp_result_valid and cp_status['last_block']['block_index'] - config.state['cur_block']['block_index'] > 1):
+        elif not blockfeed.fuzzy_is_caught_up():
             response_code = 510
-            result['_ERROR'] = "counterblock_block_processing_is_behind"
-        
+            result['ERROR'] = "counterblock_block_processing_is_behind"
+        else:
+            result['ERROR'] = None
+            
         return flask.Response(json.dumps(result), response_code, mimetype='application/json')
         
     @app.route('/', methods=["POST",])
