@@ -175,9 +175,15 @@ def process_cp_blockfeed():
     #avoid contacting counterpartyd (on reparse, to speed up)
     autopilot = False
     autopilot_runner = 0
+    iteration = 0
 
     #start polling counterpartyd for new blocks
     while True:
+        iteration += 1
+        if iteration % 10 == 0:
+            logger.info("Heartbeat (%s, block: %s, caught up: %s)" % (
+                iteration, config.state['my_latest_block']['block_index'], config.state['caught_up'])) 
+        
         if not autopilot or autopilot_runner == 0:
             try:
                 cp_running_info = util.jsonrpc_api("get_running_info", abort_on_error=True)['result']
@@ -239,7 +245,8 @@ def process_cp_blockfeed():
             config.state['caught_up'] = False
             
             #Autopilot and autopilot runner are redundant
-            if config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'] > 500: #we are safely far from the tip, switch to bulk-everything
+            if config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'] > 500:
+                #we are safely far from the tip, switch to bulk-everything
                 autopilot = True
                 if autopilot_runner == 0:
                     autopilot_runner = 500

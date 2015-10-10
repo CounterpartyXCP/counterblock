@@ -417,22 +417,35 @@ def serve_api():
             client.close()
         cb_e = time.time()
         
-        response_code = 200
-        if not cp_result_valid or not cb_result_valid:
-            response_code = 500
-        
         result = {
             'counterparty-server': 'OK' if cp_result_valid else 'NOT OK',
-            'counterblock': 'OK' if cb_result_valid else 'NOT OK',
-            'counterblock_error': cb_result_error_code,
             'counterparty-server_ver': '%s.%s.%s' % (
                 cp_status['version_major'], cp_status['version_minor'], cp_status['version_revision']) if cp_result_valid else '?',
             'counterblock_ver': config.VERSION,
             'counterparty-server_last_block': cp_status['last_block'] if cp_result_valid else '?',
             'counterparty-server_last_message_index': cp_status['last_message_index'] if cp_result_valid else '?',
             'counterparty-server_check_elapsed': cp_e - cp_s,
+
+            'counterblock': 'OK' if cb_result_valid else 'NOT OK',
             'counterblock_check_elapsed': cb_e - cb_s,
+            'counterblock_error': cb_result_error_code,
+            'counterblock_last_message_index': config.state['last_message_index'],
+            'counterblock_caught_up': blockfeed.fuzzy_is_caught_up(),
+            'counterblock_cur_block': config.state['cur_block'],
+            'counterblock_last_processed_block': config.state['my_latest_block'],
         }
+        
+        response_code = 200
+        #error if we couldn't make a successful call to counterparty-server or counterblock's API (500)
+        if not cp_result_valid or not cb_result_valid:
+            response_code = 500
+            result['_ERROR'] = "api_contact_error"
+        #error if the counterblock last block is more than 1 behind cp, also return an error (510)
+        if    not blockfeed.fuzzy_is_caught_up() \
+           or (cp_result_valid and cp_status['last_block']['block_index'] - config.state['cur_block']['block_index'] > 1):
+            response_code = 510
+            result['_ERROR'] = "counterblock_block_processing_is_behind"
+        
         return flask.Response(json.dumps(result), response_code, mimetype='application/json')
         
     @app.route('/', methods=["POST",])
