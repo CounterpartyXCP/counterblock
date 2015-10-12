@@ -118,7 +118,7 @@ def getaddressinfo(address):
 def gettransaction_batch(txhash_list):
     raw_txes = util.call_jsonrpc_api("getrawtransaction_batch", {'txhash_list': txhash_list, 'verbose': True}, abort_on_error=True)['result']
     txes = {}
-    for tx_hash, tx in raw_txes:
+    for tx_hash, tx in raw_txes.iteritems():
         valueOut = 0
         for vout in tx['vout']:
             valueOut += vout['value']
