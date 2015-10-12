@@ -86,16 +86,16 @@ def serve_api():
         if not isinstance(txn_hashes, list):
             raise Exception("txn_hashes must be a list of txn hashes, even if it just contains one hash")
         results = []
+        tx_info = blockchain.gettransaction_batch(txn_hashes)
         for tx_hash in txn_hashes:
-            tx_info = blockchain.gettransaction(tx_hash)
-            if tx_info:
-                assert tx_info['txid'] == tx_hash
-                results.append({
-                    'tx_hash': tx_info['txid'],
-                    'blockhash': tx_info.get('blockhash', None), #not provided if not confirmed on network
-                    'confirmations': tx_info.get('confirmations', 0), #not provided if not confirmed on network
-                    'blocktime': tx_info.get('time', None),
-                })
+            assert tx_hash in tx_info
+            assert tx_info[tx_hash]['txid'] == tx_hash
+            results.append({
+                'tx_hash': tx_info[tx_hash]['txid'],
+                'blockhash': tx_info[tx_hash].get('blockhash', None), #not provided if not confirmed on network
+                'confirmations': tx_info[tx_hash].get('confirmations', 0), #not provided if not confirmed on network
+                'blocktime': tx_info[tx_hash].get('time', None),
+            })
         return results
 
     @API.add_method
