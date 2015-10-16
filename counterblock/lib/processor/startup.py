@@ -18,15 +18,6 @@ def init_mongo():
 def init_redis():
     config.REDIS_CLIENT = cache.get_redis_connection()
     
-@StartUpProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 3)
-def check_blockchain_service():
-    try:
-        blockchain.check()
-    except Exception as e:
-        raise Exception('Could not connect to blockchain service: %s' % e)
-    finally:
-        start_task(check_blockchain_service, delay=60 * 5)  #call again in 5 minutes
-
 @StartUpProcessor.subscribe(priority=CORE_LAST_PRIORITY - 0) #must come after all plugins have been initalized
 def start_cp_blockfeed():
     logger.info("Starting up counterparty block feed poller...")
