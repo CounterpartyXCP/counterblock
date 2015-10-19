@@ -17,7 +17,8 @@ required_packages = [
     'pycoin>=0.52',
     'python-bitcoinlib>=0.2.1',
     'pymongo>=2.8,<3.0',
-    'gevent>=1.1b6',
+    #'gevent>=1.2',
+    'gevent<=1.0.2,<1.1.0',
     'gevent-websocket>=0.9.5',
     'gevent-socketio>=0.3.6',
     'geventhttpclient<=1.2.0',
@@ -37,7 +38,10 @@ required_packages = [
 ]
 
 required_repos = [
+    #'git+git://github.com/gevent/gevent.git#egg=gevent-1.2',
+    'https://github.com/robby-dermody/gevent/archive/e3cd7272178af7da0b85583cd2820f2520a8ba54.zip#egg=gevent-1.2',
     #see http://stackoverflow.com/a/17442663
+    #'https://github.com/gevent/gevent/archive/dcb675718c5d70389a70979bf37395f16ac6d382.zip#egg=gevent-1.2',    
     #'https://github.com/surfly/gevent/archive/72119c8c3e704b75a2d91d8555ca8673928ebabb.zip#egg=gevent-1.2',
     #^ 1.0.1 is a bit old. this is an up to date master that has some good bug fixes...
     'https://github.com/gwik/geventhttpclient/archive/83ded6980a2e37025acbe5a93a52ceedd8f9338a.zip#egg=geventhttpclient-1.2.0',
@@ -65,7 +69,7 @@ setup_options = {
     'packages': find_packages(),
     'zip_safe': False,
     'dependency_links': required_repos,
-    'setup_requires': ['appdirs==1.4.0'],
+    'setup_requires': ['appdirs==1.4.0','cython>=0.23.4'],
     'install_requires': required_packages,
     'include_package_data': True,
     'entry_points': {
