@@ -234,11 +234,17 @@ def process_cp_blockfeed():
             
         #work up to what block counterpartyd is at
         try:
-            assert cp_running_info['last_block']['block_index']
-            config.state['cp_latest_block_index'] = cp_running_info['last_block']['block_index']
+            if cp_running_info['last_block']: #should normally exist, unless counterparty-server had an error getting it
+                assert cp_running_info['last_block']['block_index']
+                config.state['cp_latest_block_index'] = cp_running_info['last_block']['block_index']
+            elif config.state['db_caught_up']:
+                config.state['cp_latest_block_index'] = cp_running_info['bitcoin_block_count']
+            else:
+                assert False
         except:
             logger.warn("counterparty-server not returning a valid last processed block (probably is reparsing or was just restarted)."
-                + " Waiting 3 seconds before trying again... (Data returned: %s)" % cp_running_info)
+                + " Waiting 3 seconds before trying again... (Data returned: %s, we have: %s)" % (
+                    cp_running_info, config.state['cp_latest_block_index']))
             time.sleep(3)
             continue
         config.state['cp_backend_block_index'] = cp_running_info['bitcoin_block_count']
