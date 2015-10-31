@@ -276,7 +276,19 @@ def process_cp_blockfeed():
             if config.state['cp_latest_block_index'] - cur_block_index <= config.MAX_REORG_NUM_BLOCKS: #only when we are near the tip
                 cache.clean_block_cache(cur_block_index)
 
-            parse_block(block_data)
+            try:
+                parse_block(block_data)
+            except Exception as e: #if anything bubbles up
+                logger.exception("Unhandled exception while processing block. Rolling back, waiting 3 seconds and retrying...: %s" % e)
+                
+                my_latest_block = config.mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)])
+                if my_latest_block:
+                    #remove any data we have for blocks higher than this (would happen if counterblockd or mongo died
+                    # or errored out while processing a block)
+                    database.rollback(my_latest_block['block_index'])
+                
+                time.sleep(3)
+                continue
 
         elif config.state['my_latest_block']['block_index'] > config.state['cp_latest_block_index']:
             # should get a reorg message. Just to be on the safe side, prune back MAX_REORG_NUM_BLOCKS blocks
