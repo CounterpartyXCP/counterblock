@@ -3,6 +3,7 @@
     * Fixes periodic `blockfeed` hanging issue (where `counterblock` would still run, but not process new blocks from `counterparty-server`)
     * Simplified `blockchain` module -- we call API methods on `counterparty-server` now, whereever possible, instead of reimplementing them on `counterblock`
     * Enhance the information returned with `GET /_api`
+    * `GET /_api` now returns CORS headers, allowing it to be used with cross domain requests
     * Added this `ChangeLog.md` file
 * v1.2.0 (2015-09-15)
     * Move most counterblock functionality into plug-in modules.
