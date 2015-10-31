@@ -449,8 +449,9 @@ def serve_api():
         else:
             result['ERROR'] = None
         
+        response = flask.Response(json.dumps(result), response_code, mimetype='application/json')
         _set_cors_headers(response)
-        return flask.Response(json.dumps(result), response_code, mimetype='application/json')
+        return response
         
     @app.route('/', methods=["POST",])
     @app.route('/api/', methods=["POST",])

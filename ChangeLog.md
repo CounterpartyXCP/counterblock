@@ -1,5 +1,5 @@
 ## Client Versions ##
-* v1.3.0 (2015-10-23)
+* v1.3.0 (2015-10-31)
     * Fixes periodic `blockfeed` hanging issue (where `counterblock` would still run, but not process new blocks from `counterparty-server`)
     * Simplified `blockchain` module -- we call API methods on `counterparty-server` now, whereever possible, instead of reimplementing them on `counterblock`
     * Enhance the information returned with `GET /_api`
