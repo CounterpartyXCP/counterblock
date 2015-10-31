@@ -448,7 +448,8 @@ def serve_api():
             result['ERROR'] = "counterblock_block_processing_is_behind"
         else:
             result['ERROR'] = None
-            
+        
+        _set_cors_headers(response)
         return flask.Response(json.dumps(result), response_code, mimetype='application/json')
         
     @app.route('/', methods=["POST",])
