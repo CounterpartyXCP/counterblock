@@ -421,12 +421,13 @@ def serve_api():
             'counterparty-server': 'OK' if cp_result_valid else 'NOT OK',
             'counterparty-server_ver': '%s.%s.%s' % (
                 cp_status['version_major'], cp_status['version_minor'], cp_status['version_revision']) if cp_result_valid else '?',
-            'counterblock_ver': config.VERSION,
             'counterparty-server_last_block': cp_status['last_block'] if cp_result_valid else '?',
             'counterparty-server_last_message_index': cp_status['last_message_index'] if cp_result_valid else '?',
+            'counterparty-server_caught_up': config.state['cp_caught_up'],
             'counterparty-server_check_elapsed': cp_e - cp_s,
 
             'counterblock': 'OK' if cb_result_valid else 'NOT OK',
+            'counterblock_ver': config.VERSION,
             'counterblock_check_elapsed': cb_e - cb_s,
             'counterblock_error': cb_result_error_code,
             'counterblock_last_message_index': config.state['last_message_index'],
@@ -441,11 +442,15 @@ def serve_api():
         #error if we couldn't make a successful call to counterparty-server or counterblock's API (500)
         if not cp_result_valid or not cb_result_valid:
             response_code = 500
-            result['ERROR'] = "api_contact_error"
-        #error if the counterblock last block is more than 1 behind cp, also return an error (510)
-        elif not blockfeed.fuzzy_is_caught_up():
+            result['ERROR'] = "counterparty-server_api_contact_error"
+        #error 510 if the counterparty-server last block is more than 1 block behind backend
+        elif not result['counterparty-server_caught_up']:
             response_code = 510
-            result['ERROR'] = "counterblock_block_processing_is_behind"
+            result['ERROR'] = "counterparty-server_not_caught_up"
+        #error 511 if the counterblock last block is more than 1 block behind counterparty-server
+        elif not result['counterblock_caught_up']:
+            response_code = 511
+            result['ERROR'] = "counterblock_not_caught_up"
         else:
             result['ERROR'] = None
         

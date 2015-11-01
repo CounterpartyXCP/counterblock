@@ -24,10 +24,13 @@ logger = logging.getLogger(__name__)
 def fuzzy_is_caught_up():
     """We don't want to give users 525 errors or login errors if counterblockd/counterparty-server is in the process of
     getting caught up, but we DO if counterblockd is either clearly out of date with the blockchain, or reinitializing its database"""
-    return     config.state['caught_up'] \
-           or (    config.state['cp_backend_block_index']
-               and config.state['my_latest_block']['block_index'] >= config.state['cp_backend_block_index'] - 1
-              )
+    if not config.state['caught_up']:
+        return False
+    if not config.state['cp_backend_block_index'] or not config.state['my_latest_block']['block_index']:
+        return False
+    if config.state['my_latest_block']['block_index'] < config.state['cp_backend_block_index'] - 1: #"fuzzy" part
+        return False
+    return True
         
 def process_cp_blockfeed():
     config.LATEST_BLOCK_INIT = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
@@ -38,6 +41,7 @@ def process_cp_blockfeed():
     config.state['last_message_index'] = -1 #initialize (last processed message index)
     config.state['cp_latest_block_index'] = 0 #last block that was successfully processed by counterparty
     config.state['cp_backend_block_index'] = 0 #the latest block height as reported by the cpd blockchain backend
+    config.state['cp_caught_up'] = False #whether counterparty-server is caught up to the backend (e.g. bitcoind)
     config.state['caught_up_started_events'] = False
     #^ set after we are caught up and start up the recurring events that depend on us being caught up with the blockchain 
     
@@ -178,11 +182,12 @@ def process_cp_blockfeed():
     iteration = 0
 
     #start polling counterparty-server for new blocks
+    cp_running_info = None
     while True:
         iteration += 1
         if iteration % 10 == 0:
             logger.info("Heartbeat (%s, block: %s, caught up: %s)" % (
-                iteration, config.state['my_latest_block']['block_index'], config.state['caught_up'])) 
+                iteration, config.state['my_latest_block']['block_index'], fuzzy_is_caught_up())) 
         logger.info("iteration: ap %s/%s" % (autopilot, autopilot_runner))
         
         if not autopilot or autopilot_runner == 0:
@@ -234,10 +239,12 @@ def process_cp_blockfeed():
             
         #work up to what block counterpartyd is at
         try:
+            config.state['cp_caught_up'] = cp_running_info['db_caught_up']
+            
             if cp_running_info['last_block']: #should normally exist, unless counterparty-server had an error getting it
                 assert cp_running_info['last_block']['block_index']
                 config.state['cp_latest_block_index'] = cp_running_info['last_block']['block_index']
-            elif config.state['db_caught_up']:
+            elif cp_running_info['db_caught_up']:
                 config.state['cp_latest_block_index'] = cp_running_info['bitcoin_block_count']
             else:
                 assert False
@@ -316,7 +323,7 @@ def process_cp_blockfeed():
             if config.state['caught_up'] and not config.state['caught_up_started_events']:
                 #start up recurring events that depend on us being fully caught up with the blockchain to run
                 CaughtUpProcessor.run_active_functions()
-                
+
                 config.state['caught_up_started_events'] = True
 
             publish_mempool_tx()
