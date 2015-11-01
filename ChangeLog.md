@@ -2,8 +2,9 @@
 * v1.3.0 (2015-10-31)
     * Fixes periodic `blockfeed` hanging issue (where `counterblock` would still run, but not process new blocks from `counterparty-server`)
     * Block processing is much more robust now if an exception is encountered (e.g. counterparty-server goes down). Should prevent additional hanging-type issues
+    * Tweaked `blockfeed` "caught up" checking logic. Should be more reliable
     * Simplified `blockchain` module -- we call API methods on `counterparty-server` now, whereever possible, instead of reimplementing them on `counterblock`
-    * Enhance the information returned with `GET /_api`
+    * Enhance the information returned with `GET /_api`. Several new parameters added, including `ERROR` for easier diagnosing of most common error conditions.
     * `GET /_api` now returns CORS headers, allowing it to be used with cross domain requests
     * Added this `ChangeLog.md` file
 * v1.2.0 (2015-09-15)

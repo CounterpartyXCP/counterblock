@@ -239,8 +239,6 @@ def process_cp_blockfeed():
             
         #work up to what block counterpartyd is at
         try:
-            config.state['cp_caught_up'] = cp_running_info['db_caught_up']
-            
             if cp_running_info['last_block']: #should normally exist, unless counterparty-server had an error getting it
                 assert cp_running_info['last_block']['block_index']
                 config.state['cp_latest_block_index'] = cp_running_info['last_block']['block_index']
@@ -254,8 +252,10 @@ def process_cp_blockfeed():
                     cp_running_info, config.state['cp_latest_block_index']))
             time.sleep(3)
             continue
-        config.state['cp_backend_block_index'] = cp_running_info['bitcoin_block_count']
 
+        config.state['cp_backend_block_index'] = cp_running_info['bitcoin_block_count']
+        config.state['cp_caught_up'] = cp_running_info['db_caught_up']
+        
         if config.state['my_latest_block']['block_index'] < config.state['cp_latest_block_index']:
             #need to catch up
             config.state['caught_up'] = False
@@ -307,7 +307,7 @@ def process_cp_blockfeed():
             database.rollback(config.state['cp_latest_block_index'] - config.MAX_REORG_NUM_BLOCKS)
         else:
             #...we may be caught up (to counterpartyd), but counterpartyd may not be (to the blockchain). And if it isn't, we aren't
-            config.state['caught_up'] = cp_running_info['db_caught_up']
+            config.state['caught_up'] = config.state['cp_caught_up']
             
             #this logic here will cover a case where we shut down counterblockd, then start it up again quickly...
             # in that case, there are no new blocks for it to parse, so config.state['last_message_index'] would otherwise remain 0.
