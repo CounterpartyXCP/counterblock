@@ -253,7 +253,7 @@ def process_cp_blockfeed():
             #need to catch up
             config.state['caught_up'] = False
             
-            #Autopilot and autopilot runner are redundant
+            #TODO: Autopilot and autopilot runner are redundant
             if config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'] > 500:
                 #we are safely far from the tip, switch to bulk-everything
                 autopilot = True
@@ -280,16 +280,18 @@ def process_cp_blockfeed():
                 parse_block(block_data)
             except Exception as e: #if anything bubbles up
                 logger.exception("Unhandled exception while processing block. Rolling back, waiting 3 seconds and retrying...: %s" % e)
-                
+
+                #counterparty-server might have gone away...
                 my_latest_block = config.mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)])
                 if my_latest_block:
-                    #remove any data we have for blocks higher than this (would happen if counterblockd or mongo died
-                    # or errored out while processing a block)
                     database.rollback(my_latest_block['block_index'])
                 
+                #disable autopilot this next iteration to force us to check up against counterparty-server
+                # (it will be re-enabled later on in that same iteration if we are far enough from the tip)
+                autopilot = False
+
                 time.sleep(3)
                 continue
-
         elif config.state['my_latest_block']['block_index'] > config.state['cp_latest_block_index']:
             # should get a reorg message. Just to be on the safe side, prune back MAX_REORG_NUM_BLOCKS blocks
             # before what counterpartyd is saying if we see this
