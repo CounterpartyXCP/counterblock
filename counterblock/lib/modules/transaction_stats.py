@@ -29,7 +29,6 @@ def parse_insert(msg, msg_data):
         config.mongo_db.transaction_stats.insert({
             'block_index': config.state['cur_block']['block_index'],
             'block_time': config.state['cur_block']['block_time_obj'],
-            'message_index': msg['message_index'],
             'category': msg['category']
         })
 
@@ -92,7 +91,6 @@ def init():
         ("when", pymongo.ASCENDING),
         ("category", pymongo.DESCENDING)
     ])
-    config.mongo_db.transaction_stats.ensure_index('message_index', unique=True)
     config.mongo_db.transaction_stats.ensure_index('block_index')
 
 @CaughtUpProcessor.subscribe()

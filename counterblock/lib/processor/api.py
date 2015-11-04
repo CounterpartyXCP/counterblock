@@ -86,16 +86,16 @@ def serve_api():
         if not isinstance(txn_hashes, list):
             raise Exception("txn_hashes must be a list of txn hashes, even if it just contains one hash")
         results = []
+        tx_info = blockchain.gettransaction_batch(txn_hashes)
         for tx_hash in txn_hashes:
-            tx_info = blockchain.gettransaction(tx_hash)
-            if tx_info:
-                assert tx_info['txid'] == tx_hash
-                results.append({
-                    'tx_hash': tx_info['txid'],
-                    'blockhash': tx_info.get('blockhash', None), #not provided if not confirmed on network
-                    'confirmations': tx_info.get('confirmations', 0), #not provided if not confirmed on network
-                    'blocktime': tx_info.get('time', None),
-                })
+            assert tx_hash in tx_info
+            assert tx_info[tx_hash]['txid'] == tx_hash
+            results.append({
+                'tx_hash': tx_info[tx_hash]['txid'],
+                'blockhash': tx_info[tx_hash].get('blockhash', None), #not provided if not confirmed on network
+                'confirmations': tx_info[tx_hash].get('confirmations', 0), #not provided if not confirmed on network
+                'blocktime': tx_info[tx_hash].get('time', None),
+            })
         return results
 
     @API.add_method
@@ -417,23 +417,46 @@ def serve_api():
             client.close()
         cb_e = time.time()
         
-        response_code = 200
-        if not cp_result_valid or not cb_result_valid:
-            response_code = 500
-        
         result = {
             'counterparty-server': 'OK' if cp_result_valid else 'NOT OK',
-            'counterblock': 'OK' if cb_result_valid else 'NOT OK',
-            'counterblock_error': cb_result_error_code,
             'counterparty-server_ver': '%s.%s.%s' % (
                 cp_status['version_major'], cp_status['version_minor'], cp_status['version_revision']) if cp_result_valid else '?',
-            'counterblock_ver': config.VERSION,
             'counterparty-server_last_block': cp_status['last_block'] if cp_result_valid else '?',
             'counterparty-server_last_message_index': cp_status['last_message_index'] if cp_result_valid else '?',
+            'counterparty-server_caught_up': config.state['cp_caught_up'],
             'counterparty-server_check_elapsed': cp_e - cp_s,
+
+            'counterblock': 'OK' if cb_result_valid else 'NOT OK',
+            'counterblock_ver': config.VERSION,
             'counterblock_check_elapsed': cb_e - cb_s,
+            'counterblock_error': cb_result_error_code,
+            'counterblock_last_message_index': config.state['last_message_index'],
+            'counterblock_caught_up': blockfeed.fuzzy_is_caught_up(),
+            'counterblock_cur_block': {'block_hash': config.state['cur_block'].get('block_hash', '??'),
+                                       'block_index': config.state['cur_block'].get('block_index', '??')},
+            'counterblock_last_processed_block': {'block_hash': config.state['my_latest_block'].get('block_hash', '??'),
+                                                  'block_index': config.state['my_latest_block'].get('block_index', '??')},
         }
-        return flask.Response(json.dumps(result), response_code, mimetype='application/json')
+        
+        response_code = 200
+        #error if we couldn't make a successful call to counterparty-server or counterblock's API (500)
+        if not cp_result_valid or not cb_result_valid:
+            response_code = 500
+            result['ERROR'] = "counterparty-server_api_contact_error"
+        #error 510 if the counterparty-server last block is more than 1 block behind backend
+        elif not result['counterparty-server_caught_up']:
+            response_code = 510
+            result['ERROR'] = "counterparty-server_not_caught_up"
+        #error 511 if the counterblock last block is more than 1 block behind counterparty-server
+        elif not result['counterblock_caught_up']:
+            response_code = 511
+            result['ERROR'] = "counterblock_not_caught_up"
+        else:
+            result['ERROR'] = None
+        
+        response = flask.Response(json.dumps(result), response_code, mimetype='application/json')
+        _set_cors_headers(response)
+        return response
         
     @app.route('/', methods=["POST",])
     @app.route('/api/', methods=["POST",])

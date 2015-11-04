@@ -12,13 +12,13 @@ required_packages = [
     'prettytable>=0.7.2',
     'python-dateutil>=2.4.0',
     'flask>=0.10.1',
-    'json-rpc>=1.8.1',
+    'json-rpc>=1.10.2',
     'pytest>=2.6.3',
     'pycoin>=0.52',
     'python-bitcoinlib>=0.2.1',
     'pymongo>=2.8,<3.0',
     'gevent<=1.0.2,<1.1.0',
-    'gevent-websocket>=0.9.3',
+    'gevent-websocket>=0.9.5',
     'gevent-socketio>=0.3.6',
     'geventhttpclient<=1.2.0',
     'redis>=2.10.3',
@@ -37,9 +37,8 @@ required_packages = [
 ]
 
 required_repos = [
-    #see http://stackoverflow.com/a/17442663
-    'https://github.com/surfly/gevent/archive/72119c8c3e704b75a2d91d8555ca8673928ebabb.zip#egg=gevent-1.2',
-    #^ 1.0.1 is a bit old. this is an up to date master that has some good bug fixes...
+    #'https://github.com/robby-dermody/gevent/archive/e3cd7272178af7da0b85583cd2820f2520a8ba54.zip#egg=gevent-1.2',
+    'https://github.com/gevent/gevent/archive/52924e3f68fff76c249dac7d867bae262e1196cc.zip#egg=gevent-1.2',    
     'https://github.com/gwik/geventhttpclient/archive/83ded6980a2e37025acbe5a93a52ceedd8f9338a.zip#egg=geventhttpclient-1.2.0',
     'https://github.com/natecode/grequests/archive/ea00e193074fc11d71b4ff74138251f6055ca364.zip#egg=grequests-0.2.1',
     #^ grequests (waiting until the next point release with natecode's pull request factored in)
@@ -65,7 +64,7 @@ setup_options = {
     'packages': find_packages(),
     'zip_safe': False,
     'dependency_links': required_repos,
-    'setup_requires': ['appdirs==1.4.0'],
+    'setup_requires': ['appdirs==1.4.0','cython>=0.23.4'],
     'install_requires': required_packages,
     'include_package_data': True,
     'entry_points': {

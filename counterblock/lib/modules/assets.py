@@ -90,7 +90,7 @@ def task_compile_extended_asset_info():
                     if not result[0]:
                         logger.info("Processing for asset %s at %s not successful: %s" % (asset['asset'], info_url, result[1]))
                     else:
-                        logger.info("Processing for asset %s at %s successful" % (asset['asset'], info_url))
+                        logger.debug("Processing for asset %s at %s successful" % (asset['asset'], info_url))
         
     #compose and fetch all info URLs in all assets with them
     for asset in assets:
