@@ -25,7 +25,11 @@ def handle_reorg(msg, msg_data):
     if msg['command'] == 'reorg':
         logger.warn("Blockchain reorginization at block %s" % msg_data['block_index'])
 
+        last_message_index = config.state['last_message_index']
+        
         #prune back to and including the specified message_index
         database.rollback(msg_data['block_index'] - 1)
         assert config.state['my_latest_block']['block_index'] == msg_data['block_index'] - 1
+        
         #message index will not change (will continue to increment), so no need to adjust it
+        config.state['last_message_index'] = last_message_index
