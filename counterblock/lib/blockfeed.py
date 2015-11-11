@@ -101,7 +101,9 @@ def process_cp_blockfeed():
         logger.debug("Received message %s: %s ..." % (msg['message_index'], msg))
         
         #out of order messages should not happen (anymore), but just to be sure
-        assert msg['message_index'] == config.state['last_message_index'] + 1 or config.state['last_message_index'] == -1
+        if msg['message_index'] != config.state['last_message_index'] + 1 and config.state['last_message_index'] != -1:
+            raise Exception("Message index mismatch. Next msg's message_index: %s, last_message_index: %s" % (
+                msg['message_index'], config.state['last_message_index']))
         
         for function in MessageProcessor.active_functions():
             logger.debug('starting {}'.format(function['function']))
@@ -287,7 +289,7 @@ def process_cp_blockfeed():
             try:
                 parse_block(block_data)
             except Exception as e: #if anything bubbles up
-                logger.exception("Unhandled exception while processing block. Rolling back, waiting 3 seconds and retrying...: %s" % e)
+                logger.exception("Unhandled exception while processing block. Rolling back, waiting 3 seconds and retrying. Error was: %s" % e)
 
                 #counterparty-server might have gone away...
                 my_latest_block = config.mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)])
