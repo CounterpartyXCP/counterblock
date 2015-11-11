@@ -28,7 +28,4 @@ def handle_reorg(msg, msg_data):
         #prune back to and including the specified message_index
         database.rollback(msg_data['block_index'] - 1)
         assert config.state['my_latest_block']['block_index'] == msg_data['block_index'] - 1
-
-        #for the current last_message_index (which could have gone down after the reorg), query counterpartyd
-        running_info = util.jsonrpc_api("get_running_info", abort_on_error=True)['result']
-        config.state['last_message_index'] = running_info['last_message_index']
+        #message index will not change (will continue to increment), so no need to adjust it
