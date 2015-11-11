@@ -188,7 +188,8 @@ def process_cp_blockfeed():
         if iteration % 10 == 0:
             logger.info("Heartbeat (%s, block: %s, caught up: %s)" % (
                 iteration, config.state['my_latest_block']['block_index'], fuzzy_is_caught_up())) 
-        logger.info("iteration: ap %s/%s" % (autopilot, autopilot_runner))
+        logger.info("iteration: ap %s/%s, cp_latest_block_index: %s, my_latest_block: %s" % (autopilot, autopilot_runner,
+            config.state['cp_latest_block_index'], config.state['my_latest_block']['block_index']))
         
         if not autopilot or autopilot_runner == 0:
             try:
