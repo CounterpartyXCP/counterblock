@@ -276,7 +276,8 @@ def process_cp_blockfeed():
             cur_block_index = config.state['my_latest_block']['block_index'] + 1
             try:
                 block_data = cache.get_block_info(cur_block_index,
-                    min(100, (config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'])))
+                    prefetch=min(100, (config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'])),
+                    min_message_index=config.state['last_message_index'] if config.state['last_message_index'] != -1 else None)
             except Exception, e:
                 logger.warn(str(e) + " Waiting 3 seconds before trying again...")
                 time.sleep(3)

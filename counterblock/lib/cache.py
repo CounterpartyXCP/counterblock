@@ -10,6 +10,7 @@ redis.connection.socket = gevent.socket #make redis play well with gevent
 from counterblock.lib import config, util
 
 logger = logging.getLogger(__name__)
+blockinfo_cache = {} 
 
 ##
 ## REDIS-RELATED
@@ -21,14 +22,15 @@ def get_redis_connection():
 ##
 ## NOT REDIS RELATED
 ##
-blockinfo_cache = {} 
-def get_block_info(block_index, prefetch=0):
+def get_block_info(block_index, prefetch=0, min_message_index=None):
     global blockinfo_cache
     if block_index in blockinfo_cache:
         return blockinfo_cache[block_index]
+    
     blockinfo_cache.clear()
     blocks = util.call_jsonrpc_api('get_blocks',
-                              {'block_indexes': range(block_index, block_index + prefetch)},
+                              {'block_indexes': range(block_index, block_index + prefetch),
+                               'min_message_index': min_message_index},
                               abort_on_error=True)['result']
     for block in blocks:
         blockinfo_cache[block['block_index']] = block
