@@ -5,7 +5,7 @@ import os
 import sys
 import logging
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 
 required_packages = [
     'appdirs>=1.4.0',
