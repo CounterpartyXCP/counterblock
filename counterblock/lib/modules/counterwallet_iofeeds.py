@@ -486,17 +486,17 @@ def handle_invalid(msg, msg_data):
             event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
             zmq_publisher_eventfeed.send_json(event)
         config.state['last_message_index'] = msg['message_index']
-        return 'continue'
+        return 'ABORT_THIS_MESSAGE_PROCESSING'
 
-@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 1.5)
+@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 0.9) #should run BEFORE processor.messages.handle_reorg()
 def handle_reorg(msg, msg_data):
     if msg['command'] == 'reorg':
        #send out the message to listening clients (but don't forward along while we're catching up)
         if config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
             msg_data['_last_message_index'] = config.state['last_message_index']
             event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
-            zmq_publisher_eventfeed.send_json(event)  
-        return 'break' #break out of inner loop
+            zmq_publisher_eventfeed.send_json(event)
+        #processor.messages.handle_reorg() will run immediately after this and handle the rest
 
 @MessageProcessor.subscribe(priority=CWIOFEEDS_PRIORITY_PARSE_FOR_SOCKETIO)
 def parse_for_socketio(msg, msg_data):

@@ -536,7 +536,7 @@ def parse_trade_book(msg, msg_data):
         if    (order_match['forward_asset'] == config.BTC and order_match['forward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF) \
            or (order_match['backward_asset'] == config.BTC and order_match['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF):
             logger.debug("Order match %s ignored due to %s under dust limit." % (order_match['tx0_hash'] + order_match['tx1_hash'], config.BTC))
-            return 'continue'
+            return 'ABORT_THIS_MESSAGE_PROCESSING'
 
         #take divisible trade quantities to floating point
         forward_quantity = blockchain.normalize_quantity(order_match['forward_quantity'], forward_asset_info['divisible'])
