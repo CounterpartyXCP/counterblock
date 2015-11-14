@@ -75,7 +75,6 @@ def get_market_cap_history(start_ts=None, end_ts=None):
                 "market_cap": {"$avg": "$market_cap"}, #use the average marketcap during the interval
             }},
         ])
-        caps = [] if not caps['ok'] else caps['result']
         data[market_cap_as] = {}
         for e in caps:
             interval_time = int(time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day'], e['_id']['hour']).timetuple()) * 1000)
@@ -186,9 +185,9 @@ def get_market_price_history(asset1, asset2, start_ts=None, end_ts=None, as_dict
         }},
         {"$sort": SON([("_id.year", pymongo.ASCENDING), ("_id.month", pymongo.ASCENDING), ("_id.day", pymongo.ASCENDING), ("_id.hour", pymongo.ASCENDING)])},
     ])
-    if not result['ok'] or not len(result['result']):
+    result = list(result)
+    if not len(result):
         return False
-    result = result['result']
     
     midline = [((r['high'] + r['low']) / 2.0) for r in result]
     if as_dict:

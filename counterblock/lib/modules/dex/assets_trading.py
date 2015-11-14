@@ -222,8 +222,8 @@ def compile_24h_market_info(asset):
             "count": {"$sum": 1},
         }}
     ])
-    _24h_vols_as_base = {} if not _24h_vols_as_base['ok'] \
-        or not len(_24h_vols_as_base['result']) else _24h_vols_as_base['result'][0]
+    _24h_vols_as_base = list(_24h_vols_as_base)
+    _24h_vols_as_base = {} if not len(_24h_vols_as_base) else _24h_vols_as_base[0]
     _24h_vols_as_quote = config.mongo_db.trades.aggregate([
         {"$match": {
             "quote_asset": asset,
@@ -237,8 +237,8 @@ def compile_24h_market_info(asset):
             "count": {"$sum": 1},
         }}
     ])
-    _24h_vols_as_quote = {} if not _24h_vols_as_quote['ok'] \
-        or not len(_24h_vols_as_quote['result']) else _24h_vols_as_quote['result'][0]
+    _24h_vols_as_quote = list(_24h_vols_as_quote)
+    _24h_vols_as_quote = {} if not len(_24h_vols_as_quote) else _24h_vols_as_quote[0]
     _24h_vols['vol'] = _24h_vols_as_base.get('vol', 0) + _24h_vols_as_quote.get('vol', 0) 
     _24h_vols['count'] = _24h_vols_as_base.get('count', 0) + _24h_vols_as_quote.get('count', 0) 
     
@@ -263,9 +263,10 @@ def compile_24h_market_info(asset):
                 "count": {"$sum": 1},
             }}
         ])
-        _24h_ohlc_in_xcp = {} if not _24h_ohlc_in_xcp['ok'] \
-            or not len(_24h_ohlc_in_xcp['result']) else _24h_ohlc_in_xcp['result'][0]
-        if _24h_ohlc_in_xcp: del _24h_ohlc_in_xcp['_id']
+        _24h_ohlc_in_xcp = list(_24h_ohlc_in_xcp)
+        _24h_ohlc_in_xcp = {} if not len(_24h_ohlc_in_xcp) else _24h_ohlc_in_xcp[0]
+        if _24h_ohlc_in_xcp:
+            del _24h_ohlc_in_xcp['_id']
     else:
         _24h_ohlc_in_xcp = {}
         
@@ -290,9 +291,10 @@ def compile_24h_market_info(asset):
                 "count": {"$sum": 1},
             }}
         ])
-        _24h_ohlc_in_btc = {} if not _24h_ohlc_in_btc['ok'] \
-            or not len(_24h_ohlc_in_btc['result']) else _24h_ohlc_in_btc['result'][0]
-        if _24h_ohlc_in_btc: del _24h_ohlc_in_btc['_id']
+        _24h_ohlc_in_btc = list(_24h_ohlc_in_btc)
+        _24h_ohlc_in_btc = {} if not len(_24h_ohlc_in_btc) else _24h_ohlc_in_btc[0]
+        if _24h_ohlc_in_btc:
+            del _24h_ohlc_in_btc['_id']
     else:
         _24h_ohlc_in_btc = {}
         
@@ -339,7 +341,7 @@ def compile_7d_market_info(asset):
                     "vol":   {"$sum": "$base_quantity_normalized"},
                 }},
             ])
-            _7d_history = [] if not _7d_history['ok'] else _7d_history['result']
+            _7d_history = list(_7d_history)
             if a == config.XCP: _7d_history_in_xcp = _7d_history
             else: _7d_history_in_btc = _7d_history
     else: #get the XCP/BTC market and invert for BTC/XCP (_7d_history_in_btc)
@@ -364,8 +366,7 @@ def compile_7d_market_info(asset):
                 "vol":   {"$sum": "$base_quantity_normalized"},
             }},
         ])
-        _7d_history = [] if not _7d_history['ok'] else _7d_history['result']
-        _7d_history_in_xcp = _7d_history
+        _7d_history_in_xcp = list(_7d_history)
         _7d_history_in_btc = copy.deepcopy(_7d_history_in_xcp)
         for i in xrange(len(_7d_history_in_btc)):
             _7d_history_in_btc[i]['price'] = calc_inverse(_7d_history_in_btc[i]['price'])
@@ -447,7 +448,6 @@ def compile_asset_pair_market_info():
             "count": {"$sum": 1},
         }}
     ])
-    trades_data_by_pair = [] if not trades_data_by_pair['ok'] else trades_data_by_pair['result']
     for e in trades_data_by_pair:
         pair = '%s/%s' % (e['_id']['base_asset'], e['_id']['quote_asset'])
         pair_data.setdefault(pair, {'open_orders_count': 0, 'lowest_ask': None, 'highest_bid': None})

@@ -5,7 +5,7 @@ import os
 import sys
 import logging
 
-VERSION="1.2.0"
+from counterblock.lib import config
 
 required_packages = [
     'appdirs>=1.4.0',
@@ -46,7 +46,7 @@ required_repos = [
 
 setup_options = {
     'name': 'counterblock',
-    'version': VERSION,
+    'version': config.VERSION,
     'author': 'Counterparty Foundation',
     'author_email': 'support@counterparty.io',
     'maintainer': 'Counteparty Development Team',
@@ -59,7 +59,7 @@ setup_options = {
     'classifiers': [
       "Programming Language :: Python",
     ],
-    'download_url': 'https://github.com/CounterpartyXCP/counterblock/releases/tag/%s' % VERSION,
+    'download_url': 'https://github.com/CounterpartyXCP/counterblock/releases/tag/%s' % config.VERSION,
     'provides': ['counterblock'],
     'packages': find_packages(),
     'zip_safe': False,

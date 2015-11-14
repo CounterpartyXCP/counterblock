@@ -52,7 +52,7 @@ def process_cp_blockfeed():
     def publish_mempool_tx():
         """fetch new tx from mempool"""
         tx_hashes = []
-        mempool_txs = config.mongo_db.mempool.find(fields={'tx_hash': True})
+        mempool_txs = config.mongo_db.mempool.find(projection={'tx_hash': True})
         for mempool_tx in mempool_txs:
             tx_hashes.append(str(mempool_tx['tx_hash']))
     

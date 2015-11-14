@@ -63,7 +63,6 @@ def get_transaction_stats(start_ts=None, end_ts=None):
     ])
     times = {}
     categories = {}
-    stats = [] if not stats['ok'] else stats['result']
     for e in stats:
         categories.setdefault(e['_id']['category'], {})
         time_val = int(time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple()) * 1000)
