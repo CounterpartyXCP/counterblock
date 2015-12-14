@@ -123,6 +123,10 @@ def gettransaction_batch(txhash_list):
     txes = {}
     
     for tx_hash, tx in raw_txes.iteritems():
+        if tx is None:
+            txes[tx_hash] = None
+            continue
+        
         valueOut = 0
         for vout in tx['vout']:
             valueOut += vout['value']
