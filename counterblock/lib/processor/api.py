@@ -347,7 +347,7 @@ def serve_api():
                 errorMsg = result['error']['data'].get('message', result['error']['message'])
             else:
                 errorMsg = json.dumps(result['error'])
-            raise Exception(errorMsg.encode('ascii','ignore'))
+            raise Exception(errorMsg.encode('ascii','ignore') if errorMsg is not None else "UNKNOWN")
             #decode out unicode for now (json-rpc lib was made for python 3.3 and does str(errorMessage) internally,
             # which messes up w/ unicode under python 2.x)
         return result['result']
