@@ -331,7 +331,6 @@ def task_generate_wallet_stats():
                 "new_count": {"$sum": 1}
             }}
         ])
-        new_wallets = [] if not new_wallets['ok'] else new_wallets['result']
         for e in new_wallets:
             ts = time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple())
             new_entries[ts] = { #a future wallet_stats entry
@@ -354,7 +353,6 @@ def task_generate_wallet_stats():
                 "count": {"$sum": 1}
             }}
         ])
-        referer_counts = [] if not referer_counts['ok'] else referer_counts['result']
         for e in referer_counts:
             ts = time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple())
             assert ts in new_entries
@@ -381,7 +379,6 @@ def task_generate_wallet_stats():
                 "distinct_wallets":   {"$addToSet": "$wallet_id"},
             }}
         ])
-        logins = [] if not logins['ok'] else logins['result']
         for e in logins:
             ts = time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple())
             if ts not in new_entries:

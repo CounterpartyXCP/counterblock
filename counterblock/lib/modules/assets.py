@@ -94,7 +94,8 @@ def task_compile_extended_asset_info():
         
     #compose and fetch all info URLs in all assets with them
     for asset in assets:
-        if not asset['info_url']: continue
+        if not asset['info_url']:
+            continue
         
         if asset.get('disabled', False):
             logger.info("ExtendedAssetInfo: Skipping disabled asset %s" % asset['asset'])
@@ -563,7 +564,7 @@ def parse_balance_change(msg, msg_data):
         asset_info = config.mongo_db.tracked_assets.find_one({ 'asset': msg_data['asset'] })
         if asset_info is None:
             logger.warn("Credit/debit of %s where asset ('%s') does not exist. Ignoring..." % (msg_data['quantity'], msg_data['asset']))
-            return 'continue'
+            return 'ABORT_THIS_MESSAGE_PROCESSING'
         quantity = msg_data['quantity'] if msg['category'] == 'credits' else -msg_data['quantity']
         quantity_normalized = blockchain.normalize_quantity(quantity, asset_info['divisible'])
 
@@ -581,7 +582,10 @@ def parse_balance_change(msg, msg_data):
             last_bal_change['new_balance'] += quantity
             last_bal_change['new_balance_normalized'] += quantity_normalized
             config.mongo_db.balance_changes.save(last_bal_change)
-            logger.info("Procesed %s bal change (UPDATED) from tx %s :: %s" % (actionName, msg['message_index'], last_bal_change))
+            logger.info("%s (UPDATED) %s %s %s %s (new bal: %s, msgID: %s)" % (
+                actionName.capitalize(), ('%f' % last_bal_change['quantity_normalized']).rstrip('0').rstrip('.'), last_bal_change['asset'],
+                'from' if actionName == 'debit' else 'to',
+                last_bal_change['address'], ('%f' % last_bal_change['new_balance_normalized']).rstrip('0').rstrip('.'), msg['message_index'],))
             bal_change = last_bal_change
         else: #new balance change record for this block
             bal_change = {
@@ -595,7 +599,10 @@ def parse_balance_change(msg, msg_data):
                 'new_balance_normalized': last_bal_change['new_balance_normalized'] + quantity_normalized if last_bal_change else quantity_normalized,
             }
             config.mongo_db.balance_changes.insert(bal_change)
-            logger.info("Procesed %s bal change from tx %s :: %s" % (actionName, msg['message_index'], bal_change))
+            logger.info("%s %s %s %s %s (new bal: %s, msgID: %s)" % (
+                actionName.capitalize(), ('%f' % bal_change['quantity_normalized']).rstrip('0').rstrip('.'), bal_change['asset'],
+                'from' if actionName == 'debit' else 'to',
+                bal_change['address'], ('%f' % bal_change['new_balance_normalized']).rstrip('0').rstrip('.'), msg['message_index'],))
 
 
 @StartUpProcessor.subscribe()
@@ -609,8 +616,14 @@ def init():
     config.mongo_db.balance_changes.ensure_index([
         ("address", pymongo.ASCENDING),
         ("asset", pymongo.ASCENDING),
-        ("block_time", pymongo.ASCENDING)
+        ("block_index", pymongo.DESCENDING),
+        ("_id", pymongo.DESCENDING)
     ])
+    try: #drop unnecessary indexes if they exist
+        config.mongo_db.balance_changes.drop_index('address_1_asset_1_block_time_1')
+    except:
+        pass
+    
     #tracked_assets
     config.mongo_db.tracked_assets.ensure_index('asset', unique=True)
     config.mongo_db.tracked_assets.ensure_index('_at_block') #for tracked asset pruning

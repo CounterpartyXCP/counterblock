@@ -133,7 +133,12 @@ class Dispatcher(collections.MutableMapping):
 class Processor(Dispatcher):
     logger = logging.getLogger(__name__)
     
+    def __init__(self, prototype=None):
+        self.active_functions_data = None
+        super(Processor, self).__init__(prototype=prototype)
+    
     def subscribe(self, name=None, priority=0, enabled=True):
+        self.active_functions_data = None #needs refresh
         def inner(f): 
             default = f.__name__
             if f.__module__ not in ['lib.processor.messages', 'lib.processor.startup',
@@ -149,9 +154,10 @@ class Processor(Dispatcher):
     def __repr__(self):
         return str(self.method_map)
     
-    #use iteritems instead ? 
-    def active_functions(self): 
-        return sorted((func for func in self.values() if func['enabled']), key=lambda x: x['priority'], reverse=True)
+    def active_functions(self):
+        if not self.active_functions_data:
+            self.active_functions_data = sorted((func for func in self.values() if func['enabled']), key=lambda x: x['priority'], reverse=True)
+        return self.active_functions_data
     
     def run_active_functions(self, *args, **kwargs): 
         for func in self.active_functions(): 

@@ -52,7 +52,7 @@ def process_cp_blockfeed():
     def publish_mempool_tx():
         """fetch new tx from mempool"""
         tx_hashes = []
-        mempool_txs = config.mongo_db.mempool.find(fields={'tx_hash': True})
+        mempool_txs = config.mongo_db.mempool.find(projection={'tx_hash': True})
         for mempool_tx in mempool_txs:
             tx_hashes.append(str(mempool_tx['tx_hash']))
     
@@ -86,10 +86,14 @@ def process_cp_blockfeed():
                     logger.debug('starting {} (mempool)'.format(function['function']))
                     # TODO: Better handling of double parsing
                     try:
-                        cmd = function['function'](tx, json.loads(tx['bindings'])) or None
+                        result = function['function'](tx, json.loads(tx['bindings'])) or None
                     except pymongo.errors.DuplicateKeyError, e:
                         logging.exception(e)
-                    if cmd == 'continue': break
+                    if result == 'ABORT_THIS_MESSAGE_PROCESSING' or result == 'continue':
+                        break
+                    elif result:
+                        raise Exception("Message processor returned unknown code -- processor: '%s', result: '%s'" %
+                            (function, result))
             
     def clean_mempool_tx():
         """clean mempool transactions older than MAX_REORG_NUM_BLOCKS blocks"""
@@ -101,34 +105,40 @@ def process_cp_blockfeed():
         logger.debug("Received message %s: %s ..." % (msg['message_index'], msg))
         
         #out of order messages should not happen (anymore), but just to be sure
-        assert msg['message_index'] == config.state['last_message_index'] + 1 or config.state['last_message_index'] == -1
+        if msg['message_index'] != config.state['last_message_index'] + 1 and config.state['last_message_index'] != -1:
+            raise Exception("Message index mismatch. Next message's message_index: %s, last_message_index: %s" % (
+                msg['message_index'], config.state['last_message_index']))
         
         for function in MessageProcessor.active_functions():
-            logger.debug('starting {}'.format(function['function']))
+            logger.debug('MessageProcessor: starting {}'.format(function['function']))
             # TODO: Better handling of double parsing
             try:
-                cmd = function['function'](msg, msg_data) or None
+                result = function['function'](msg, msg_data) or None
             except pymongo.errors.DuplicateKeyError, e:
                 logging.exception(e)
-            #break or *return* (?) depends on whether we want config.last_message_index to be updated
-            if cmd == 'continue': break
-            elif cmd == 'break': return 'break' 
-            
+
+            if result in ('ABORT_THIS_MESSAGE_PROCESSING', 'continue', #just abort further MessageProcessors for THIS message
+                       'ABORT_BLOCK_PROCESSING'): #abort all further block processing, including that of all messages in the block
+                break
+            elif result not in (True, False, None):
+                raise Exception("Message processor returned unknown code -- processor: '%s', result: '%s'" %
+                    (function, result))
+
         config.state['last_message_index'] = msg['message_index']
+        return 'ABORT_BLOCK_PROCESSING' if result == 'ABORT_BLOCK_PROCESSING' else None
 
     def parse_block(block_data):
         config.state['cur_block'] = block_data
         config.state['cur_block']['block_time_obj'] \
             = datetime.datetime.utcfromtimestamp(config.state['cur_block']['block_time'])
         config.state['cur_block']['block_time_str'] = config.state['cur_block']['block_time_obj'].isoformat()
-        cmd = None
         
         for msg in config.state['cur_block']['_messages']: 
-            cmd = parse_message(msg)
-            if cmd == 'break': break
-        #logger.debug("*config.state* {}".format(config.state))
+            result = parse_message(msg)
+            if result == 'ABORT_BLOCK_PROCESSING': #reorg
+                return False
         
-        #Run Block Processor Functions
+        #run block processor Functions
         BlockProcessor.run_active_functions()
         #block successfully processed, track this in our DB
         new_block = {
@@ -145,9 +155,7 @@ def process_cp_blockfeed():
             config.state['cp_backend_block_index'] \
                 if config.state['cp_backend_block_index'] else '???',
             config.state['last_message_index'] if config.state['last_message_index'] != -1 else '???'))
-
-        if config.state['cp_latest_block_index'] - cur_block_index < config.MAX_REORG_NUM_BLOCKS: #only when we are near the tip
-            clean_mempool_tx()
+        return True
         
     #grab our stored preferences, and rebuild the database if necessary
     app_config = config.mongo_db.app_config.find()
@@ -188,7 +196,8 @@ def process_cp_blockfeed():
         if iteration % 10 == 0:
             logger.info("Heartbeat (%s, block: %s, caught up: %s)" % (
                 iteration, config.state['my_latest_block']['block_index'], fuzzy_is_caught_up())) 
-        logger.info("iteration: ap %s/%s" % (autopilot, autopilot_runner))
+        logger.info("iteration: ap %s/%s, cp_latest_block_index: %s, my_latest_block: %s" % (autopilot, autopilot_runner,
+            config.state['cp_latest_block_index'], config.state['my_latest_block']['block_index']))
         
         if not autopilot or autopilot_runner == 0:
             try:
@@ -273,20 +282,21 @@ def process_cp_blockfeed():
             cur_block_index = config.state['my_latest_block']['block_index'] + 1
             try:
                 block_data = cache.get_block_info(cur_block_index,
-                    min(100, (config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'])))
+                    prefetch=min(100, (config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'])),
+                    min_message_index=config.state['last_message_index'] + 1 if config.state['last_message_index'] != -1 else None)
             except Exception, e:
                 logger.warn(str(e) + " Waiting 3 seconds before trying again...")
                 time.sleep(3)
                 continue
             
-            # clean api cache
+            # clean api block cache
             if config.state['cp_latest_block_index'] - cur_block_index <= config.MAX_REORG_NUM_BLOCKS: #only when we are near the tip
                 cache.clean_block_cache(cur_block_index)
 
             try:
-                parse_block(block_data)
+                result = parse_block(block_data)
             except Exception as e: #if anything bubbles up
-                logger.exception("Unhandled exception while processing block. Rolling back, waiting 3 seconds and retrying...: %s" % e)
+                logger.exception("Unhandled exception while processing block. Rolling back, waiting 3 seconds and retrying. Error was: %s" % e)
 
                 #counterparty-server might have gone away...
                 my_latest_block = config.mongo_db.processed_blocks.find_one(sort=[("block_index", pymongo.DESCENDING)])
@@ -299,6 +309,11 @@ def process_cp_blockfeed():
 
                 time.sleep(3)
                 continue
+            if result is False: #reorg, or block processing otherwise not completed
+                autopilot = False 
+            
+            if config.state['cp_latest_block_index'] - cur_block_index < config.MAX_REORG_NUM_BLOCKS: #only when we are near the tip
+                clean_mempool_tx()
         elif config.state['my_latest_block']['block_index'] > config.state['cp_latest_block_index']:
             # should get a reorg message. Just to be on the safe side, prune back MAX_REORG_NUM_BLOCKS blocks
             # before what counterpartyd is saying if we see this
