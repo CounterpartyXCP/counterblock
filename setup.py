@@ -5,7 +5,7 @@ import os
 import sys
 import logging
 
-VERSION="1.2.0"
+from counterblock.lib import config
 
 required_packages = [
     'appdirs>=1.4.0',
@@ -16,7 +16,7 @@ required_packages = [
     'pytest>=2.6.3',
     'pycoin>=0.52',
     'python-bitcoinlib>=0.2.1',
-    'pymongo>=2.8,<3.0',
+    'pymongo>=3.1',
     'gevent<=1.0.2,<1.1.0',
     'gevent-websocket>=0.9.5',
     'gevent-socketio>=0.3.6',
@@ -46,7 +46,7 @@ required_repos = [
 
 setup_options = {
     'name': 'counterblock',
-    'version': VERSION,
+    'version': config.VERSION,
     'author': 'Counterparty Foundation',
     'author_email': 'support@counterparty.io',
     'maintainer': 'Counteparty Development Team',
@@ -59,7 +59,7 @@ setup_options = {
     'classifiers': [
       "Programming Language :: Python",
     ],
-    'download_url': 'https://github.com/CounterpartyXCP/counterblock/releases/tag/%s' % VERSION,
+    'download_url': 'https://github.com/CounterpartyXCP/counterblock/releases/tag/%s' % config.VERSION,
     'provides': ['counterblock'],
     'packages': find_packages(),
     'zip_safe': False,

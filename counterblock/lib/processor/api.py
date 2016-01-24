@@ -89,13 +89,14 @@ def serve_api():
         tx_info = blockchain.gettransaction_batch(txn_hashes)
         for tx_hash in txn_hashes:
             assert tx_hash in tx_info
-            assert tx_info[tx_hash]['txid'] == tx_hash
-            results.append({
-                'tx_hash': tx_info[tx_hash]['txid'],
-                'blockhash': tx_info[tx_hash].get('blockhash', None), #not provided if not confirmed on network
-                'confirmations': tx_info[tx_hash].get('confirmations', 0), #not provided if not confirmed on network
-                'blocktime': tx_info[tx_hash].get('time', None),
-            })
+            assert tx_info[tx_hash] is None or tx_info[tx_hash]['txid'] == tx_hash
+            if tx_info[tx_hash] is not None: #don't append anything to results list if the result is None
+                results.append({
+                    'tx_hash': tx_info[tx_hash]['txid'],
+                    'blockhash': tx_info[tx_hash].get('blockhash', None), #not provided if not confirmed on network
+                    'confirmations': tx_info[tx_hash].get('confirmations', 0), #not provided if not confirmed on network
+                    'blocktime': tx_info[tx_hash].get('time', None),
+                })
         return results
 
     @API.add_method
@@ -117,7 +118,7 @@ def serve_api():
     @API.add_method
     def get_script_pub_key(tx_hash, vout_index):
         tx = blockchain.gettransaction(tx_hash)
-        if 'vout' in tx and len(tx['vout']) > vout_index:
+        if tx is not None and 'vout' in tx and len(tx['vout']) > vout_index:
           return tx['vout'][vout_index]
         return None
 
@@ -346,7 +347,7 @@ def serve_api():
                 errorMsg = result['error']['data'].get('message', result['error']['message'])
             else:
                 errorMsg = json.dumps(result['error'])
-            raise Exception(errorMsg.encode('ascii','ignore'))
+            raise Exception(errorMsg.encode('ascii','ignore') if errorMsg is not None else "UNKNOWN")
             #decode out unicode for now (json-rpc lib was made for python 3.3 and does str(errorMessage) internally,
             # which messes up w/ unicode under python 2.x)
         return result['result']
