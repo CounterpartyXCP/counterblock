@@ -1,6 +1,8 @@
 ## Changelog ##
-* v1.3.1 (2015-11-xx)
-    * Fix to properly deal with reorgs encountered in the message feed (requires counterparty-lib 9.53.0)
+* v1.3.1 (2016-01-24)
+    * Modify blockfeed logic to work with reorgs properly again with the undolog fix introduced in `counterparty-lib` 9.53.0.
+    * Enhance blockfeed error recovery logic to make more robust and minimize/remove chance of blockfeed hangs.
+    * `/_api` handler includes extra fields: `counterparty-server_caught_up` and improved reporting of error conditions.
 * v1.3.0 (2015-10-31)
     * Fixes periodic `blockfeed` hanging issue (where `counterblock` would still run, but not process new blocks from `counterparty-server`)
     * Block processing is much more robust now if an exception is encountered (e.g. counterparty-server goes down). Should prevent additional hanging-type issues
