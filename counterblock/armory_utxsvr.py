@@ -112,7 +112,7 @@ def main():
     print("**** Starting up ...")
     parser = argparse.ArgumentParser(description='Armory offline transaction generator daemon')
     parser.add_argument('--testnet', action='store_true', help='Run for testnet')
-    parser.add_argument('bitcoind_url', help='bitcoind RPC endpoint URL')
+    parser.add_argument('bitcoind_url', help='bitcoind RPC endpoint URL, e.g. "http://rpc:rpcpass@localhost:8332"')
     parser_args = parser.parse_args()
     
     btcdir = "/home/xcp/.bitcoin" + ("/testnet3" if parser_args.testnet else '')
