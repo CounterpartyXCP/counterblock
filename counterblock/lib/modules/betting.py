@@ -114,7 +114,7 @@ def get_feed(address_or_url = ''):
         'info_status': 'valid'
     }
     result = {}
-    feeds = config.mongo_db.feeds.find(spec=conditions, projection={'_id': False}, limit=1)
+    feeds = config.mongo_db.feeds.find(conditions, projection={'_id': False}, limit=1)
     for feed in feeds:
         if 'targets' not in feed['info_data'] or ('type' in feed['info_data'] and feed['info_data']['type'] in ['all', 'cfd']):
             feed['info_data']['next_broadcast'] = util.next_interval_date(feed['info_data']['broadcast_date'])
