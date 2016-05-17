@@ -4,6 +4,7 @@
 # Packages
 *.egg
 *.egg-info
+.eggs
 build
 eggs
 parts
@@ -44,3 +45,5 @@ schema.py
 #Docs 
 docs/_build
 
+#backup files
+*.bak
