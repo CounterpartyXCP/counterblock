@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 def get_market_price(price_data, vol_data):
     assert len(price_data) == len(vol_data)
     assert len(price_data) <= config.MARKET_PRICE_DERIVE_NUM_POINTS
-    market_price = util.weighted_average(zip(price_data, vol_data))
+    market_price = util.weighted_average(list(zip(price_data, vol_data)))
     return market_price
 
 def get_market_price_summary(asset1, asset2, with_last_trades=0, start_dt=None, end_dt=None):
@@ -55,8 +55,8 @@ def get_market_price_summary(asset1, asset2, with_last_trades=0, start_dt=None, 
     last_trades.reverse() #from newest to oldest
     
     market_price = get_market_price(
-        [last_trades[i]['unit_price'] for i in xrange(min(len(last_trades), config.MARKET_PRICE_DERIVE_NUM_POINTS))],
-        [(last_trades[i]['base_quantity_normalized'] + last_trades[i]['quote_quantity_normalized']) for i in xrange(min(len(last_trades), config.MARKET_PRICE_DERIVE_NUM_POINTS))])
+        [last_trades[i]['unit_price'] for i in range(min(len(last_trades), config.MARKET_PRICE_DERIVE_NUM_POINTS))],
+        [(last_trades[i]['base_quantity_normalized'] + last_trades[i]['quote_quantity_normalized']) for i in range(min(len(last_trades), config.MARKET_PRICE_DERIVE_NUM_POINTS))])
     result = {
         'market_price': float(D(market_price)),
         'base_asset': base_asset,
@@ -156,7 +156,7 @@ def get_xcp_btc_price_info(asset, mps_xcp_btc, xcp_btc_price, btc_xcp_price, wit
             price_summary_in_btc['market_price'] = calc_inverse(price_summary_in_btc['market_price'])
             price_summary_in_btc['base_asset'] = config.BTC
             price_summary_in_btc['quote_asset'] = config.XCP
-            for i in xrange(len(price_summary_in_btc['last_trades'])):
+            for i in range(len(price_summary_in_btc['last_trades'])):
                 #[0]=block_time, [1]=unit_price, [2]=base_quantity_normalized, [3]=quote_quantity_normalized, [4]=block_index
                 price_summary_in_btc['last_trades'][i][1] = calc_inverse(price_summary_in_btc['last_trades'][i][1])
                 price_summary_in_btc['last_trades'][i][2], price_summary_in_btc['last_trades'][i][3] = \
@@ -368,7 +368,7 @@ def compile_7d_market_info(asset):
         ])
         _7d_history_in_xcp = list(_7d_history)
         _7d_history_in_btc = copy.deepcopy(_7d_history_in_xcp)
-        for i in xrange(len(_7d_history_in_btc)):
+        for i in range(len(_7d_history_in_btc)):
             _7d_history_in_btc[i]['price'] = calc_inverse(_7d_history_in_btc[i]['price'])
             _7d_history_in_btc[i]['vol'] = calc_inverse(_7d_history_in_btc[i]['vol'])
     
@@ -458,7 +458,7 @@ def compile_asset_pair_market_info():
     
     #compose price data, relative to BTC and XCP
     mps_xcp_btc, xcp_btc_price, btc_xcp_price = get_price_primatives()
-    for pair, e in pair_data.iteritems():
+    for pair, e in pair_data.items():
         base_asset, quote_asset = pair.split('/')
         _24h_vol_in_btc = None
         _24h_vol_in_xcp = None
@@ -510,7 +510,7 @@ def compile_asset_pair_market_info():
         
     #remove any old pairs that were not just updated
     config.mongo_db.asset_pair_market_info.remove({'last_updated': {'$lt': end_dt}})
-    logger.info("Recomposed 24h trade statistics for %i asset pairs: %s" % (len(pair_data), ', '.join(pair_data.keys())))
+    logger.info("Recomposed 24h trade statistics for %i asset pairs: %s" % (len(pair_data), ', '.join(list(pair_data.keys()))))
 
 def compile_asset_market_info():
     """Run through all assets and compose and store market ranking information."""

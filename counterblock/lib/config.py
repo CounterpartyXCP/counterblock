@@ -68,13 +68,13 @@ def init_data_dir(args):
                 
 def load(args):
     import os
-    import ConfigParser
+    import configparser
     import email.utils
     
     assert data_dir and config_dir and log_dir
     
     #Read config file
-    configfile = ConfigParser.ConfigParser()
+    configfile = configparser.ConfigParser()
     if args.config_file:
         config_path = args.config_file
     else:

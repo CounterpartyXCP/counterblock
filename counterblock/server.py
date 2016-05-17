@@ -1,11 +1,16 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 """
 counterblockd server
 """
 
 #import before importing other modules
 import gevent
-from gevent import monkey; monkey.patch_all()
+from gevent import monkey
+# now, import grequests as it will perform monkey_patch_all()
+# letting grequests do it avoids us double monkey patching... (ugh...)
+import grequests  # this will monkey patch
+if not monkey.is_module_patched("os"): # if this fails, it's because gevent stopped monkey patching for us
+    monkey.patch_all()
 
 import sys
 import os
@@ -87,7 +92,7 @@ def main():
     config.init(args)
     log.set_up(args.verbose)
     
-    #Log unhandled errors.
+    #log unhandled errors.
     def handle_exception(exc_type, exc_value, exc_traceback):
         logger.error("Unhandled Exception", exc_info=(exc_type, exc_value, exc_traceback))
     sys.excepthook = handle_exception    

@@ -8,7 +8,7 @@ import time
 import decimal
 import cgi
 import itertools
-import StringIO
+import io
 import subprocess
 import calendar
 import hashlib
@@ -18,9 +18,8 @@ import dateutil.parser
 import gevent
 import gevent.pool
 import gevent.ssl
+import grequests
 import pymongo
-from geventhttpclient import HTTPClient
-from geventhttpclient.url import URL
 import lxml.html
 from PIL import Image
 from jsonschema import FormatChecker, Draft4Validator, FormatError
@@ -40,7 +39,7 @@ def sanitize_eliteness(text):
 
 def http_basic_auth_str(username, password):
     """Returns a Basic Auth string."""
-    authstr = 'Basic ' + str(base64.b64encode(('%s:%s' % (username, password)).encode('latin1')).strip())
+    authstr = 'Basic ' + base64.b64encode(('%s:%s' % (username, password)).encode('latin1')).decode("utf-8").strip()
     return authstr
 
 def is_valid_url(url, suffix='', allow_localhost=False, allow_no_protocol=False):
@@ -81,21 +80,20 @@ def jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=Fa
             if 'result' not in result:
                 raise AssertionError("Could not contact counterpartyd")
             return result
-        except Exception, e:
+        except Exception as e:
             retry += 1
             logger.warn(str(e) + " -- Waiting {} seconds before trying again...".format(retry_interval))
             time.sleep(retry_interval)
             continue
 
 def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_error=False):
-    socket.setdefaulttimeout(JSONRPC_API_REQUEST_TIMEOUT)
     if not endpoint:
         endpoint = config.COUNTERPARTY_RPC
     if not auth: 
         auth = config.COUNTERPARTY_AUTH
     if not params:
         params = {}
-    
+
     payload = {
         "id": 0,
         "jsonrpc": "2.0",
@@ -106,28 +104,26 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
 
     headers = {
         'Content-Type': 'application/json',
-        'Connection':'close', #no keepalive
+        'Connection': 'close',  # no keepalive
     }
-    if auth: #auth should be a (username, password) tuple, if specified 
+    if auth:  # auth should be a (username, password) tuple, if specified
         headers['Authorization'] = http_basic_auth_str(auth[0], auth[1])
+
     try:
-        u = URL(endpoint)
-        client = HTTPClient.from_url(u, connection_timeout=JSONRPC_API_REQUEST_TIMEOUT,
-            network_timeout=JSONRPC_API_REQUEST_TIMEOUT)
-        r = client.post(u.request_uri, body=json.dumps(payload), headers=headers)
-    except Exception, e:
+        r = grequests.map((grequests.post(endpoint, data=json.dumps(payload), timeout=JSONRPC_API_REQUEST_TIMEOUT, headers=headers),))[0]
+        if r is None:
+            raise Exception("result is None")
+    except Exception as e:
         raise Exception("Got call_jsonrpc_api request error: %s" % e)
     else:
         if r.status_code != 200:
             if abort_on_error:
-                raise Exception("Bad status code returned: '%s'. result body: '%s'." % (r.status_code, r.read()))
+                raise Exception("Bad status code returned: '%s'. result body: '%s'." % (r.status_code, r.text))
             else:
-                logging.warning("Bad status code returned: '%s'. result body: '%s'." % (r.status_code, r.read()))
+                logging.warning("Bad status code returned: '%s'. result body: '%s'." % (r.status_code, r.text))
                 result = None
         else:
-            result = json.loads(r.read())
-    finally:
-        client.close()
+            result = r.json()
 
     if abort_on_error and 'error' in result and result['error'] is not None:
         raise Exception("Got back error from server: %s" % result['error'])
@@ -144,32 +140,26 @@ def get_url(url, abort_on_error=False, is_json=True, fetch_timeout=5, auth=None,
         headers['Authorization'] = http_basic_auth_str(auth[0], auth[1])
         
     try:
-        u = URL(url)
-        client_kwargs = {'connection_timeout': fetch_timeout, 'network_timeout': fetch_timeout, 'insecure': True}
-        if u.scheme == "https": client_kwargs['ssl_options'] = {'cert_reqs': gevent.ssl.CERT_NONE}
-        client = HTTPClient.from_url(u, **client_kwargs)
         if post_data is not None:
             if is_json:
                 headers['content-type'] = 'application/json'
-            r = client.post(u.request_uri, body=post_data, headers=headers)
+            r = grequests.map((grequests.post(url, data=post_data, timeout=fetch_timeout, headers=headers, verify=False),))[0]
         else:
-            r = client.get(u.request_uri, headers=headers)
-    except Exception, e:
+            r = grequests.map((grequests.get(url, timeout=fetch_timeout, headers=headers, verify=False),))[0]
+        if r is None:
+            raise Exception("result is None")
+    except Exception as e:
         raise Exception("Got get_url request error: %s" % e)
     else:
         if r.status_code != 200 and abort_on_error:
-            raise Exception("Bad status code returned: '%s'. result body: '%s'." % (r.status_code, r.read()))
-        result = r.read()
-        result = json.loads(result) if result and is_json else result
-    finally:
-        client.close()
-    return result
+            raise Exception("Bad status code returned: '%s'. result body: '%s'." % (r.status_code, r.text))
+    return r.json() if r.text and is_json else r.text
 
 def grouper(n, iterable, fillmissing=False, fillvalue=None):
     #Modified from http://stackoverflow.com/a/1625013
     "grouper(3, 'ABCDEFG', 'x') --> ABC DEF Gxx"
     args = [iter(iterable)] * n
-    data = itertools.izip_longest(*args, fillvalue=fillvalue)
+    data = itertools.zip_longest(*args, fillvalue=fillvalue)
     if not fillmissing:
         data = [[e for e in g if e != fillvalue] for g in data]
     return data
@@ -189,7 +179,7 @@ def multikeysort(items, columns):
 
 def cumsum(iterable):
     values = list(iterable)
-    for pos in xrange(1, len(values)):
+    for pos in range(1, len(values)):
         values[pos] += values[pos - 1]
     return values
 
@@ -215,7 +205,7 @@ def json_dthandler(obj):
         #give datetime objects to javascript as epoch ts in ms (i.e. * 1000)
         return int(time.mktime(obj.timetuple())) * 1000
     else:
-        raise TypeError, 'Object of type %s with value of %s is not JSON serializable' % (type(obj), repr(obj))
+        raise TypeError('Object of type %s with value of %s is not JSON serializable' % (type(obj), repr(obj)))
 
 def stream_fetch(urls, completed_callback, urls_group_size=50, urls_group_time_spacing=0, max_fetch_size=4*1024,
 fetch_timeout=1, is_json=True, per_request_complete_callback=None):
@@ -223,12 +213,10 @@ fetch_timeout=1, is_json=True, per_request_complete_callback=None):
     
     def make_stream_request(url):
         try:
-            u = URL(url)
-            client_kwargs = {'connection_timeout': fetch_timeout, 'network_timeout': fetch_timeout, 'insecure': True}
-            if u.scheme == "https": client_kwargs['ssl_options'] = {'cert_reqs': gevent.ssl.CERT_NONE}
-            client = HTTPClient.from_url(u, **client_kwargs)
-            r = client.get(u.request_uri, headers={'Connection':'close'})
-        except Exception, e:
+            r = grequests.map((grequests.get(url, timeout=fetch_timeout, headers={'Connection':'close'}, verify=False, stream=True),))[0]
+            if r is None:
+                raise Exception("result is None")
+        except Exception as e:
             data = (False, "Got exception: %s" % e)
         else:
             if r.status_code != 200:
@@ -236,20 +224,21 @@ fetch_timeout=1, is_json=True, per_request_complete_callback=None):
             else:
                 try:
                     #read up to max_fetch_size
-                    raw_data = r.read(max_fetch_size)
+                    raw_data = r.iter_content(chunk_size=max_fetch_size)
                     if is_json: #try to convert to JSON
                         try:
                             data = json.loads(raw_data)
-                        except Exception, e:
+                        except Exception as e:
                             data = (False, "Invalid JSON data: %s" % e)
                         else:
                             data = (True, data)
                     else: #keep raw
                         data = (True, raw_data)
-                except Exception, e:
+                except Exception as e:
                     data = (False, "Request error: %s" % e)
         finally:
-            client.close()
+            if r:
+                r.close()
             
         if per_request_complete_callback:
             per_request_complete_callback(url, data)
@@ -277,7 +266,7 @@ fetch_timeout=1, is_json=True, per_request_complete_callback=None):
         
     urls = list(set(urls)) #remove duplicates (so we only fetch any given URL, once)
     groups = grouper(urls_group_size, urls)
-    for i in xrange(len(groups)):
+    for i in range(len(groups)):
         #logger.debug("Stream fetching group %i of %i..." % (i, len(groups)))
         group = groups[i]
         if urls_group_time_spacing and i != 0:
@@ -296,24 +285,24 @@ def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimens
     try:
         #fetch the image data 
         try:
-            u = URL(url)
-            client_kwargs = {'connection_timeout': fetch_timeout, 'network_timeout': fetch_timeout, 'insecure': True}
-            if u.scheme == "https": client_kwargs['ssl_options'] = {'cert_reqs': gevent.ssl.CERT_NONE}
-            client = HTTPClient.from_url(u, **client_kwargs)
-            r = client.get(u.request_uri, headers={'Connection':'close'})
-            raw_image_data = r.read(max_size) #read up to max_size
-        except Exception, e:
+            r = grequests.map((grequests.get(url, timeout=fetch_timeout, headers={'Connection':'close'}, verify=False, stream=True),))[0]
+            if r is None:
+                raise Exception("result is None")
+
+            raw_image_data = r.iter_content(chunk_size=max_size) #read up to max_size
+        except Exception as e:
             raise Exception("Got fetch_image request error: %s" % e)
         else:
             if r.status_code != 200:
                 raise Exception("Bad status code returned from fetch_image: '%s'" % (r.status_code))
         finally:
-            client.close()
+            if r:
+                r.close()
     
         #decode image data
         try:
-            image = Image.open(StringIO.StringIO(raw_image_data))
-        except Exception, e:
+            image = Image.open(io.StringIO(raw_image_data))
+        except Exception as e:
             raise Exception("Unable to parse image data at: %s" % url)
         if image.format.lower() not in formats: raise Exception("Image is not a PNG: %s (got %s)" % (url, image.format))
         if image.size != dimensions: raise Exception("Image size is not 48x48: %s (got %s)" % (url, image.size))
@@ -323,14 +312,14 @@ def fetch_image(url, folder, filename, max_size=20*1024, formats=['png'], dimens
         image.save(imagePath)
         os.system("exiftool -q -overwrite_original -all= %s" % imagePath) #strip all metadata, just in case
         return True
-    except Exception, e:
+    except Exception as e:
         logger.warn(e)
         return False
 
 def date_param(strDate):
     try:
         return calendar.timegm(dateutil.parser.parse(strDate).utctimetuple())
-    except Exception, e:
+    except Exception as e:
         return False
 
 def parse_iso8601_interval(value):
@@ -355,20 +344,20 @@ def is_valid_json(data, schema):
 def next_interval_date(interval):
     try:
         generator = parse_iso8601_interval(interval)
-    except Exception, e:
+    except Exception as e:
         return None
 
     def ts(dt):
         return time.mktime(dt.timetuple())
 
     previous = None
-    next = generator.next()
+    next = next(generator)
     now = datetime.datetime.now()
     while ts(next) < ts(now) and next != previous:
         try:
             previous = next
-            next = generator.next()
-        except Exception, e:
+            next = next(generator)
+        except Exception as e:
             break
 
     if ts(next) < ts(now):
@@ -379,4 +368,4 @@ def next_interval_date(interval):
 def subprocess_cmd(command):
     process = subprocess.Popen(command,stdout=subprocess.PIPE, shell=True)
     proc_stdout = process.communicate()[0].strip()
-    print proc_stdout
+    print(proc_stdout)

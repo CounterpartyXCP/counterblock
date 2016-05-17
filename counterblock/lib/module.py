@@ -42,9 +42,9 @@ def load_all():
 
     #Read module configuration file
     module_conf = ConfigObj(os.path.join(config.config_dir, CONFIG_FILENAME % config.net_path_part))
-    for key, container in module_conf.items():
+    for key, container in list(module_conf.items()):
         if key == 'LoadModule':
-            for module, user_settings in container.items(): 
+            for module, user_settings in list(container.items()): 
                 try:
                     params = get_mod_params_dict(user_settings)
                     if params['enabled'] is True:
@@ -58,12 +58,12 @@ def load_all():
                 logger.warn("Invalid config header %s in %s" % (key, CONFIG_FILENAME % config.net_path_part))
                 continue
             #print(processor_functions)
-            for func_name, user_settings in container.items(): 
+            for func_name, user_settings in list(container.items()): 
                 #print(func_name, user_settings)
                 if func_name in processor_functions:
                     params = get_mod_params_dict(user_settings)
                     #print(func_name, params)
-                    for param_name, param_value in params.items(): 
+                    for param_name, param_value in list(params.items()): 
                         processor_functions[func_name][param_name] = param_value
                 else:
                     logger.warn("Attempted to configure a non-existent processor %s" % func_name)
@@ -73,7 +73,7 @@ def toggle(mod, enabled=True):
     try:
         imp.find_module(mod)
     except: 
-        print("Unable to find module %s"  % mod)
+        print(("Unable to find module %s"  % mod))
         return
     mod_config_path = os.path.join(config.config_dir, CONFIG_FILENAME % config.net_path_part)
     module_conf = ConfigObj(mod_config_path)
@@ -87,12 +87,12 @@ def toggle(mod, enabled=True):
         if not "LoadModule" in module_conf: module_conf['LoadModule'] = {}
         module_conf['LoadModule'][mod] = enabled 
     module_conf.write()
-    print("%s Module %s" %("Enabled" if enabled else "Disabled", mod))
+    print(("%s Module %s" %("Enabled" if enabled else "Disabled", mod)))
     
 def list_all():
     mod_config_path = os.path.join(config.config_dir, CONFIG_FILENAME % config.net_path_part)
     module_conf = ConfigObj(mod_config_path)
-    for name, modules in module_conf.items(): 
-        print("Configuration for %s" %name)
-        for module, settings in modules.items(): 
-            print("     %s %s: %s" %(("Module" if name == "LoadModule" else "Function"), module, settings))
+    for name, modules in list(module_conf.items()): 
+        print(("Configuration for %s" %name))
+        for module, settings in list(modules.items()): 
+            print(("     %s %s: %s" %(("Module" if name == "LoadModule" else "Function"), module, settings)))

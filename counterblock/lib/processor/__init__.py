@@ -24,7 +24,7 @@ class GreenletGroupWithExceptionCatching(gevent.pool.Group):
             exceptions = tuple(self._error_handlers.keys())
             try:
                 return func(*args, **kwargs)
-            except exceptions, exception:
+            except exceptions as exception:
                 for type in self._error_handlers:
                     if isinstance(exception, type):
                         handler, greenlet = self._error_handlers[type]
@@ -125,8 +125,8 @@ class Dispatcher(collections.MutableMapping):
                              for method in dir(prototype)
                              if not method.startswith('_'))
 
-        for attr, method in prototype.items():
-            if callable(method):
+        for attr, method in list(prototype.items()):
+            if isinstance(method, collections.Callable):
                 self[attr] = method
 
 
@@ -156,7 +156,7 @@ class Processor(Dispatcher):
     
     def active_functions(self):
         if not self.active_functions_data:
-            self.active_functions_data = sorted((func for func in self.values() if func['enabled']), key=lambda x: x['priority'], reverse=True)
+            self.active_functions_data = sorted((func for func in list(self.values()) if func['enabled']), key=lambda x: x['priority'], reverse=True)
         return self.active_functions_data
     
     def run_active_functions(self, *args, **kwargs): 

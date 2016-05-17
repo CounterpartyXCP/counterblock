@@ -28,7 +28,7 @@ def calculate_price(base_quantity, quote_quantity, base_divisibility, quote_divi
         decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
         return price
 
-    except Exception, e:
+    except Exception as e:
         logging.exception(e)
         decimal.setcontext(decimal.Context(prec=8, rounding=decimal.ROUND_HALF_EVEN))
         raise(e)
@@ -253,7 +253,7 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
             try:
                 fee_provided = order['fee_provided'] / (order['give_quantity'] / 100)
                 market_order['fee_provided'] = format(D(order['fee_provided']) / (D(order['give_quantity']) / D(100)), '.2f') 
-            except Exception, e:
+            except Exception as e:
                 fee_provided = min_fee_provided - 1 # exclude
             
             exclude = fee_provided < min_fee_provided
@@ -262,7 +262,7 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
             try:
                 fee_required = order['fee_required'] / (order['get_quantity'] / 100)
                 market_order['fee_required'] = format(D(order['fee_required']) / (D(order['get_quantity']) / D(100)), '.2f')
-            except Exception, e:
+            except Exception as e:
                 fee_required = max_fee_required + 1 # exclude    
 
             exclude = fee_required > max_fee_required

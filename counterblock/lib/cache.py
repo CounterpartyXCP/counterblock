@@ -29,7 +29,7 @@ def get_block_info(block_index, prefetch=0, min_message_index=None):
     
     blockinfo_cache.clear()
     blocks = util.call_jsonrpc_api('get_blocks',
-                              {'block_indexes': range(block_index, block_index + prefetch),
+                              {'block_indexes': list(range(block_index, block_index + prefetch)),
                                'min_message_index': min_message_index},
                               abort_on_error=True)['result']
     for block in blocks:
@@ -55,7 +55,7 @@ def block_cache(func):
                     'result': json.dumps(result)
                 })
                 return result
-            except Exception, e:
+            except Exception as e:
                 logger.exception(e)
         else:
             #logger.info("result from cache ({}, {}, {})".format(func.__name__, block_index, function_signature))

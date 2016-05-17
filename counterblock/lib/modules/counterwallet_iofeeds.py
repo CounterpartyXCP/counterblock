@@ -13,7 +13,7 @@ import time
 import socket
 import collections
 import json
-import ConfigParser
+import configparser
 
 import zmq.green as zmq
 import pymongo
@@ -32,7 +32,7 @@ module_config = {}
 zmq_publisher_eventfeed = None #set on init
 
 def _read_config():
-    configfile = ConfigParser.ConfigParser()
+    configfile = configparser.ConfigParser()
     config_path = os.path.join(config.config_dir, 'counterwallet_iofeeds.conf')
     logger.info("Loading config at: %s" % config_path)
     try:
@@ -104,7 +104,7 @@ def get_chat_handle(wallet_id):
 @API.add_method
 def store_chat_handle(wallet_id, handle):
     """Set or update a chat handle"""
-    if not isinstance(handle, basestring):
+    if not isinstance(handle, str):
         raise Exception("Invalid chat handle: bad data type")
     if not re.match(r'^[\sA-Za-z0-9_-]{4,12}$', handle):
         raise Exception("Invalid chat handle: bad syntax/length")
@@ -324,7 +324,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             config.mongo_db.chat_handles.save(p)
             #make the change active immediately
             handle_lower = handle.lower()
-            for sessid, socket in self.socket.server.sockets.iteritems():
+            for sessid, socket in self.socket.server.sockets.items():
                 if socket.session.get('handle', None).lower() == handle_lower:
                     socket.session['is_op'] = p['is_op']
             if self.socket.session['is_primary_server']: #let all users know
@@ -348,7 +348,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             config.mongo_db.chat_handles.save(p)
             #make the change active immediately
             handle_lower = handle.lower()
-            for sessid, socket in self.socket.server.sockets.iteritems():
+            for sessid, socket in self.socket.server.sockets.items():
                 if socket.session.get('handle', None).lower() == handle_lower:
                     socket.session['banned_until'] = p['banned_until']
             if self.socket.session['is_primary_server']: #let all users know
@@ -365,7 +365,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             config.mongo_db.chat_handles.save(p)
             #make the change active immediately
             handle_lower = handle.lower()
-            for sessid, socket in self.socket.server.sockets.iteritems():
+            for sessid, socket in self.socket.server.sockets.items():
                 if socket.session.get('handle', None).lower() == handle_lower:
                     socket.session['banned_until'] = None
             if self.socket.session['is_primary_server']:  #let all users know
@@ -391,7 +391,7 @@ class ChatFeedServerNamespace(BaseNamespace, BroadcastMixin):
             config.mongo_db.chat_handles.save(p)
             #make the change active immediately
             handle_lower = handle.lower()
-            for sessid, socket in self.socket.server.sockets.iteritems():
+            for sessid, socket in self.socket.server.sockets.items():
                 if socket.session.get('handle', None).lower() == handle_lower:
                     socket.session['handle'] = new_handle
             if self.socket.session['is_primary_server']: #let all users know

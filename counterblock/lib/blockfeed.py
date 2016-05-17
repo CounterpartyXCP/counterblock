@@ -9,7 +9,7 @@ import copy
 import logging
 import datetime
 import decimal
-import ConfigParser
+import configparser
 import time
 import itertools
 import pymongo
@@ -87,7 +87,7 @@ def process_cp_blockfeed():
                     # TODO: Better handling of double parsing
                     try:
                         result = function['function'](tx, json.loads(tx['bindings'])) or None
-                    except pymongo.errors.DuplicateKeyError, e:
+                    except pymongo.errors.DuplicateKeyError as e:
                         logging.exception(e)
                     if result == 'ABORT_THIS_MESSAGE_PROCESSING' or result == 'continue':
                         break
@@ -114,7 +114,7 @@ def process_cp_blockfeed():
             # TODO: Better handling of double parsing
             try:
                 result = function['function'](msg, msg_data) or None
-            except pymongo.errors.DuplicateKeyError, e:
+            except pymongo.errors.DuplicateKeyError as e:
                 logging.exception(e)
 
             if result in ('ABORT_THIS_MESSAGE_PROCESSING', 'continue', #just abort further MessageProcessors for THIS message
@@ -196,13 +196,13 @@ def process_cp_blockfeed():
         if iteration % 10 == 0:
             logger.info("Heartbeat (%s, block: %s, caught up: %s)" % (
                 iteration, config.state['my_latest_block']['block_index'], fuzzy_is_caught_up())) 
-        logger.info("iteration: ap %s/%s, cp_latest_block_index: %s, my_latest_block: %s" % (autopilot, autopilot_runner,
+        logger.debug("iteration: ap %s/%s, cp_latest_block_index: %s, my_latest_block: %s" % (autopilot, autopilot_runner,
             config.state['cp_latest_block_index'], config.state['my_latest_block']['block_index']))
         
         if not autopilot or autopilot_runner == 0:
             try:
                 cp_running_info = util.jsonrpc_api("get_running_info", abort_on_error=True)['result']
-            except Exception, e:
+            except Exception as e:
                 logger.warn("Cannot contact counterparty-server get_running_info: %s" % e)
                 time.sleep(3)
                 continue
@@ -284,7 +284,7 @@ def process_cp_blockfeed():
                 block_data = cache.get_block_info(cur_block_index,
                     prefetch=min(100, (config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'])),
                     min_message_index=config.state['last_message_index'] + 1 if config.state['last_message_index'] != -1 else None)
-            except Exception, e:
+            except Exception as e:
                 logger.warn(str(e) + " Waiting 3 seconds before trying again...")
                 time.sleep(3)
                 continue

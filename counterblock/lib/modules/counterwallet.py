@@ -9,12 +9,12 @@ import time
 import datetime
 import logging
 import decimal
-import urllib
+import urllib.request, urllib.parse, urllib.error
 import json
 import pymongo
 import flask
 import jsonrpc
-import ConfigParser
+import configparser
 
 import dateutil.parser
 
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 module_config = {}
 
 def _read_config():
-    configfile = ConfigParser.ConfigParser()
+    configfile = configparser.ConfigParser()
     config_path = os.path.join(config.config_dir, 'counterwallet%s.conf' % config.net_path_part)
     logger.info("Loading config at: %s" % config_path)
     try:
@@ -357,7 +357,7 @@ def task_generate_wallet_stats():
             ts = time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple())
             assert ts in new_entries
             if e['_id']['referer'] is None: continue
-            referer_key = urllib.quote(e['_id']['referer']).replace('.', '%2E')
+            referer_key = urllib.parse.quote(e['_id']['referer']).replace('.', '%2E')
             if 'referers' not in new_entries[ts]: new_entries[ts]['referers'] = {}
             if e['_id']['referer'] not in new_entries[ts]['referers']: new_entries[ts]['referers'][referer_key] = 0
             new_entries[ts]['referers'][referer_key] += 1
@@ -407,8 +407,8 @@ def task_generate_wallet_stats():
         
         if new_entries: #insert the rest
             #logger.info("Stats, new entries: %s" % new_entries.values())
-            config.mongo_db.wallet_stats.insert(new_entries.values())
-            logger.info("Added wallet statistics for %i full days" % len(new_entries.values()))
+            config.mongo_db.wallet_stats.insert(list(new_entries.values()))
+            logger.info("Added wallet statistics for %i full days" % len(list(new_entries.values())))
         
     gen_stats_for_network('mainnet')
     gen_stats_for_network('testnet')
@@ -455,7 +455,7 @@ def init():
         module_config['COUNTERWALLET_CONFIG_JSON'] = '{}'
     try:
         module_config['COUNTERWALLET_CONFIG'] = json.loads(module_config['COUNTERWALLET_CONFIG_JSON'])
-    except Exception, e:
+    except Exception as e:
         logger.error("Exception loading counterwallet client-side config: %s" % e)
 
     #init GEOIP

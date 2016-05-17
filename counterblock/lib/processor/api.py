@@ -8,13 +8,12 @@ import decimal
 import operator
 import logging
 import copy
-import urllib
+import urllib.request, urllib.parse, urllib.error
 import functools
 from logging import handlers as logging_handlers
 
 from gevent import wsgi
-from geventhttpclient import HTTPClient
-from geventhttpclient.url import URL
+import grequests
 import flask
 import jsonrpc
 import pymongo
@@ -103,10 +102,10 @@ def serve_api():
     def get_last_n_messages(count=100):
         if count > 1000:
             raise Exception("The count is too damn high")
-        message_indexes = range(max(config.state['last_message_index'] - count, 0) + 1, config.state['last_message_index'] + 1)
+        message_indexes = list(range(max(config.state['last_message_index'] - count, 0) + 1, config.state['last_message_index'] + 1))
         msgs = util.call_jsonrpc_api("get_messages_by_index",
             { 'message_indexes': message_indexes }, abort_on_error=True)['result']
-        for i in xrange(len(msgs)):
+        for i in range(len(msgs)):
             msgs[i] = messages.decorate_message_for_feed(msgs[i])
         return msgs
 
@@ -303,7 +302,7 @@ def serve_api():
         txns = []
         d = get_address_history(address, start_block=start_block_index, end_block=end_block_index)
         #mash it all together
-        for category, entries in d.iteritems():
+        for category, entries in d.items():
             if category in ['balances',]:
                 continue
             for e in entries:
@@ -331,7 +330,7 @@ def serve_api():
             if result:
                 try:
                     result = json.loads(result)
-                except Exception, e:
+                except Exception as e:
                     logging.warn("Error loading JSON from cache: %s, cached data: '%s'" % (e, result))
                     result = None #skip from reading from cache and just make the API call
         
@@ -373,7 +372,7 @@ def serve_api():
                 data_json = flask.request.get_data().decode('utf-8')
                 data = json.loads(data_json)
                 assert 'csp-report' in data
-            except Exception, e:
+            except Exception as e:
                 obj_error = jsonrpc.exceptions.JSONRPCInvalidRequest(data="Invalid JSON-RPC 2.0 request format")
                 return flask.Response(obj_error.json.encode(), 200, mimetype='application/json')
             
@@ -400,22 +399,22 @@ def serve_api():
           "params": [],
         }
         try:
-            url = URL("http://127.0.0.1:%s/api/" % config.RPC_PORT)
-            client = HTTPClient.from_url(url)
-            r = client.post(url.request_uri, body=json.dumps(payload), headers={'content-type': 'application/json'})
-        except Exception, e:
+            url = "http://127.0.0.1:%s/api/" % config.RPC_PORT
+            r = grequests.map((grequests.post(url, data=json.dumps(payload),
+              headers={'content-type': 'application/json', 'Connection': 'close'}),))[0]
+            if r is None:
+                raise Exception("result is None")
+        except Exception as e:
             cb_result_valid = False
             cb_result_error_code = "GOT EXCEPTION: %s" % e
         else:
             if r.status_code != 200:
                 cb_result_valid = False
                 cb_result_error_code = "GOT STATUS %s" % r.status_code if r else 'COULD NOT CONTACT'
-            cb_result = json.loads(r.read())
-            if 'error' in r:
+            cb_result = r.json()
+            if 'error' in cb_result:
                 cb_result_valid = False
-                cb_result_error_code = "GOT ERROR: %s" % r['error']
-        finally:
-            client.close()
+                cb_result_error_code = "GOT ERROR: %s" % cb_result['error']
         cb_e = time.time()
         
         result = {
@@ -496,7 +495,7 @@ def serve_api():
         try:
             assert 'method' in request_data
             tx_logger.info("TRANSACTION --- %s ||| REQUEST: %s ||| RESPONSE: %s" % (request_data['method'], request_json, rpc_response_json))
-        except Exception, e:
+        except Exception as e:
             logger.info("Could not log transaction: Invalid format: %s" % e)
             
         response = flask.Response(rpc_response_json, 200, mimetype='application/json')

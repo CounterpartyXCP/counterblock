@@ -11,11 +11,11 @@ import time
 import datetime
 import logging
 import decimal
-import urllib
+import urllib.request, urllib.parse, urllib.error
 import json
 import operator
 import base64
-import ConfigParser
+import configparser
 
 import pymongo
 from bson.son import SON
@@ -26,6 +26,7 @@ from counterblock.lib.modules import DEX_PRIORITY_PARSE_TRADEBOOK
 from counterblock.lib.processor import MessageProcessor, MempoolMessageProcessor, BlockProcessor, StartUpProcessor, CaughtUpProcessor, RollbackProcessor, API, start_task
 from . import assets_trading, dex
 
+EIGHT_PLACES = Decimal(10) ** -8
 COMPILE_MARKET_PAIR_INFO_PERIOD = 10 * 60 #in seconds (this is every 10 minutes currently)
 COMPILE_ASSET_MARKET_INFO_PERIOD = 30 * 60 #in seconds (this is every 30 minutes currently)
 
@@ -191,7 +192,7 @@ def get_market_price_history(asset1, asset2, start_ts=None, end_ts=None, as_dict
     
     midline = [((r['high'] + r['low']) / 2.0) for r in result]
     if as_dict:
-        for i in xrange(len(result)):
+        for i in range(len(result)):
             result[i]['interval_time'] = int(time.mktime(datetime.datetime(
                 result[i]['_id']['year'], result[i]['_id']['month'], result[i]['_id']['day'], result[i]['_id']['hour']).timetuple()) * 1000)
             result[i]['midline'] = midline[i]
@@ -199,7 +200,7 @@ def get_market_price_history(asset1, asset2, start_ts=None, end_ts=None, as_dict
         return result
     else:
         list_result = []
-        for i in xrange(len(result)):
+        for i in range(len(result)):
             list_result.append([
                 int(time.mktime(datetime.datetime(
                     result[i]['_id']['year'], result[i]['_id']['month'], result[i]['_id']['day'], result[i]['_id']['hour']).timetuple()) * 1000),
@@ -357,7 +358,7 @@ ask_book_min_pct_fee_provided=None, ask_book_min_pct_fee_required=None, ask_book
             book.setdefault(id, {'unit_price': unit_price, 'quantity': 0, 'count': 0})
             book[id]['quantity'] += remaining #base quantity outstanding
             book[id]['count'] += 1 #num orders at this price level
-        book = sorted(book.itervalues(), key=operator.itemgetter('unit_price'), reverse=isBidBook)
+        book = sorted(iter(book.values()), key=operator.itemgetter('unit_price'), reverse=isBidBook)
         #^ convert to list and sort -- bid book = descending, ask book = ascending
         return book
     
@@ -560,10 +561,10 @@ def parse_trade_book(msg, msg_data):
         }
         trade['unit_price'] = float(
             ( D(trade['quote_quantity_normalized']) / D(trade['base_quantity_normalized']) ).quantize(
-                D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+                EIGHT_PLACES, rounding=decimal.ROUND_HALF_EVEN), context=decimal.Context(prec=20))
         trade['unit_price_inverse'] = float(
             ( D(trade['base_quantity_normalized']) / D(trade['quote_quantity_normalized']) ).quantize(
-                D('.00000000'), rounding=decimal.ROUND_HALF_EVEN))
+                EIGHT_PLACES, rounding=decimal.ROUND_HALF_EVEN), context=decimal.Context(prec=20))
 
         config.mongo_db.trades.insert(trade)
         logger.info("Procesed Trade from tx %s :: %s" % (msg['message_index'], trade))

@@ -10,7 +10,7 @@ import time
 import datetime
 import logging
 import json
-import ConfigParser
+import configparser
 
 import pymongo
 from bson.son import SON
@@ -68,7 +68,7 @@ def get_transaction_stats(start_ts=None, end_ts=None):
         time_val = int(time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple()) * 1000)
         times.setdefault(time_val, True)
         categories[e['_id']['category']][time_val] = e['count']
-    times_list = times.keys()
+    times_list = list(times.keys())
     times_list.sort()
     #fill in each array with all found timestamps
     for e in categories:
@@ -78,7 +78,7 @@ def get_transaction_stats(start_ts=None, end_ts=None):
         categories[e] = a #replace with array data
     #take out to final data structure
     categories_list = []
-    for k, v in categories.iteritems():
+    for k, v in categories.items():
         categories_list.append({'name': k, 'data': v})
     return categories_list
 

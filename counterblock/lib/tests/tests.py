@@ -13,7 +13,7 @@ import hashlib
 import appdirs
 default_dbhash_file = None
         
-standard_collections = [u'asset_pair_market_info', u'tracked_assets', u'balance_changes', u'transaction_stats', u'trades', u'processed_blocks']
+standard_collections = ['asset_pair_market_info', 'tracked_assets', 'balance_changes', 'transaction_stats', 'trades', 'processed_blocks']
 early_exit_block = 313000
 logger = logging.getLogger(__name__)
 
@@ -88,44 +88,44 @@ def compare_md5_database_hashes():
     db_info = get_db_info_from_file()
     while len(db_info) > 1:
         head_label, db_hash = db_info.popitem()
-        for other_label, other_hash in db_info.items():
-            print("Comparing DB hashes for Git Heads: %s And %s" %(head_label, other_label))
-            for col, col_hash in db_hash.items():
+        for other_label, other_hash in list(db_info.items()):
+            print(("Comparing DB hashes for Git Heads: %s And %s" %(head_label, other_label)))
+            for col, col_hash in list(db_hash.items()):
                 if not other_hash.get(col): 
-                    print("Collection does not exist %s in %s skipping..." %(col, other_label))
+                    print(("Collection does not exist %s in %s skipping..." %(col, other_label)))
                     continue 
                 try: 
                     assert(col_hash == other_hash[col])
                     msg = "OK..."
                 except: 
                     msg = "Failed..."
-                print("Comparing Collections %s, %s == %s   %s" %(col, col_hash, other_hash[col], msg))
+                print(("Comparing Collections %s, %s == %s   %s" %(col, col_hash, other_hash[col], msg)))
 
 def compare_default_database_hashes():
     db_info = get_db_info_from_file()
     while len(db_info) > 1:
         head_label, db_hash = db_info.popitem()
-        for other_label, other_hash in db_info.items():
-            print("Comparing DB hashes for Git Heads: %s And %s" %(head_label, other_label))
-            for i, j in db_hash.items():
+        for other_label, other_hash in list(db_info.items()):
+            print(("Comparing DB hashes for Git Heads: %s And %s" %(head_label, other_label)))
+            for i, j in list(db_hash.items()):
                 if i == 'collections': 
-                    for col, col_hash in j.items(): 
+                    for col, col_hash in list(j.items()): 
                         if not other_hash[i].get(col): 
-                            print("Collection does not exist %s in %s skipping..." %(col, other_label))
+                            print(("Collection does not exist %s in %s skipping..." %(col, other_label)))
                             continue 
                         try: 
                             assert(col_hash == other_hash[i][col])
                             msg = "OK..."
                         except: 
                             msg = "Failed..."
-                        print("Comparing Collections %s, %s == %s   %s" %(col, col_hash, other_hash[i][col], msg))
+                        print(("Comparing Collections %s, %s == %s   %s" %(col, col_hash, other_hash[i][col], msg)))
                 else:
                     try: 
                         assert(j == other_hash[i])
                         msg = "OK..."
                     except: 
                         msg = "Failed..."
-                    print("Comparing %s, %s == %s   %s" %(i, j, other_hash[i], msg))
+                    print(("Comparing %s, %s == %s   %s" %(i, j, other_hash[i], msg)))
 
 if __name__ == '__main__':
     compare_md5_database_hashes()

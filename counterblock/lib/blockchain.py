@@ -122,7 +122,7 @@ def gettransaction_batch(txhash_list):
         'skip_missing': True}, abort_on_error=True)['result']
     txes = {}
     
-    for tx_hash, tx in raw_txes.iteritems():
+    for tx_hash, tx in raw_txes.items():
         if tx is None:
             txes[tx_hash] = None
             continue

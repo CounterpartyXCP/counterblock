@@ -9,9 +9,9 @@ import time
 import datetime
 import logging
 import decimal
-import urllib
+import urllib.request, urllib.parse, urllib.error
 import json
-import ConfigParser
+import configparser
 import base64
 
 import pymongo
@@ -104,7 +104,7 @@ def get_user_bets(addresses = [], status="open"):
     
     return {
         'bets': bets,
-        'feeds': get_feeds_by_source_addresses(sources.keys())
+        'feeds': get_feeds_by_source_addresses(list(sources.keys()))
     }
 
 @API.add_method

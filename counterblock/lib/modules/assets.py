@@ -9,11 +9,11 @@ import time
 import datetime
 import logging
 import decimal
-import urllib
+import urllib.request, urllib.parse, urllib.error
 import json
 import base64
 import pymongo
-import ConfigParser
+import configparser
 
 import dateutil.parser
 
@@ -348,7 +348,7 @@ def get_asset_history(asset, reverse=False):
     history = []
     raw = asset['_history'] + [asset,] #oldest to newest. add on the current state
     prev = None
-    for i in xrange(len(raw)): #oldest to newest
+    for i in range(len(raw)): #oldest to newest
         if i == 0:
             assert raw[i]['_change_type'] == 'created'
             history.append({
