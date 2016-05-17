@@ -7,6 +7,32 @@ import logging
 
 from counterblock.lib import config
 
+class generate_configuration_files(Command):
+    description = "Generate configfiles from old counterparty-server and/or bitcoind config files"
+    user_options = []
+
+    def initialize_options(self):
+        pass
+    def finalize_options(self):
+        pass
+
+    def run(self):
+        from counterpartycli.setup import generate_config_files
+        generate_config_files()
+
+class install(_install):
+    description = "Install counterblock and dependencies"
+
+    def run(self):
+        caller = sys._getframe(2)
+        caller_module = caller.f_globals.get('__name__','')
+        caller_name = caller.f_code.co_name
+        if caller_module == 'distutils.dist' or caller_name == 'run_commands':
+            _install.run(self)
+        else:
+            self.do_egg_install()
+        self.run_command('generate_configuration_files')
+
 required_packages = [
     'appdirs',
     'prettytable',
@@ -62,6 +88,10 @@ setup_options = {
             'counterblock = counterblock:server_main',
         ]
     },
+    'cmdclass': {
+        'install': install,
+        'generate_configuration_files': generate_configuration_files
+    },    
     'package_data': {
         'counterblock.schemas': ['asset.schema.json', 'feed.schema.json'],
     }

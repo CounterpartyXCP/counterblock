@@ -21,56 +21,63 @@ import datetime
 import time
 import tempfile
 
-from counterblock.lib import config, log, blockfeed, util, module, database
+from counterblock.lib import config, config_util, log, blockfeed, util, module, database
 from counterblock.lib.processor import messages, caughtup, startup  # to kick off processors
 from counterblock.lib.processor import StartUpProcessor
 
 logger = logging.getLogger(__name__)
 
-
-def main():
-    # Parse command-line arguments.
-    parser = argparse.ArgumentParser(prog='counterblockd', description='Counterwallet daemon. Works with counterpartyd')
-
-    # args
-    parser.add_argument('-V', '--version', action='version', version="counterblockd v%s" % config.VERSION)
-    parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', default=False, help='sets log level to DEBUG instead of WARNING')
-    parser.add_argument('--reparse', action='store_true', default=False, help='force full re-initialization of the counterblockd database')
-    parser.add_argument('--testnet', action='store_true', default=False, help='use Bitcoin testnet addresses and block numbers')
-
-    parser.add_argument('--config-file', help='the location of the configuration file')
-    parser.add_argument('--log-file', help='the location of the log file')
-    parser.add_argument('--log-size-kb', help='maximum log file size, in kilobytes (default 20000)')
-    parser.add_argument('--log-num-files', help='maximum number of rotated log files (default 5)')
-    parser.add_argument('--tx-log-file', help='the location of the transaction log file')
-    parser.add_argument('--pid-file', help='the location of the pid file')
+CONFIG_ARGS = [
+    # BASIC FLAGS
+    [('-v', '--verbose'), {'dest': 'verbose', 'action': 'store_true', 'default': False, 'help': 'sets log level to DEBUG instead of WARNING'}],
+    [('--testnet',), {'action': 'store_true', 'default': False, 'help': 'use {} testnet addresses and block numbers'.format(config.BTC_NAME)}],
+    [('--reparse',), {'action': 'store_true', 'default': False, 'help': 'force full re-initialization of the counterblock database'}],
+    [('--log-file',), {'help': 'the location of the log file'}],
+    [('--log-size-kb',), {'help': 'maximum log file size, in kilobytes'}],
+    [('--log-num-files',), {'help': 'maximum number of rotated log files'}],
+    [('--tx-log-file',), {'help': 'the location of the transaction log file'}],
+    [('--pid-file',), {'help': 'the location of the pid file'}],
 
     # THINGS WE CONNECT TO
-    parser.add_argument('--backend-connect', help='the hostname or IP of the backend bitcoind JSON-RPC server')
-    parser.add_argument('--backend-port', type=int, help='the backend JSON-RPC port to connect to')
-    parser.add_argument('--backend-user', help='the username used to communicate with backend over JSON-RPC')
-    parser.add_argument('--backend-password', help='the password used to communicate with backend over JSON-RPC')
+    [('--backend-connect',), {'help': 'the hostname or IP of the backend bitcoind JSON-RPC server'}],
+    [('--backend-port',), {'type': int, 'help': 'the backend JSON-RPC port to connect to'}],
+    [('--backend-user',), {'help': 'the username used to communicate with backend over JSON-RPC'}],
+    [('--backend-password',), {'help': 'the password used to communicate with backend over JSON-RPC'}],
 
-    parser.add_argument('--counterparty-connect', help='the hostname of the counterpartyd JSON-RPC server')
-    parser.add_argument('--counterparty-port', type=int, help='the port used to communicate with counterpartyd over JSON-RPC')
-    parser.add_argument('--counterparty-user', help='the username used to communicate with counterpartyd over JSON-RPC')
-    parser.add_argument('--counterparty-password', help='the password used to communicate with counterpartyd over JSON-RPC')
+    [('--counterparty-connect',), {'help': 'the hostname of the counterpartyd JSON-RPC server'}],
+    [('--counterparty-port',), {'type': int, 'help': 'the port used to communicate with counterpartyd over JSON-RPC'}],
+    [('--counterparty-user',), {'help': 'the username used to communicate with counterpartyd over JSON-RPC'}],
+    [('--counterparty-password',), {'help': 'the password used to communicate with counterpartyd over JSON-RPC'}],
 
-    parser.add_argument('--mongodb-connect', help='the hostname of the mongodb server to connect to')
-    parser.add_argument('--mongodb-port', type=int, help='the port used to communicate with mongodb')
-    parser.add_argument('--mongodb-database', help='the mongodb database to connect to')
-    parser.add_argument('--mongodb-user', help='the optional username used to communicate with mongodb')
-    parser.add_argument('--mongodb-password', help='the optional password used to communicate with mongodb')
+    [('--mongodb-connect',), {'help': 'the hostname of the mongodb server to connect to'}],
+    [('--mongodb-port',), {'type': int, 'help': 'the port used to communicate with mongodb'}],
+    [('--mongodb-database',), {'help': 'the mongodb database to connect to'}],
+    [('--mongodb-user',), {'help': 'the optional username used to communicate with mongodb'}],
+    [('--mongodb-password',), {'help': 'the optional password used to communicate with mongodb'}],
 
-    parser.add_argument('--redis-enable-apicache', action='store_true', default=False, help='set to true to enable caching of API requests')
-    parser.add_argument('--redis-connect', help='the hostname of the redis server to use for caching (if enabled')
-    parser.add_argument('--redis-port', type=int, help='the port used to connect to the redis server for caching (if enabled)')
-    parser.add_argument('--redis-database', type=int, help='the redis database ID (int) used to connect to the redis server for caching (if enabled)')
+    [('--redis-enable-apicache',), {'action': 'store_true', 'default': False, 'help': 'set to true to enable caching of API requests'}],
+    [('--redis-connect',), {'help': 'the hostname of the redis server to use for caching (if enabled'}],
+    [('--redis-port',), {'type': int, 'help': 'the port used to connect to the redis server for caching (if enabled)'}],
+    [('--redis-database',), {'type': int, 'help': 'the redis database ID (int) used to connect to the redis server for caching (if enabled)'}],
 
     # COUNTERBLOCK API
-    parser.add_argument('--rpc-host', help='the IP of the interface to bind to for providing JSON-RPC API access (0.0.0.0 for all interfaces)')
-    parser.add_argument('--rpc-port', type=int, help='port on which to provide the counterblockd JSON-RPC API')
-    parser.add_argument('--rpc-allow-cors', action='store_true', default=True, help='Allow ajax cross domain request')
+    [('--rpc-host',), {'help': 'the IP of the interface to bind to for providing JSON-RPC API access (0.0.0.0 for all interfaces)'}],
+    [('--rpc-port',), {'type': int, 'help': 'port on which to provide the counterblockd JSON-RPC API'}],
+    [('--rpc-allow-cors',), {'action': 'store_true', 'default': True, 'help': 'Allow ajax cross domain request'}],
+]
+
+
+def main():
+    # Post installation tasks
+    config_util.generate_config_files()
+
+    # Parse command-line arguments.
+    parser = argparse.ArgumentParser(prog='counterblock', description='counterblock daemon')
+
+    parser.add_argument(
+        '-V', '--version', action='version', version="counterblock %s" % config.VERSION)
+    parser.add_argument('--config-file', help='the path to the configuration file')
+    parser = config_util.add_config_arguments(parser, CONFIG_ARGS, 'server.conf')
 
     # actions
     subparsers = parser.add_subparsers(dest='action', help='the action to be taken')
@@ -92,6 +99,7 @@ def main():
     args = parser.parse_args()
 
     config.init(args)
+
     log.set_up(args.verbose)
 
     # log unhandled errors.
