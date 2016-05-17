@@ -48,13 +48,13 @@ setup_options = {
     'long_description': 'Implements support for extended functionality for counterparty',
     'keywords': 'counterparty, bitcoin, counterblock, counterblockd',
     'classifiers': [
-      "Programming Language :: Python",
+        "Programming Language :: Python",
     ],
     'download_url': 'https://github.com/CounterpartyXCP/counterblock/releases/tag/%s' % config.VERSION,
     'provides': ['counterblock'],
     'packages': find_packages(),
     'zip_safe': False,
-    'setup_requires': ['appdirs',],
+    'setup_requires': ['appdirs', ],
     'install_requires': required_packages,
     'include_package_data': True,
     'entry_points': {

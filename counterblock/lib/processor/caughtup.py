@@ -7,4 +7,4 @@ from counterblock.lib.processor import CaughtUpProcessor, CORE_FIRST_PRIORITY, C
 
 logger = logging.getLogger(__name__)
 
-#TODO: Place any core CaughtUpProcessor tasks here
+# TODO: Place any core CaughtUpProcessor tasks here

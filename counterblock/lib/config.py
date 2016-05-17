@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 
 ##
-## CONSTANTS
+# CONSTANTS
 ##
-VERSION = "1.3.1" #should keep up with counterblockd repo's release tag
+VERSION = "1.3.1"  # should keep up with counterblockd repo's release tag
 
-DB_VERSION = 23 #a db version increment will cause counterblockd to rebuild its database off of counterpartyd 
+DB_VERSION = 23  # a db version increment will cause counterblockd to rebuild its database off of counterpartyd
 
 UNIT = 100000000
 
-MARKET_PRICE_DERIVE_NUM_POINTS = 8 #number of last trades over which to derive the market price (via WVAP)
+MARKET_PRICE_DERIVE_NUM_POINTS = 8  # number of last trades over which to derive the market price (via WVAP)
 
 # FROM counterpartyd
 # NOTE: These constants must match those in counterpartyd/lib/py
@@ -24,28 +24,28 @@ BTC_NAME = "Bitcoin"
 XCP_NAME = "Counterparty"
 APP_NAME = "counterblock"
 
-MAX_REORG_NUM_BLOCKS = 10 #max reorg we'd likely ever see
-MAX_FORCED_REORG_NUM_BLOCKS = 20 #but let us go deeper when messages are out of sync
+MAX_REORG_NUM_BLOCKS = 10  # max reorg we'd likely ever see
+MAX_FORCED_REORG_NUM_BLOCKS = 20  # but let us go deeper when messages are out of sync
 
-QUOTE_ASSETS = ['BTC', 'XBTC', 'XCP'] # define the priority for quote asset
-MARKET_LIST_QUOTE_ASSETS = ['XCP', 'XBTC', 'BTC'] # define the order in the market list
+QUOTE_ASSETS = ['BTC', 'XBTC', 'XCP']  # define the priority for quote asset
+MARKET_LIST_QUOTE_ASSETS = ['XCP', 'XBTC', 'BTC']  # define the order in the market list
 
 DEFAULT_BACKEND_PORT_TESTNET = 18332
 DEFAULT_BACKEND_PORT = 8332
 
 
 ##
-## STATE
+# STATE
 ##
-mongo_db = None #will be set on server init
+mongo_db = None  # will be set on server init
 state = {
-    'caught_up': False #atomic state variable, set to True when counterpartyd AND counterblockd are caught up
-    #the rest of this is added dynamically
+    'caught_up': False  # atomic state variable, set to True when counterpartyd AND counterblockd are caught up
+    # the rest of this is added dynamically
 }
 
 
 ##
-## METHODS
+# METHODS
 ##
 def init_data_dir(args):
     import os
@@ -56,7 +56,7 @@ def init_data_dir(args):
     if not os.path.isdir(data_dir):
         os.makedirs(data_dir)
 
-    global config_dir  
+    global config_dir
     config_dir = appdirs.user_config_dir(appauthor=XCP_NAME, appname=APP_NAME, roaming=True)
     if not os.path.isdir(config_dir):
         os.makedirs(config_dir)
@@ -65,15 +65,16 @@ def init_data_dir(args):
     log_dir = appdirs.user_log_dir(appauthor=XCP_NAME, appname=APP_NAME)
     if not os.path.isdir(log_dir):
         os.makedirs(log_dir)
-                
+
+
 def load(args):
     import os
     import configparser
     import email.utils
-    
+
     assert data_dir and config_dir and log_dir
-    
-    #Read config file
+
+    # Read config file
     configfile = configparser.ConfigParser()
     if args.config_file:
         config_path = args.config_file
@@ -81,7 +82,7 @@ def load(args):
         config_path = os.path.join(config_dir, 'server.conf')
     configfile.read(config_path)
     has_config = configfile.has_section('Default')
-    
+
     # testnet
     global TESTNET
     if args.testnet:
@@ -93,18 +94,18 @@ def load(args):
 
     global net_path_part
     net_path_part = '.testnet' if TESTNET else ''
-    
-    #first block
+
+    # first block
     global BLOCK_FIRST
     if TESTNET:
         BLOCK_FIRST = 310000
     else:
         BLOCK_FIRST = 278270
 
-    #forced reparse?
+    # forced reparse?
     global REPARSE_FORCED
     REPARSE_FORCED = args.reparse
-        
+
     ##############
     # THINGS WE CONNECT TO
 
@@ -129,7 +130,7 @@ def load(args):
         assert int(BACKEND_PORT) > 1 and int(BACKEND_PORT) < 65535
     except:
         raise Exception("Please specify a valid port number for the backend-port configuration parameter")
-            
+
     global BACKEND_USER
     if args.backend_user:
         BACKEND_USER = args.backend_user
@@ -148,13 +149,13 @@ def load(args):
 
     global BACKEND_AUTH
     BACKEND_AUTH = (BACKEND_USER, BACKEND_PASSWORD) if (BACKEND_USER and BACKEND_PASSWORD) else None
-    
+
     global BACKEND_URL
     BACKEND_URL = 'http://' + BACKEND_USER + ':' + BACKEND_PASSWORD + '@' + BACKEND_CONNECT + ':' + str(BACKEND_PORT)
 
     global BACKEND_URL_NOAUTH
     BACKEND_URL_NOAUTH = 'http://' + BACKEND_CONNECT + ':' + str(BACKEND_PORT) + '/'
-    
+
     # counterpartyd RPC connection
     global COUNTERPARTY_CONNECT
     if args.counterparty_connect:
@@ -176,7 +177,7 @@ def load(args):
         assert int(COUNTERPARTY_PORT) > 1 and int(COUNTERPARTY_PORT) < 65535
     except:
         raise Exception("Please specify a valid port number for the counterparty-port configuration parameter")
-    
+
     global COUNTERPARTY_USER
     if args.counterparty_user:
         COUNTERPARTY_USER = args.counterparty_user
@@ -195,7 +196,7 @@ def load(args):
 
     global COUNTERPARTY_RPC
     COUNTERPARTY_RPC = 'http://' + COUNTERPARTY_CONNECT + ':' + str(COUNTERPARTY_PORT) + '/api/'
-    
+
     global COUNTERPARTY_AUTH
     COUNTERPARTY_AUTH = (COUNTERPARTY_USER, COUNTERPARTY_PASSWORD) if (COUNTERPARTY_USER and COUNTERPARTY_PASSWORD) else None
 
@@ -220,7 +221,7 @@ def load(args):
         assert int(MONGODB_PORT) > 1 and int(MONGODB_PORT) < 65535
     except:
         raise Exception("Please specify a valid port number for the mongodb-port configuration parameter")
-            
+
     global MONGODB_DATABASE
     if args.mongodb_database:
         MONGODB_DATABASE = args.mongodb_database
@@ -290,7 +291,7 @@ def load(args):
 
     ##############
     # THINGS WE SERVE
-    
+
     global RPC_HOST
     if args.rpc_host:
         RPC_HOST = args.rpc_host
@@ -319,12 +320,12 @@ def load(args):
         RPC_ALLOW_CORS = configfile.getboolean('Default', 'rpc-allow-cors')
     else:
         RPC_ALLOW_CORS = True
-        
-    #Other things
+
+    # Other things
     global SUBDIR_ASSET_IMAGES
-    SUBDIR_ASSET_IMAGES = "asset_img%s" % net_path_part #goes under the data dir and stores retrieved asset images
+    SUBDIR_ASSET_IMAGES = "asset_img%s" % net_path_part  # goes under the data dir and stores retrieved asset images
     global SUBDIR_FEED_IMAGES
-    SUBDIR_FEED_IMAGES = "feed_img%s" % net_path_part #goes under the data dir and stores retrieved feed images
+    SUBDIR_FEED_IMAGES = "feed_img%s" % net_path_part  # goes under the data dir and stores retrieved feed images
 
     ##############
     # OTHER SETTINGS
@@ -332,7 +333,7 @@ def load(args):
     # System (logging, pids, etc)
     global COUNTERBLOCKD_DIR
     COUNTERBLOCKD_DIR = os.path.realpath(os.path.join(os.path.dirname(os.path.realpath(__file__)), os.pardir))
-    
+
     global LOG
     if args.log_file:
         LOG = args.log_file
@@ -366,7 +367,7 @@ def load(args):
         assert LOG_NUM_FILES > 0 and LOG_NUM_FILES <= 100
     except:
         raise Exception("Please specify a valid log-num-files value (must be less than 100)")
-                
+
     global TX_LOG
     if args.tx_log_file:
         TX_LOG = args.tx_log_file
@@ -392,9 +393,10 @@ def load_schemas():
 
     global ASSET_SCHEMA
     ASSET_SCHEMA = json.load(open(os.path.join(COUNTERBLOCKD_DIR, 'schemas', 'asset.schema.json')))
-    
+
     global FEED_SCHEMA
     FEED_SCHEMA = json.load(open(os.path.join(COUNTERBLOCKD_DIR, 'schemas', 'feed.schema.json')))
+
 
 def init(args):
     init_data_dir(args)
