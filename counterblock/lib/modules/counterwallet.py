@@ -34,7 +34,8 @@ module_config = {}
 
 
 def _read_config():
-    configfile = configparser.ConfigParser()
+    configfile = configparser.SafeConfigParser(
+        defaults=os.environ, allow_no_value=True, inline_comment_prefixes=('#', ';'))
     config_path = os.path.join(config.config_dir, 'counterwallet%s.conf' % config.net_path_part)
     logger.info("Loading config at: %s" % config_path)
     try:

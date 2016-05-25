@@ -48,7 +48,8 @@ def add_config_arguments(arg_parser, config_args, default_config_file, config_fi
             fp.truncate()
 
     logger.debug('Loading configuration file: `{}`'.format(config_file))
-    configfile = configparser.ConfigParser(allow_no_value=True, inline_comment_prefixes=('#', ';'))
+    configfile = configparser.SafeConfigParser(
+        defaults=os.environ, allow_no_value=True, inline_comment_prefixes=('#', ';'))
     with codecs.open(config_file, 'r', encoding='utf8') as fp:
         configfile.readfp(fp)
 

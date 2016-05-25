@@ -33,7 +33,8 @@ zmq_publisher_eventfeed = None  # set on init
 
 
 def _read_config():
-    configfile = configparser.ConfigParser()
+    configfile = configparser.SafeConfigParser(
+        defaults=os.environ, allow_no_value=True, inline_comment_prefixes=('#', ';'))
     config_path = os.path.join(config.config_dir, 'counterwallet_iofeeds.conf')
     logger.info("Loading config at: %s" % config_path)
     try:
