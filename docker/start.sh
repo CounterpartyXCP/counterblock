@@ -1,19 +1,25 @@
 #!/bin/bash
 
 # Specify defaults (defaults are overridden if defined in the environment)
+DEFAULT_BACKEND_CONNECT="bitcoin"
 DEFAULT_BACKEND_PORT=8332
+DEFAULT_COUNTERPARTY_CONNECT="counterparty"
 DEFAULT_COUNTERPARTY_PORT=4000
 DEFAULT_RPC_PORT=4100
 DEFAULT_MONGODB_DATABASE=counterblockd
 DEFAULT_REDIS_DATABASE=0
+DEFAULT_ARMORY_UTXSVR_HOST="armory-utxsvr"
 EXTRA_PARAMS=""
 if [ -n "$TESTNET" ]; then
     EXTRA_PARAMS="${EXTRA_PARAMS} --testnet"
+    DEFAULT_BACKEND_CONNECT="bitcoin-testnet"
     DEFAULT_BACKEND_PORT=18332
+    DEFAULT_COUNTERPARTY_CONNECT="counterparty-testnet"
     DEFAULT_COUNTERPARTY_PORT=4001
     DEFAULT_RPC_PORT=4101
     DEFAULT_MONGODB_DATABASE=counterblockd_testnet
     DEFAULT_REDIS_DATABASE=1
+    DEFAULT_ARMORY_UTXSVR_HOST="armory-utxsvr-testnet"
 fi
 if [ -n "$REPARSE" ]; then
     EXTRA_PARAMS="${EXTRA_PARAMS} --reparse"
@@ -22,11 +28,11 @@ if [ -n "$VERBOSE" ]; then
     EXTRA_PARAMS="${EXTRA_PARAMS} --verbose"
 fi
 
-: ${BACKEND_CONNECT:="bitcoin"}
+: ${BACKEND_CONNECT:=$DEFAULT_BACKEND_CONNECT}
 : ${BACKEND_PORT:=$DEFAULT_BACKEND_PORT}
 : ${BACKEND_USER:="rpc"}
 : ${BACKEND_PASSWORD:="rpc"}
-: ${COUNTERPARTY_CONNECT:="counterparty"}
+: ${COUNTERPARTY_CONNECT:=$DEFAULT_COUNTERPARTY_CONNECT}
 : ${COUNTERPARTY_PORT:=$DEFAULT_COUNTERPARTY_PORT}
 : ${COUNTERPARTY_USER:="rpc"}
 : ${COUNTERPARTY_PASSWORD:="rpc"}
@@ -40,6 +46,8 @@ fi
 : ${REDIS_DATABASE:=$DEFAULT_REDIS_DATABASE}
 : ${RPC_PORT:=$DEFAULT_RPC_PORT}
 : ${COMMAND:="server"}
+
+export ARMORY_UTXSVR_HOST=${ARMORY_UTXSVR_HOST:=$DEFAULT_ARMORY_UTXSVR_HOST}
 
 # Kick off the server, defaulting to the "server" subcommand
 /usr/local/bin/counterblock \

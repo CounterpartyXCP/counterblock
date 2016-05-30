@@ -27,6 +27,7 @@ from counterblock.lib.processor import startup
 PREFERENCES_MAX_LENGTH = 100000  # in bytes, as expressed in JSON
 ARMORY_UTXSVR_PORT_MAINNET = 6590
 ARMORY_UTXSVR_PORT_TESTNET = 6591
+ARMORY_UTXSVR_HOST = os.environ.get("ARMORY_UTXSVR_HOST", "127.0.0.1")
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -232,7 +233,7 @@ def store_preferences(wallet_id, preferences, for_login=False, network=None, ref
 
 @API.add_method
 def create_armory_utx(unsigned_tx_hex, public_key_hex):
-    endpoint = "http://127.0.0.1:%s/" % (
+    endpoint = "http://%s:%s/" % (ARMORY_UTXSVR_HOST,
         ARMORY_UTXSVR_PORT_MAINNET if not config.TESTNET else ARMORY_UTXSVR_PORT_TESTNET)
     params = {'unsigned_tx_hex': unsigned_tx_hex, 'public_key_hex': public_key_hex}
     utx_ascii = util.call_jsonrpc_api("serialize_unsigned_tx", params=params, endpoint=endpoint, abort_on_error=True)['result']
@@ -241,7 +242,7 @@ def create_armory_utx(unsigned_tx_hex, public_key_hex):
 
 @API.add_method
 def convert_armory_signedtx_to_raw_hex(signed_tx_ascii):
-    endpoint = "http://127.0.0.1:%s/" % (
+    endpoint = "http://%s:%s/" % (ARMORY_UTXSVR_HOST,
         ARMORY_UTXSVR_PORT_MAINNET if not config.TESTNET else ARMORY_UTXSVR_PORT_TESTNET)
     params = {'signed_tx_ascii': signed_tx_ascii}
     raw_tx_hex = util.call_jsonrpc_api("convert_signed_tx_to_raw_hex", params=params, endpoint=endpoint, abort_on_error=True)['result']
