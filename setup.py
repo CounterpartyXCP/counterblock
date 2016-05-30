@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
-from setuptools import setup, find_packages
+from setuptools import setup, find_packages, Command
+from setuptools.command.install import install as _install
+from setuptools.command.bdist_egg import bdist_egg as _bdist_egg
 import os
 import sys
 import logging
@@ -17,8 +19,8 @@ class generate_configuration_files(Command):
         pass
 
     def run(self):
-        from counterpartycli.setup import generate_config_files
-        generate_config_files()
+        from counterblock.lib import config_util
+        config_util.generate_config_files()
 
 class install(_install):
     description = "Install counterblock and dependencies"
@@ -64,15 +66,15 @@ required_packages = [
 setup_options = {
     'name': 'counterblock',
     'version': config.VERSION,
-    'author': 'Counterparty Foundation',
+    'author': 'Counterparty Developers',
     'author_email': 'support@counterparty.io',
-    'maintainer': 'Counteparty Development Team',
+    'maintainer': 'Counteparty Developers',
     'maintainer_email': 'dev@counterparty.io',
     'url': 'http://counterparty.io',
     'license': 'MIT',
     'description': 'counterblock server',
-    'long_description': 'Implements support for extended functionality for counterparty',
-    'keywords': 'counterparty, bitcoin, counterblock, counterblockd',
+    'long_description': 'Implements support for extended functionality for counterparty-lib',
+    'keywords': 'counterparty, bitcoin, counterblock',
     'classifiers': [
         "Programming Language :: Python",
     ],
@@ -91,7 +93,7 @@ setup_options = {
     'cmdclass': {
         'install': install,
         'generate_configuration_files': generate_configuration_files
-    },    
+    },
     'package_data': {
         'counterblock.schemas': ['asset.schema.json', 'feed.schema.json'],
     }
@@ -101,3 +103,4 @@ if os.name == "nt":
     sys.exit("Windows installs not supported")
 
 setup(**setup_options)
+

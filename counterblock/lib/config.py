@@ -155,7 +155,6 @@ def init_base(args):
         COUNTERPARTY_PASSWORD = args.counterparty_password
     else:
         COUNTERPARTY_PASSWORD = 'rpcpassword'
-    print("CP pass: '%s'" %COUNTERPARTY_PASSWORD)
 
     global COUNTERPARTY_RPC
     COUNTERPARTY_RPC = 'http://' + COUNTERPARTY_CONNECT + ':' + str(COUNTERPARTY_PORT) + '/api/'
