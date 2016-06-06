@@ -9,7 +9,7 @@ DEFAULT_RPC_PORT=4100
 DEFAULT_MONGODB_DATABASE=counterblockd
 DEFAULT_REDIS_DATABASE=0
 DEFAULT_ARMORY_UTXSVR_HOST="armory-utxsvr"
-EXTRA_PARAMS=""
+: ${EXTRA_PARAMS:=""}
 if [ -n "$TESTNET" ]; then
     EXTRA_PARAMS="${EXTRA_PARAMS} --testnet"
     DEFAULT_BACKEND_CONNECT="bitcoin-testnet"
@@ -20,12 +20,6 @@ if [ -n "$TESTNET" ]; then
     DEFAULT_MONGODB_DATABASE=counterblockd_testnet
     DEFAULT_REDIS_DATABASE=1
     DEFAULT_ARMORY_UTXSVR_HOST="armory-utxsvr-testnet"
-fi
-if [ -n "$REPARSE" ]; then
-    EXTRA_PARAMS="${EXTRA_PARAMS} --reparse"
-fi
-if [ -n "$VERBOSE" ]; then
-    EXTRA_PARAMS="${EXTRA_PARAMS} --verbose"
 fi
 
 : ${BACKEND_CONNECT:=$DEFAULT_BACKEND_CONNECT}
