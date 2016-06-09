@@ -3,8 +3,9 @@
 counterblock
 ==============
 
-Provides extended API functionality over `counterparty-server` (such as market information, asset history, etc).
-Works alongside `counterparty`.
+`counterblock` provides additional services to Counterwallet beyond those offered in the API provided by `counterparty-server`. It features a full-fledged JSON RPC-based API, which services Counterwallet as well as any 3rd party services which wish to use it. `counterblock` has an extensible architecture, and developers may write custom plugins for it, which are loaded dynamically and allow them to extend `counterblock` with new parsing functionality, write gateways to other currencies or services, and much more.
+
+With its set of core-plugins, `counterblock` provides a more high-level data processing, and an API that layers on top of `counterparty-server`’s API. `counterblock` generates and allows querying of data such as market and price information, trade operations, asset history, and more. It is used extensively by Counterwallet itself, and is appropriate for use by applications that require additional API-based functionality beyond the scope of what `counterparty-server` itself provides.
 
 # Installation
 
