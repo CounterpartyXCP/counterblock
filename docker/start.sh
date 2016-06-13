@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Run "setup.py develop" if we need to
+if [ ! -d /counterblock/counterblock.egg-info ]; then
+    cd /counterblock; python3 setup.py develop; cd /
+fi
+
 # Specify defaults (defaults are overridden if defined in the environment)
 DEFAULT_BACKEND_CONNECT="bitcoin"
 DEFAULT_BACKEND_PORT=8332
