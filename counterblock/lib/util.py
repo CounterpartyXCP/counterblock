@@ -176,6 +176,11 @@ def grouper(n, iterable, fillmissing=False, fillvalue=None):
     return data
 
 
+def cmp(a, b):
+    """replaces the missing built-in in Python3""""
+    return (a > b) - (a < b)
+
+
 def multikeysort(items, columns):
     """http://stackoverflow.com/a/1144405"""
     from operator import itemgetter as i
