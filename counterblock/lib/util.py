@@ -29,7 +29,7 @@ import aniso8601  # not needed here but to ensure that installed
 
 from counterblock.lib import config
 
-JSONRPC_API_REQUEST_TIMEOUT = 50  # in seconds
+JSONRPC_API_REQUEST_TIMEOUT = 100  # in seconds
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -118,7 +118,8 @@ def call_jsonrpc_api(method, params=None, endpoint=None, auth=None, abort_on_err
         headers['Authorization'] = http_basic_auth_str(auth[0], auth[1])
 
     try:
-        r = grequests.map((grequests.post(endpoint, data=json.dumps(payload), timeout=JSONRPC_API_REQUEST_TIMEOUT, headers=headers),))[0]
+        r = grequests.map((grequests.post(endpoint, data=json.dumps(payload), timeout=JSONRPC_API_REQUEST_TIMEOUT, headers=headers),))
+        r = r[0]
         if r is None:
             raise Exception("result is None")
     except Exception as e:
@@ -177,17 +178,19 @@ def grouper(n, iterable, fillmissing=False, fillvalue=None):
 
 def multikeysort(items, columns):
     """http://stackoverflow.com/a/1144405"""
-    from operator import itemgetter
-    comparers = [((itemgetter(col[1:].strip()), -1) if col.startswith('-') else (itemgetter(col.strip()), 1)) for col in columns]
-
+    from operator import itemgetter as i
+    from functools import cmp_to_key
+    comparers = [
+        ((i(col[1:].strip()), -1) if col.startswith('-') else (i(col.strip()), 1))
+        for col in columns
+    ]
     def comparer(left, right):
-        for fn, mult in comparers:
-            result = cmp(fn(left), fn(right))
-            if result:
-                return mult * result
-        else:
-            return 0
-    return sorted(items, cmp=comparer)
+        comparer_iter = (
+            cmp(fn(left), fn(right)) * mult
+            for fn, mult in comparers
+        )
+        return next((result for result in comparer_iter if result), 0)
+    return sorted(items, key=cmp_to_key(comparer))
 
 
 def cumsum(iterable):

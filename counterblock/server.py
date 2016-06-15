@@ -11,6 +11,11 @@ from gevent import monkey
 import grequests  # this will monkey patch
 if not monkey.is_module_patched("os"):  # if this fails, it's because gevent stopped monkey patching for us
     monkey.patch_all()
+# disable urllib3 warnings for requests module (for now at least)
+# (note that requests is used/imported through grequests only)
+import requests
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 import sys
 import os

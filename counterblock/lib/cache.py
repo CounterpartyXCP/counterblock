@@ -47,12 +47,12 @@ def block_cache(func):
     def cached_function(*args, **kwargs):
         sql = "SELECT block_index FROM blocks ORDER BY block_index DESC LIMIT 1"
         block_index = util.call_jsonrpc_api('sql', {'query': sql, 'bindings': []})['result'][0]['block_index']
-        function_signature = hashlib.sha256(func.__name__ + str(args) + str(kwargs)).hexdigest()
+        function_signature = hashlib.sha256((func.__name__ + str(args) + str(kwargs)).encode('utf-8')).hexdigest()
 
         cached_result = config.mongo_db.counterblockd_cache.find_one({'block_index': block_index, 'function': function_signature})
 
         if not cached_result or config.TESTNET:
-            #logger.info("generate cache ({}, {}, {})".format(func.__name__, block_index, function_signature))
+            # logger.info("generate cache ({}, {}, {})".format(func.__name__, block_index, function_signature))
             try:
                 result = func(*args, **kwargs)
                 config.mongo_db.counterblockd_cache.insert({
@@ -64,7 +64,7 @@ def block_cache(func):
             except Exception as e:
                 logger.exception(e)
         else:
-            #logger.info("result from cache ({}, {}, {})".format(func.__name__, block_index, function_signature))
+            # logger.info("result from cache ({}, {}, {})".format(func.__name__, block_index, function_signature))
             result = json.loads(cached_result['result'])
             return result
 
@@ -72,5 +72,5 @@ def block_cache(func):
 
 
 def clean_block_cache(block_index):
-    #logger.info("clean block cache lower than {}".format(block_index))
+    # logger.info("clean block cache lower than {}".format(block_index))
     config.mongo_db.counterblockd_cache.remove({'block_index': {'$lt': block_index}})
