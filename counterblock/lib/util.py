@@ -177,7 +177,7 @@ def grouper(n, iterable, fillmissing=False, fillvalue=None):
 
 
 def cmp(a, b):
-    """replaces the missing built-in in Python3""""
+    """replaces the missing built-in in Python3"""
     return (a > b) - (a < b)
 
 
