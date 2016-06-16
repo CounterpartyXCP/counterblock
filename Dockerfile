@@ -17,6 +17,6 @@ COPY docker/counterwallet.conf /root/.config/counterblock/counterwallet.conf
 COPY docker/start.sh /usr/local/bin/start.sh
 RUN chmod a+x /usr/local/bin/start.sh
 
-EXPOSE 4100 4101
+EXPOSE 4100 4101 4102 14100 14101 14102
 
 ENTRYPOINT ["start.sh"]
