@@ -1,5 +1,5 @@
 --index-url https://pypi.python.org/simple/
 
 hg+https://bitbucket.org/noppo/gevent-websocket/@python3-support#egg=gevent-websocket
-git+https://github.com/Rhizi/gevent-socketio.git@python3-compat#egg=gevent-socketio
+git+https://github.com/CounterpartyXCP/gevent-socketio.git@python3-compat#egg=gevent-socketio
 -e .
