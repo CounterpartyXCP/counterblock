@@ -178,7 +178,14 @@ def grouper(n, iterable, fillmissing=False, fillvalue=None):
 
 def cmp(a, b):
     """replaces the missing built-in in Python3"""
-    return (a > b) - (a < b)
+    if a is None and b is None:
+        return 0
+    elif a is None:
+        return -1
+    elif b is None:
+        return 1
+    else:
+        return (a > b) - (a < b)
 
 
 def multikeysort(items, columns):
