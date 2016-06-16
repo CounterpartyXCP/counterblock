@@ -179,7 +179,7 @@ class MessagesFeedServerNamespace(BaseNamespace):
     def listener(self):
         # subscribe to the zmq queue
         sock = self.request['zmq_context'].socket(zmq.SUB)
-        sock.setsockopt(zmq.SUBSCRIBE, "")
+        sock.setsockopt(zmq.SUBSCRIBE, b'')
         sock.connect('inproc://queue_eventfeed')
 
         poller = zmq.Poller()
