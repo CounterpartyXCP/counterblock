@@ -32,7 +32,7 @@ ARMORY_UTXSVR_PORT_MAINNET = 6590
 ARMORY_UTXSVR_PORT_TESTNET = 6591
 ARMORY_UTXSVR_HOST = os.environ.get("ARMORY_UTXSVR_HOST", "127.0.0.1")
 
-WALLET_MESSAGES_CLEAR_EVERY = 500
+FUZZY_MAX_WALLET_MESSAGES_STORED = 1000
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -318,12 +318,11 @@ def get_vennd_machine():
 
 @API.add_method
 def get_latest_wallet_messages(last_seq):
-    print("!! get_latest_wallet_messages called")
     if last_seq is None:
         last_seq = -1  # 0 and above
-    result = config.mongo_db.wallet_messages.find({"_id": {"$gt": last_seq}}, sort=[("_id", pymongo.ASCENDING)])
-    print(result)
-    return result
+    results = list(config.mongo_db.wallet_messages.find({"_id": {"$gt": last_seq}}, sort=[("_id", pymongo.ASCENDING)]))
+    logger.debug("get_latest_wallet_messages: last seq {}, returning {} entries".format(last_seq, len(results)))
+    return results
 
 
 def task_expire_stale_prefs():
@@ -467,21 +466,21 @@ def store_wallet_message(msg, msg_data, decorate=True):
         try:
             config.mongo_db.wallet_messages.insert({
                 '_id': new_seq,
-                'when': datetime.datetime.utcnow(),
+                'when': calendar.timegm(time.gmtime()),
                 'message': wallet_message,
             })
         except pymongo.errors.DuplicateKeyError:
             continue
         else:
-            logger.info("!!stored {}".format(new_seq))
+            logger.debug("store_wallet_message: stored {}".format(new_seq))
             if config.state['cw_last_message_seq'] < new_seq:
                 config.state['cw_last_message_seq'] = new_seq
             break
 
     # every so often, trim up the table
-    if (new_seq % 100) == 0:
-        if config.mongo_db.wallet_messages.count() > MAX_WALLET_MESSAGES_STORED:
-            config.mongo_db.wallet_messages.remove({'_id': {'$lte': new_seq - MAX_WALLET_MESSAGES_STORED}})
+    if new_seq % 20 == 0:  # for performance, don't do this every iteration
+        if config.mongo_db.wallet_messages.count() > FUZZY_MAX_WALLET_MESSAGES_STORED:
+            config.mongo_db.wallet_messages.remove({'_id': {'$lte': new_seq - FUZZY_MAX_WALLET_MESSAGES_STORED}})
 
 
 @MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 0.5)
@@ -508,7 +507,7 @@ def handle_reorg(msg, msg_data):
 
 
 @MessageProcessor.subscribe(priority=CWALLET_PRIORITY_PARSE_FOR_SOCKETIO)
-def parse_for_socketio(msg, msg_data):
+def store_new_messages(msg, msg_data):
     # if we're catching up beyond MAX_REORG_NUM_BLOCKS blocks out, make sure not to send out any socket.io
     # events, as to not flood on a resync (as we may give a 525 to kick the logged in clients out, but we
     # can't guarantee that the socket.io connection will always be severed as well??)
@@ -558,15 +557,14 @@ def init():
     # clear the wallet_messages collection, but create a null entry with the last message ID (because it could
     # have been a rapid restart and we don't want to break wallets currently pulling for messages)
     last_wallet_message = config.mongo_db.wallet_messages.find_one(sort=[("_id", pymongo.DESCENDING)])
-    print("last_wallet_message {}".format(last_wallet_message))
     if not last_wallet_message:
         config.mongo_db.wallet_messages.insert({
             '_id': 0,
-            'when': datetime.datetime.utcnow(),
+            'when': calendar.timegm(time.gmtime()),
             'message': None,
         })
     config.state['cw_last_message_seq'] = last_wallet_message['_id'] if last_wallet_message else 0
-    print("!!! cw_last_message_seq: {}".format(config.state['cw_last_message_seq']))
+    logger.debug("cw_last_message_seq: {}".format(config.state['cw_last_message_seq']))
 
     # init GEOIP
     import pygeoip
@@ -608,7 +606,7 @@ def process_rollback(max_block_index):
         config.mongo_db.wallet_messages.drop()
         config.mongo_db.wallet_messages.insert({
             '_id': 0,
-            'when': datetime.datetime.utcnow(),
+            'when': calendar.timegm(time.gmtime()),
             'message': None,
         })
         config.state['cw_last_message_seq'] = 0
