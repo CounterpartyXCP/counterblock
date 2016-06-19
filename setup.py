@@ -46,8 +46,6 @@ required_packages = [
     'python-bitcoinlib==0.5.1',
     'pymongo==3.2.2',
     'gevent==1.1.1',
-    'gevent-websocket==0.9.5',
-    'gevent-socketio==0.3.6',
     'greenlet==0.4.9',
     'grequests==0.3.0',
     'redis==2.10.5',

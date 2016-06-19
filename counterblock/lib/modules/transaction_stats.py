@@ -37,7 +37,7 @@ def parse_insert(msg, msg_data):
 
 @API.add_method
 def get_transaction_stats(start_ts=None, end_ts=None):
-    now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+    now_ts = calendar.timegm(time.gmtime())
     if not end_ts:  # default to current datetime
         end_ts = now_ts
     if not start_ts:  # default to 360 days before the end date
@@ -68,7 +68,7 @@ def get_transaction_stats(start_ts=None, end_ts=None):
     categories = {}
     for e in stats:
         categories.setdefault(e['_id']['category'], {})
-        time_val = int(time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple()) * 1000)
+        time_val = int(calendar.timegm(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple()) * 1000)
         times.setdefault(time_val, True)
         categories[e['_id']['category']][time_val] = e['count']
     times_list = list(times.keys())

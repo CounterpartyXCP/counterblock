@@ -18,6 +18,7 @@ import json
 import operator
 import base64
 import configparser
+import calendar
 
 import pymongo
 from bson.son import SON
@@ -47,7 +48,7 @@ def get_market_price_summary(asset1, asset2, with_last_trades=0):
 
 @API.add_method
 def get_market_cap_history(start_ts=None, end_ts=None):
-    now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+    now_ts = calendar.timegm(time.gmtime())
     if not end_ts:  # default to current datetime
         end_ts = now_ts
     if not start_ts:  # default to 30 days before the end date
@@ -83,7 +84,7 @@ def get_market_cap_history(start_ts=None, end_ts=None):
         ])
         data[market_cap_as] = {}
         for e in caps:
-            interval_time = int(time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day'], e['_id']['hour']).timetuple()) * 1000)
+            interval_time = int(calendar.timegm(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day'], e['_id']['hour']).timetuple()) * 1000)
             data[market_cap_as].setdefault(e['_id']['asset'], [])
             data[market_cap_as][e['_id']['asset']].append([interval_time, e['market_cap']])
         results[market_cap_as] = []
@@ -155,7 +156,7 @@ def get_market_price_history(asset1, asset2, start_ts=None, end_ts=None, as_dict
 
     Aggregate on an an hourly basis 
     """
-    now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+    now_ts = calendar.timegm(time.gmtime())
     if not end_ts:  # default to current datetime
         end_ts = now_ts
     if not start_ts:  # default to 180 days before the end date
@@ -201,7 +202,7 @@ def get_market_price_history(asset1, asset2, start_ts=None, end_ts=None, as_dict
     midline = [((r['high'] + r['low']) / 2.0) for r in result]
     if as_dict:
         for i in range(len(result)):
-            result[i]['interval_time'] = int(time.mktime(datetime.datetime(
+            result[i]['interval_time'] = int(calendar.timegm(datetime.datetime(
                 result[i]['_id']['year'], result[i]['_id']['month'], result[i]['_id']['day'], result[i]['_id']['hour']).timetuple()) * 1000)
             result[i]['midline'] = midline[i]
             del result[i]['_id']
@@ -210,7 +211,7 @@ def get_market_price_history(asset1, asset2, start_ts=None, end_ts=None, as_dict
         list_result = []
         for i in range(len(result)):
             list_result.append([
-                int(time.mktime(datetime.datetime(
+                int(calendar.timegm(datetime.datetime(
                     result[i]['_id']['year'], result[i]['_id']['month'], result[i]['_id']['day'], result[i]['_id']['hour']).timetuple()) * 1000),
                 result[i]['open'], result[i]['high'], result[i]['low'], result[i]['close'], result[i]['vol'],
                 result[i]['count'], midline[i]
@@ -229,7 +230,7 @@ def get_trade_history(asset1=None, asset2=None, start_ts=None, end_ts=None, limi
     if limit > 500:
         raise Exception("Requesting history of too many trades")
 
-    now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+    now_ts = calendar.timegm(time.gmtime())
     if not end_ts:  # default to current datetime
         end_ts = now_ts
     if not start_ts:  # default to 30 days before the end date
@@ -410,7 +411,7 @@ def _get_order_book(base_asset, quote_asset,
     for o in orders:
         # add in the blocktime to help makes interfaces more user-friendly (i.e. avoid displaying block
         # indexes and display datetimes instead)
-        o['block_time'] = time.mktime(util.get_block_time(o['block_index']).timetuple()) * 1000
+        o['block_time'] = calendar.timegm(util.get_block_time(o['block_index']).timetuple()) * 1000
 
     result = {
         'base_bid_book': base_bid_book,

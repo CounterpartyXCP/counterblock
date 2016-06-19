@@ -309,7 +309,7 @@ def serve_api():
                  }, abort_on_error=True)['result']
             return address_dict
 
-        now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+        now_ts = calendar.timegm(time.gmtime())
         if not end_ts:  # default to current datetime
             end_ts = now_ts
         if not start_ts:  # default to 60 days before the end date

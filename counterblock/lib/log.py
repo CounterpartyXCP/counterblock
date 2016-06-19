@@ -32,11 +32,6 @@ def set_up(verbose):
     fileh.setFormatter(formatter)
     logger.addHandler(fileh)
 
-    # socketio logging (don't show on console in normal operation)
-    socketio_log = logging.getLogger('socketio')
-    socketio_log.setLevel(logging.DEBUG if verbose else logging.WARNING)
-    socketio_log.propagate = False
-
     # requests/urllib3 logging (make it not so chatty)
     logging.getLogger('requests').setLevel(logging.WARNING)
     logging.getLogger('urllib3').setLevel(logging.CRITICAL)
