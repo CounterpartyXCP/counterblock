@@ -8,6 +8,7 @@ import time
 import copy
 import decimal
 import cgi
+import calendar
 
 import pymongo
 
@@ -391,7 +392,7 @@ def compile_7d_market_info(asset):
 
     for l in [_7d_history_in_xcp, _7d_history_in_btc]:
         for e in l:  # convert our _id field out to be an epoch ts (in ms), and delete _id
-            e['when'] = time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day'], e['_id']['hour']).timetuple()) * 1000
+            e['when'] = calendar.timegm(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day'], e['_id']['hour']).timetuple()) * 1000
             del e['_id']
 
     return {

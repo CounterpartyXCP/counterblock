@@ -16,6 +16,7 @@ import json
 import base64
 import pymongo
 import configparser
+import calendar
 
 import dateutil.parser
 
@@ -384,7 +385,7 @@ def get_asset_history(asset, reverse=False):
                 'total_issued': raw[i]['total_issued'],
                 'total_issued_normalized': raw[i]['total_issued_normalized'],
                 'at_block': raw[i]['_at_block'],
-                'at_block_time': time.mktime(raw[i]['_at_block_time'].timetuple()) * 1000,
+                'at_block_time': calendar.timegm(raw[i]['_at_block_time'].timetuple()) * 1000,
             })
             prev = raw[i]
             continue
@@ -394,13 +395,13 @@ def get_asset_history(asset, reverse=False):
             history.append({
                 'type': 'locked',
                 'at_block': raw[i]['_at_block'],
-                'at_block_time': time.mktime(raw[i]['_at_block_time'].timetuple()) * 1000,
+                'at_block_time': calendar.timegm(raw[i]['_at_block_time'].timetuple()) * 1000,
             })
         elif raw[i]['_change_type'] == 'transferred':
             history.append({
                 'type': 'transferred',
                 'at_block': raw[i]['_at_block'],
-                'at_block_time': time.mktime(raw[i]['_at_block_time'].timetuple()) * 1000,
+                'at_block_time': calendar.timegm(raw[i]['_at_block_time'].timetuple()) * 1000,
                 'prev_owner': prev['owner'],
                 'new_owner': raw[i]['owner'],
             })
@@ -408,7 +409,7 @@ def get_asset_history(asset, reverse=False):
             history.append({
                 'type': 'changed_description',
                 'at_block': raw[i]['_at_block'],
-                'at_block_time': time.mktime(raw[i]['_at_block_time'].timetuple()) * 1000,
+                'at_block_time': calendar.timegm(raw[i]['_at_block_time'].timetuple()) * 1000,
                 'prev_description': prev['description'],
                 'new_description': raw[i]['description'],
             })
@@ -417,7 +418,7 @@ def get_asset_history(asset, reverse=False):
             history.append({
                 'type': 'issued_more',
                 'at_block': raw[i]['_at_block'],
-                'at_block_time': time.mktime(raw[i]['_at_block_time'].timetuple()) * 1000,
+                'at_block_time': calendar.timegm(raw[i]['_at_block_time'].timetuple()) * 1000,
                 'additional': raw[i]['total_issued'] - prev['total_issued'],
                 'additional_normalized': raw[i]['total_issued_normalized'] - prev['total_issued_normalized'],
                 'total_issued': raw[i]['total_issued'],
@@ -445,7 +446,7 @@ def get_balance_history(asset, addresses, normalize=True, start_ts=None, end_ts=
     if not asset_info:
         raise Exception("Asset does not exist.")
 
-    now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+    now_ts = calendar.timegm(time.gmtime())
     if not end_ts:  # default to current datetime
         end_ts = now_ts
     if not start_ts:  # default to 30 days before the end date
@@ -465,7 +466,7 @@ def get_balance_history(asset, addresses, normalize=True, start_ts=None, end_ts=
         entry = {
             'name': address,
             'data': [
-                (time.mktime(r['block_time'].timetuple()) * 1000,
+                (calendar.timegm(r['block_time'].timetuple()) * 1000,
                  r['new_balance_normalized'] if normalize else r['new_balance']
                  ) for r in result]
         }

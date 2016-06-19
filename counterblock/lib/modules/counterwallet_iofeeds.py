@@ -22,7 +22,7 @@ from socketio.mixins import BroadcastMixin
 from socketio.namespace import BaseNamespace
 
 from counterblock.lib import config, util, blockchain, messages
-from counterblock.lib.modules import CWIOFEEDS_PRIORITY_PARSE_FOR_SOCKETIO, CWIOFEEDS_PRIORITY_PUBLISH_MEMPOOL
+from counterblock.lib.modules import CWALLET_PRIORITY_PARSE_FOR_SOCKETIO, CWALLET_PRIORITY_PUBLISH_MEMPOOL
 from counterblock.lib.processor import MessageProcessor, MempoolMessageProcessor, BlockProcessor, StartUpProcessor, CaughtUpProcessor, RollbackProcessor, API, CORE_FIRST_PRIORITY
 
 logger = logging.getLogger(__name__)
@@ -525,7 +525,7 @@ def handle_reorg(msg, msg_data):
         # processor.messages.handle_reorg() will run immediately after this and handle the rest
 
 
-@MessageProcessor.subscribe(priority=CWIOFEEDS_PRIORITY_PARSE_FOR_SOCKETIO)
+@MessageProcessor.subscribe(priority=CWALLET_PRIORITY_PARSE_FOR_SOCKETIO)
 def parse_for_socketio(msg, msg_data):
     # if we're catching up beyond MAX_REORG_NUM_BLOCKS blocks out, make sure not to send out any socket.io
     # events, as to not flood on a resync (as we may give a 525 to kick the logged in clients out, but we
@@ -536,7 +536,7 @@ def parse_for_socketio(msg, msg_data):
         zmq_publisher_eventfeed.send_json(event)
 
 
-@MempoolMessageProcessor.subscribe(priority=CWIOFEEDS_PRIORITY_PUBLISH_MEMPOOL)
+@MempoolMessageProcessor.subscribe(priority=CWALLET_PRIORITY_PUBLISH_MEMPOOL)
 def publish_mempool_tx(msg, msg_data):
     zmq_publisher_eventfeed.send_json(msg)
 

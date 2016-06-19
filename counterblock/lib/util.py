@@ -234,7 +234,7 @@ def weighted_average(value_weight_list):
 def json_dthandler(obj):
     if hasattr(obj, 'timetuple'):  # datetime object
         # give datetime objects to javascript as epoch ts in ms (i.e. * 1000)
-        return int(time.mktime(obj.timetuple())) * 1000
+        return int(calendar.timegm(obj.timetuple())) * 1000
     else:
         raise TypeError('Object of type %s with value of %s is not JSON serializable' % (type(obj), repr(obj)))
 
@@ -388,11 +388,11 @@ def next_interval_date(interval):
         return None
 
     def ts(dt):
-        return time.mktime(dt.timetuple())
+        return calendar.timegm(dt.timetuple())
 
     previous = None
     next = next(generator)
-    now = datetime.datetime.now()
+    now = datetime.datetime.utcnow()
     while ts(next) < ts(now) and next != previous:
         try:
             previous = next

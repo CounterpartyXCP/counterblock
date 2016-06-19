@@ -17,17 +17,22 @@ import pymongo
 import flask
 import jsonrpc
 import configparser
+import calendar
 
 import dateutil.parser
 
-from counterblock.lib import config, util, blockfeed, blockchain
-from counterblock.lib.processor import MessageProcessor, MempoolMessageProcessor, BlockProcessor, StartUpProcessor, CaughtUpProcessor, RollbackProcessor, API, start_task
+from counterblock.lib import config, util, blockfeed, blockchain, messages
+from counterblock.lib.processor import MessageProcessor, MempoolMessageProcessor, BlockProcessor, StartUpProcessor, CaughtUpProcessor, RollbackProcessor, API, start_task, CORE_FIRST_PRIORITY
+from counterblock.lib.modules import CWALLET_PRIORITY_PARSE_FOR_SOCKETIO, CWALLET_PRIORITY_PUBLISH_MEMPOOL
+
 from counterblock.lib.processor import startup
 
 PREFERENCES_MAX_LENGTH = 100000  # in bytes, as expressed in JSON
 ARMORY_UTXSVR_PORT_MAINNET = 6590
 ARMORY_UTXSVR_PORT_TESTNET = 6591
 ARMORY_UTXSVR_HOST = os.environ.get("ARMORY_UTXSVR_HOST", "127.0.0.1")
+
+WALLET_MESSAGES_CLEAR_EVERY = 500
 
 D = decimal.Decimal
 logger = logging.getLogger(__name__)
@@ -83,6 +88,7 @@ def is_ready():
     return {
         'caught_up': blockfeed.fuzzy_is_caught_up(),
         'last_message_index': config.state['last_message_index'],
+        'cw_last_message_seq': config.state['cw_last_message_seq'],
         'block_height': config.state['cp_backend_block_index'],
         'testnet': config.TESTNET,
         'ip': ip,
@@ -106,7 +112,7 @@ def get_reflected_host_info():
 
 @API.add_method
 def get_wallet_stats(start_ts=None, end_ts=None):
-    now_ts = time.mktime(datetime.datetime.utcnow().timetuple())
+    now_ts = calendar.timegm(time.gmtime())
     if not end_ts:  # default to current datetime
         end_ts = now_ts
     if not start_ts:  # default to 360 days before the end date
@@ -132,7 +138,7 @@ def get_wallet_stats(start_ts=None, end_ts=None):
         login_counts = []
         distinct_login_counts = []
         for e in stats:
-            d = int(time.mktime(datetime.datetime(e['when'].year, e['when'].month, e['when'].day).timetuple()) * 1000)
+            d = int(calendar.timegm(datetime.datetime(e['when'].year, e['when'].month, e['when'].day).timetuple()) * 1000)
 
             if 'distinct_login_count' in e:
                 distinct_login_counts.append([d, e['distinct_login_count']])
@@ -174,7 +180,7 @@ def get_preferences(wallet_id, for_login=False, network=None):
         ua = flask.request.headers.get('User-Agent', '')
         config.mongo_db.login_history.insert({'wallet_id': wallet_id, 'when': now, 'network': network, 'action': 'login', 'ip': ip, 'ua': ua})
 
-    result['last_touched'] = time.mktime(time.gmtime())
+    result['last_touched'] = calendar.timegm(time.gmtime())
     config.mongo_db.preferences.save(result)
 
     return {
@@ -217,7 +223,7 @@ def store_preferences(wallet_id, preferences, for_login=False, network=None, ref
                 {'wallet_id': wallet_id, 'when': now,
                  'network': network, 'action': 'login', 'ip': ip, 'ua': ua})  # also log a wallet login
 
-    now_ts = time.mktime(time.gmtime())
+    now_ts = calendar.timegm(time.gmtime())
     config.mongo_db.preferences.update(
         {'wallet_id': wallet_id},
         {'$set': {
@@ -310,11 +316,21 @@ def get_vennd_machine():
         return []
 
 
+@API.add_method
+def get_latest_wallet_messages(last_seq):
+    print("!! get_latest_wallet_messages called")
+    if last_seq is None:
+        last_seq = -1  # 0 and above
+    result = config.mongo_db.wallet_messages.find({"_id": {"$gt": last_seq}}, sort=[("_id", pymongo.ASCENDING)])
+    print(result)
+    return result
+
+
 def task_expire_stale_prefs():
     """
     Every day, clear out preferences objects that haven't been touched in > 30 days, in order to reduce abuse risk/space consumed
     """
-    min_last_updated = time.mktime((datetime.datetime.utcnow() - datetime.timedelta(days=30)).timetuple())
+    min_last_updated = calendar.timegm((datetime.datetime.utcnow() - datetime.timedelta(days=30)).timetuple())
 
     num_stale_records = config.mongo_db.preferences.find({'last_touched': {'$lt': min_last_updated}}).count()
     config.mongo_db.preferences.remove({'last_touched': {'$lt': min_last_updated}})
@@ -353,7 +369,7 @@ def task_generate_wallet_stats():
             }}
         ])
         for e in new_wallets:
-            ts = time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple())
+            ts = calendar.timegm(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple())
             new_entries[ts] = {  # a future wallet_stats entry
                 'when': datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']),
                 'network': network,
@@ -375,7 +391,7 @@ def task_generate_wallet_stats():
             }}
         ])
         for e in referer_counts:
-            ts = time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple())
+            ts = calendar.timegm(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple())
             assert ts in new_entries
             if e['_id']['referer'] is None:
                 continue
@@ -404,7 +420,7 @@ def task_generate_wallet_stats():
             }}
         ])
         for e in logins:
-            ts = time.mktime(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple())
+            ts = calendar.timegm(datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']).timetuple())
             if ts not in new_entries:
                 new_entries[ts] = {  # a future wallet_stats entry
                     'when': datetime.datetime(e['_id']['year'], e['_id']['month'], e['_id']['day']),
@@ -417,7 +433,7 @@ def task_generate_wallet_stats():
 
         # add/replace the wallet_stats data
         if latest_stat:
-            updated_entry_ts = time.mktime(datetime.datetime(
+            updated_entry_ts = calendar.timegm(datetime.datetime(
                 latest_stat['when'].year, latest_stat['when'].month, latest_stat['when'].day).timetuple())
             if updated_entry_ts in new_entries:
                 updated_entry = new_entries[updated_entry_ts]
@@ -441,6 +457,71 @@ def task_generate_wallet_stats():
     start_task(task_generate_wallet_stats, delay=30 * 60)  # call again in 30 minutes
 
 
+def store_wallet_message(msg, msg_data, decorate=True):
+    wallet_message = messages.decorate_message_for_feed(msg, msg_data=msg_data) if decorate else msg
+
+    # use "optimistic loop" pattern to insert a new messages with an incrementing seq
+    while True:
+        last_seq = config.mongo_db.wallet_messages.find_one(sort=[("_id", pymongo.DESCENDING)])['_id']
+        new_seq = last_seq + 1
+        try:
+            config.mongo_db.wallet_messages.insert({
+                '_id': new_seq,
+                'when': datetime.datetime.utcnow(),
+                'message': wallet_message,
+            })
+        except pymongo.errors.DuplicateKeyError:
+            continue
+        else:
+            logger.info("!!stored {}".format(new_seq))
+            if config.state['cw_last_message_seq'] < new_seq:
+                config.state['cw_last_message_seq'] = new_seq
+            break
+
+    # every so often, trim up the table
+    if (new_seq % 100) == 0:
+        if config.mongo_db.wallet_messages.count() > MAX_WALLET_MESSAGES_STORED:
+            config.mongo_db.wallet_messages.remove({'_id': {'$lte': new_seq - MAX_WALLET_MESSAGES_STORED}})
+
+
+@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 0.5)
+def handle_invalid(msg, msg_data):
+    # don't process invalid messages, but do forward them along to clients
+    status = msg_data.get('status', 'valid').lower()
+    if status.startswith('invalid'):
+        if config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
+            # forward along via message feed, except while we're catching up
+            store_wallet_message(msg, msg_data)
+        config.state['last_message_index'] = msg['message_index']
+        return 'ABORT_THIS_MESSAGE_PROCESSING'
+
+
+@MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 0.9)  # should run BEFORE processor.messages.handle_reorg()
+def handle_reorg(msg, msg_data):
+    if msg['command'] == 'reorg':
+       # send out the message to listening clients (but don't forward along while we're catching up)
+        if config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
+            msg_data['_last_message_index'] = config.state['last_message_index']
+            store_wallet_message(msg, msg_data)
+            event = messages.decorate_message_for_feed(msg, msg_data=msg_data)
+        # processor.messages.handle_reorg() will run immediately after this and handle the rest
+
+
+@MessageProcessor.subscribe(priority=CWALLET_PRIORITY_PARSE_FOR_SOCKETIO)
+def parse_for_socketio(msg, msg_data):
+    # if we're catching up beyond MAX_REORG_NUM_BLOCKS blocks out, make sure not to send out any socket.io
+    # events, as to not flood on a resync (as we may give a 525 to kick the logged in clients out, but we
+    # can't guarantee that the socket.io connection will always be severed as well??)
+    if config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
+        # send out the message to listening clients
+        store_wallet_message(msg, msg_data)
+
+
+@MempoolMessageProcessor.subscribe(priority=CWALLET_PRIORITY_PUBLISH_MEMPOOL)
+def publish_mempool_tx(msg, msg_data):
+    store_wallet_message(msg, msg_data, decorate=False)
+
+
 @CaughtUpProcessor.subscribe()
 def start_tasks():
     start_task(task_expire_stale_prefs)
@@ -453,6 +534,8 @@ def init():
 
     # init db and indexes
     # COLLECTIONS THAT *ARE* PURGED AS A RESULT OF A REPARSE
+    #wallet_messages
+    #config.mongo_db.wallet_messages.ensure_index('when')
     # wallet_stats
     config.mongo_db.wallet_stats.ensure_index([
         ("when", pymongo.ASCENDING),
@@ -472,23 +555,23 @@ def init():
         ("action", pymongo.ASCENDING),
     ])
 
-    # load counterwallet json config
-    #counterwallet_config_path = os.path.join('/home/xcp/counterwallet/counterwallet.conf.json')
-    #if os.path.exists(counterwallet_config_path):
-    #    logger.info("Loading counterwallet client-side config at '%s'" % counterwallet_config_path)
-    #    with open(counterwallet_config_path) as f:
-    #        module_config['COUNTERWALLET_CONFIG_JSON'] = f.read()
-    #else:
-    #    logger.warn("Counterwallet client-side config does not exist at '%s'!" % counterwallet_config_path)
-    #    module_config['COUNTERWALLET_CONFIG_JSON'] = '{}'
-    #try:
-    #    module_config['COUNTERWALLET_CONFIG'] = json.loads(module_config['COUNTERWALLET_CONFIG_JSON'])
-    #except Exception as e:
-    #    logger.error("Exception loading counterwallet client-side config: %s" % e)
+    # clear the wallet_messages collection, but create a null entry with the last message ID (because it could
+    # have been a rapid restart and we don't want to break wallets currently pulling for messages)
+    last_wallet_message = config.mongo_db.wallet_messages.find_one(sort=[("_id", pymongo.DESCENDING)])
+    print("last_wallet_message {}".format(last_wallet_message))
+    if not last_wallet_message:
+        config.mongo_db.wallet_messages.insert({
+            '_id': 0,
+            'when': datetime.datetime.utcnow(),
+            'message': None,
+        })
+    config.state['cw_last_message_seq'] = last_wallet_message['_id'] if last_wallet_message else 0
+    print("!!! cw_last_message_seq: {}".format(config.state['cw_last_message_seq']))
 
     # init GEOIP
     import pygeoip
     geoip_data_path = os.path.join(config.data_dir, 'GeoIP.dat')
+
 
     def download_geoip_data():
         logger.info("Checking/updating GeoIP.dat ...")
@@ -520,5 +603,14 @@ def init():
 def process_rollback(max_block_index):
     if not max_block_index:  # full reparse
         config.mongo_db.wallet_stats.drop()
+
+        #clear the wallet_messages collection, and create a null entry with a message ID of 0
+        config.mongo_db.wallet_messages.drop()
+        config.mongo_db.wallet_messages.insert({
+            '_id': 0,
+            'when': datetime.datetime.utcnow(),
+            'message': None,
+        })
+        config.state['cw_last_message_seq'] = 0
     else:  # rollback
         pass
