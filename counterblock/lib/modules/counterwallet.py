@@ -30,7 +30,6 @@ from counterblock.lib.processor import startup
 PREFERENCES_MAX_LENGTH = 100000  # in bytes, as expressed in JSON
 ARMORY_UTXSVR_PORT_MAINNET = 6590
 ARMORY_UTXSVR_PORT_TESTNET = 6591
-ARMORY_UTXSVR_HOST = os.environ.get("ARMORY_UTXSVR_HOST", "127.0.0.1")
 
 FUZZY_MAX_WALLET_MESSAGES_STORED = 1000
 
@@ -50,6 +49,12 @@ def _read_config():
     except:
         logging.warn("Could not find or parse counterwallet%s.conf config file!" % config.net_path_part)
 
+    # armory-utxsvr
+    if configfile.has_option('Default', 'armory-utxsvr-host'):
+        module_config['ARMORY_UTXSVR_HOST'] = configfile.get('Default', 'armory-utxsvr-host')
+    else:
+        module_config['ARMORY_UTXSVR_HOST'] = "127.0.0.1"
+    
     # email-related
     if configfile.has_option('Default', 'support-email'):
         module_config['SUPPORT_EMAIL'] = configfile.get('Default', 'support-email')
@@ -239,7 +244,7 @@ def store_preferences(wallet_id, preferences, for_login=False, network=None, ref
 
 @API.add_method
 def create_armory_utx(unsigned_tx_hex, public_key_hex):
-    endpoint = "http://%s:%s/" % (ARMORY_UTXSVR_HOST,
+    endpoint = "http://%s:%s/" % (module_config['ARMORY_UTXSVR_HOST'],
         ARMORY_UTXSVR_PORT_MAINNET if not config.TESTNET else ARMORY_UTXSVR_PORT_TESTNET)
     params = {'unsigned_tx_hex': unsigned_tx_hex, 'public_key_hex': public_key_hex}
     utx_ascii = util.call_jsonrpc_api("serialize_unsigned_tx", params=params, endpoint=endpoint, abort_on_error=True)['result']
@@ -248,7 +253,7 @@ def create_armory_utx(unsigned_tx_hex, public_key_hex):
 
 @API.add_method
 def convert_armory_signedtx_to_raw_hex(signed_tx_ascii):
-    endpoint = "http://%s:%s/" % (ARMORY_UTXSVR_HOST,
+    endpoint = "http://%s:%s/" % (module_config['ARMORY_UTXSVR_HOST'],
         ARMORY_UTXSVR_PORT_MAINNET if not config.TESTNET else ARMORY_UTXSVR_PORT_TESTNET)
     params = {'signed_tx_ascii': signed_tx_ascii}
     raw_tx_hex = util.call_jsonrpc_api("convert_signed_tx_to_raw_hex", params=params, endpoint=endpoint, abort_on_error=True)['result']
@@ -530,6 +535,7 @@ def start_tasks():
 @StartUpProcessor.subscribe()
 def init():
     _read_config()
+    logger.info("Armory-utxsvr hostname: {}".format(module_config['ARMORY_UTXSVR_HOST']))
 
     # init db and indexes
     # COLLECTIONS THAT *ARE* PURGED AS A RESULT OF A REPARSE
