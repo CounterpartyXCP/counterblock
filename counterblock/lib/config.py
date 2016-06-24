@@ -80,9 +80,8 @@ def init_base(args):
     else:
         BLOCK_FIRST = 278270
 
-    # forced reparse?
-    global REPARSE_FORCED
-    REPARSE_FORCED = args.reparse
+    global LATEST_BLOCK_INIT
+    LATEST_BLOCK_INIT = {'block_index': BLOCK_FIRST, 'block_time': None, 'block_hash': None}
 
     ##############
     # THINGS WE CONNECT TO

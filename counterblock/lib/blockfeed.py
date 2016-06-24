@@ -35,8 +35,6 @@ def fuzzy_is_caught_up():
 
 
 def process_cp_blockfeed():
-    config.LATEST_BLOCK_INIT = {'block_index': config.BLOCK_FIRST, 'block_time': None, 'block_hash': None}
-
     # initialize state
     config.state['cur_block'] = {'block_index': 0, }  # block being currently processed
     config.state['my_latest_block'] = {'block_index': 0}  # last block that was successfully processed by counterblockd
@@ -166,17 +164,15 @@ def process_cp_blockfeed():
     app_config = config.mongo_db.app_config.find()
     assert app_config.count() in [0, 1]
     if(app_config.count() == 0 or
-       config.REPARSE_FORCED or
        app_config[0]['db_version'] != config.DB_VERSION or
        app_config[0]['running_testnet'] != config.TESTNET):
         if app_config.count():
-            logger.warn("counterblockd database version UPDATED (from %i to %i) or testnet setting changed (from %s to %s), or REINIT forced (%s). REBUILDING FROM SCRATCH ..." % (
+            logger.warn("counterblockd database version UPDATED (from %i to %i) or testnet setting changed (from %s to %s). REBUILDING FROM SCRATCH ..." % (
                 app_config[0]['db_version'], config.DB_VERSION, app_config[0]['running_testnet'],
-                config.TESTNET, config.REPARSE_FORCED))
+                config.TESTNET))
         else:
             logger.warn("counterblockd database app_config collection doesn't exist. BUILDING FROM SCRATCH...")
-        app_config = database.reset_db_state()
-        config.state['my_latest_block'] = config.LATEST_BLOCK_INIT
+        app_config = database.reparse()
     else:
         app_config = app_config[0]
         # get the last processed block out of mongo

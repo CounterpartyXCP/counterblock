@@ -82,6 +82,12 @@ def reset_db_state():
     return app_config
 
 
+def reparse():
+    app_config = reset_db_state()
+    config.state['my_latest_block'] = config.LATEST_BLOCK_INIT
+    return app_config
+
+
 def rollback(max_block_index):
     """called if there are any records for blocks higher than this in the database? If so, they were impartially created
        and we should get rid of them

@@ -36,7 +36,6 @@ CONFIG_ARGS = [
     # BASIC FLAGS
     [('-v', '--verbose'), {'dest': 'verbose', 'action': 'store_true', 'default': False, 'help': 'sets log level to DEBUG instead of WARNING'}],
     [('--testnet',), {'action': 'store_true', 'default': False, 'help': 'use {} testnet addresses and block numbers'.format(config.BTC_NAME)}],
-    [('--reparse',), {'action': 'store_true', 'default': False, 'help': 'force full re-initialization of the counterblock database'}],
     [('--log-file',), {'help': 'the location of the log file'}],
     [('--log-size-kb',), {'help': 'maximum log file size, in kilobytes'}],
     [('--log-num-files',), {'help': 'maximum number of rotated log files'}],
@@ -85,8 +84,10 @@ def main():
     parser = config_util.add_config_arguments(parser, CONFIG_ARGS, 'server.conf')
 
     # actions
-    subparsers = parser.add_subparsers(dest='action', help='the action to be taken')
-    parser_server = subparsers.add_parser('server', help='Run Counterblockd')
+    subparsers = parser.add_subparsers(dest='command', help='the action to be taken')
+    subparsers.required = True
+    parser_server = subparsers.add_parser('server', help='Run counterblock')
+    parser_reparse = subparsers.add_parser('reparse', help='Reparse the counterblock database')
     parser_enmod = subparsers.add_parser('enmod', help='Enable a module')
     parser_enmod.add_argument('module_path', type=str, help='Full Path of module to Enable relative to Counterblockd directory')
     parser_dismod = subparsers.add_parser('dismod', help='Disable a module')
@@ -94,12 +95,6 @@ def main():
     parser_listmod = subparsers.add_parser('listmod', help='Display Module Config')
     parser_rollback = subparsers.add_parser('rollback', help='Rollback to a specific block number')
     parser_rollback.add_argument('block_index', type=int, help='Block index to roll back to')
-
-    # default to server arg
-    if len(sys.argv) < 2:
-        sys.argv.append('server')
-    if not [i for i in sys.argv if i in ('server', 'enmod', 'dismod', 'listmod', 'rollback')]:
-        sys.argv.append('server')
 
     args = parser.parse_args()
 
@@ -122,16 +117,19 @@ def main():
     module.load_all()
 
     # Handle arguments
-    if args.action == 'enmod':
+    if args.command == 'enmod':
         module.toggle(args.module_path, True)
         sys.exit(0)
-    elif args.action == 'dismod':
+    elif args.command == 'dismod':
         module.toggle(args.module_path, False)
         sys.exit(0)
-    elif args.action == 'listmod':
+    elif args.command == 'listmod':
         module.list_all()
         sys.exit(0)
-    elif args.action == 'rollback':
+    elif args.command == 'reparse':
+        startup.init_mongo()
+        database.reparse()
+    elif args.command == 'rollback':
         assert args.block_index >= 1
         startup.init_mongo()
         database.rollback(args.block_index)
