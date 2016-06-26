@@ -26,22 +26,26 @@ def set_up(verbose):
     logger.addHandler(console)
 
     # File logging (rotated)
-    fileh = logging.handlers.RotatingFileHandler(config.LOG, maxBytes=MAX_LOG_SIZE, backupCount=MAX_LOG_COUNT)
-    fileh.setLevel(logging.DEBUG if verbose else logging.INFO)
-    formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(module)s:%(message)s', '%Y-%m-%d-T%H:%M:%S%z')
-    fileh.setFormatter(formatter)
-    logger.addHandler(fileh)
+    if config.LOG:
+        fileh = logging.handlers.RotatingFileHandler(config.LOG, maxBytes=MAX_LOG_SIZE, backupCount=MAX_LOG_COUNT)
+        fileh.setLevel(logging.DEBUG if verbose else logging.INFO)
+        formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(module)s:%(message)s', '%Y-%m-%d-T%H:%M:%S%z')
+        fileh.setFormatter(formatter)
+        logger.addHandler(fileh)
+        logger.info("Logging to '{}'".format(config.LOG))
 
     # requests/urllib3 logging (make it not so chatty)
     logging.getLogger('requests').setLevel(logging.WARNING)
     logging.getLogger('urllib3').setLevel(logging.CRITICAL)
 
     # Transaction log
-    tx_logger = logging.getLogger("transaction_log")  # get transaction logger
-    tx_logger.setLevel(logging.DEBUG if verbose else logging.INFO)
-    tx_fileh = logging.handlers.RotatingFileHandler(config.TX_LOG, maxBytes=MAX_LOG_SIZE, backupCount=MAX_LOG_COUNT)
-    tx_fileh.setLevel(logging.DEBUG if verbose else logging.INFO)
-    tx_formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(module)s:%(message)s', '%Y-%m-%d-T%H:%M:%S%z')
-    tx_fileh.setFormatter(tx_formatter)
-    tx_logger.addHandler(tx_fileh)
-    tx_logger.propagate = False
+    if config.TX_LOG:
+        tx_logger = logging.getLogger("transaction_log")  # get transaction logger
+        tx_logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+        tx_formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(module)s:%(message)s', '%Y-%m-%d-T%H:%M:%S%z')
+        tx_handler = logging.handlers.RotatingFileHandler(config.TX_LOG, maxBytes=MAX_LOG_SIZE, backupCount=MAX_LOG_COUNT)
+        tx_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
+        tx_handler.setFormatter(tx_formatter)
+        tx_logger.addHandler(tx_handler)
+        tx_logger.propagate = False
+        logger.info("Logging txes to '{}'".format(config.TX_LOG))

@@ -275,10 +275,12 @@ def init_base(args):
     COUNTERBLOCKD_DIR = os.path.realpath(os.path.join(os.path.dirname(os.path.realpath(__file__)), os.pardir))
 
     global LOG
-    if args.log_file:
-        LOG = args.log_file
-    else:
+    if args.log_file is False:  # no file logging
+        LOG = None
+    elif not args.log_file:  # default location
         LOG = os.path.join(log_dir, 'server%s.log' % net_path_part)
+    else:  # user-specified location
+        LOG = args.log_file
 
     global LOG_SIZE_KB
     if args.log_size_kb:
@@ -303,10 +305,12 @@ def init_base(args):
         raise Exception("Please specify a valid log-num-files value (must be less than 100)")
 
     global TX_LOG
-    if args.tx_log_file:
-        TX_LOG = args.tx_log_file
-    else:
+    if args.tx_log_file is False:  # no file logging
+        TX_LOG = None
+    elif not args.tx_log_file:  # default location
         TX_LOG = os.path.join(log_dir, 'server%s.tx.log' % net_path_part)
+    else:  # user-specified location
+        TX_LOG = args.tx_log_file
 
     global PID
     if args.pid_file:

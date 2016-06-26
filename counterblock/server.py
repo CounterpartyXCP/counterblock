@@ -36,10 +36,10 @@ CONFIG_ARGS = [
     # BASIC FLAGS
     [('-v', '--verbose'), {'dest': 'verbose', 'action': 'store_true', 'default': False, 'help': 'sets log level to DEBUG instead of WARNING'}],
     [('--testnet',), {'action': 'store_true', 'default': False, 'help': 'use {} testnet addresses and block numbers'.format(config.BTC_NAME)}],
-    [('--log-file',), {'help': 'the location of the log file'}],
+    [('--log-file',), {'nargs': '?', 'const': None, 'default': False, 'help': 'log to the specified file (specify option without filename to use the default location)'}],
     [('--log-size-kb',), {'help': 'maximum log file size, in kilobytes'}],
     [('--log-num-files',), {'help': 'maximum number of rotated log files'}],
-    [('--tx-log-file',), {'help': 'the location of the transaction log file'}],
+    [('--tx-log-file',), {'nargs': '?', 'const': None, 'default': False, 'help': 'log transaction info to the specified file (specify option without filename to use the default location)'}],
     [('--pid-file',), {'help': 'the location of the pid file'}],
 
     # THINGS WE CONNECT TO
@@ -81,7 +81,7 @@ def main():
     parser.add_argument(
         '-V', '--version', action='version', version="counterblock %s" % config.VERSION)
     parser.add_argument('--config-file', help='the path to the configuration file')
-    parser = config_util.add_config_arguments(parser, CONFIG_ARGS, 'server.conf')
+    config_util.add_config_arguments(parser, CONFIG_ARGS, 'server.conf')
 
     # actions
     subparsers = parser.add_subparsers(dest='command', help='the action to be taken')

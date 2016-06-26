@@ -63,9 +63,9 @@ def add_config_arguments(arg_parser, config_args, default_config_file, config_fi
             arg[1]['default'] = configfile['Default'].getboolean(key)
         elif key in configfile['Default'] and configfile['Default'][key]:
             arg[1]['default'] = configfile['Default'][key]
+        elif key in configfile['Default'] and arg[1].get('nargs', '') == '?' and 'const' in arg[1]:
+            arg[1]['default'] = arg[1]['const']  # bit of a hack
         arg_parser.add_argument(*arg[0], **arg[1])
-
-    return arg_parser
 
 
 def generate_config_file(filename, config_args, known_config={}, overwrite=False):
