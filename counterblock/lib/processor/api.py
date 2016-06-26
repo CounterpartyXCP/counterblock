@@ -313,8 +313,8 @@ def serve_api():
         now_ts = calendar.timegm(time.gmtime())
         if not end_ts:  # default to current datetime
             end_ts = now_ts
-        if not start_ts:  # default to 60 days before the end date
-            start_ts = end_ts - (60 * 24 * 60 * 60)
+        if not start_ts:  # default to epoch
+            start_ts = 0
         start_block_index, end_block_index = database.get_block_indexes_for_dates(
             start_dt=datetime.datetime.utcfromtimestamp(start_ts),
             end_dt=datetime.datetime.utcfromtimestamp(end_ts) if now_ts != end_ts else None)
