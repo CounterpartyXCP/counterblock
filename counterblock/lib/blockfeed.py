@@ -327,7 +327,10 @@ def process_cp_blockfeed():
                 % config.MAX_REORG_NUM_BLOCKS)
             database.rollback(config.state['cp_latest_block_index'] - config.MAX_REORG_NUM_BLOCKS)
         else:
-            #...we may be caught up (to counterpartyd), but counterpartyd may not be (to the blockchain). And if it isn't, we aren't
+            if config.QUIT_AFTER_CAUGHT_UP:
+                sys.exit(0)
+
+            # ...we may be caught up (to counterpartyd), but counterpartyd may not be (to the blockchain). And if it isn't, we aren't
             config.state['caught_up'] = config.state['cp_caught_up']
 
             # this logic here will cover a case where we shut down counterblockd, then start it up again quickly...

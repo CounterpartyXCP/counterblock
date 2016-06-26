@@ -83,6 +83,9 @@ def init_base(args):
     global LATEST_BLOCK_INIT
     LATEST_BLOCK_INIT = {'block_index': BLOCK_FIRST, 'block_time': None, 'block_hash': None}
 
+    global QUIT_AFTER_CAUGHT_UP
+    QUIT_AFTER_CAUGHT_UP = False  # used for reparse operations
+
     ##############
     # THINGS WE CONNECT TO
 

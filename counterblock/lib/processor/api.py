@@ -130,13 +130,13 @@ def serve_api():
         return blockchain.broadcast_tx(signed_tx_hex)
 
     @API.add_method
-    def get_raw_transactions(address, start_ts=None, end_ts=None, limit=500):
+    def get_raw_transactions(address, start_ts=None, end_ts=None, limit=1000):
         """Gets raw transactions for a particular address
 
         @param address: A single address string
         @param start_ts: The starting date & time. Should be a unix epoch object. If passed as None, defaults to 60 days before the end_date
         @param end_ts: The ending date & time. Should be a unix epoch object. If passed as None, defaults to the current date & time
-        @param limit: the maximum number of transactions to return; defaults to ten thousand
+        @param limit: the maximum number of transactions to return; defaults to one thousand
         @return: Returns the data, ordered from newest txn to oldest. If any limit is applied, it will cut back from the oldest results
         """
         def get_address_history(address, start_block=None, end_block=None):

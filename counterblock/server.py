@@ -128,7 +128,7 @@ def main():
         sys.exit(0)
     elif args.command == 'reparse':
         startup.init_mongo()
-        database.reparse()
+        database.reparse(quit_after=True)
     elif args.command == 'rollback':
         assert args.block_index >= 1
         startup.init_mongo()
