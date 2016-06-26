@@ -1,4 +1,14 @@
 ## Changelog ##
+* v1.4.0 (2016-06-26)
+    * Ported to Python 3
+    * PEP8 styling applied across codebase
+    * Added Docker packaging support
+    * Removed counterwallet_iofeeds and socketio stuff
+    * Move armory-utxsvr into its own repo
+    * Fixes for timezone in generated/parsed datetimes
+    * Update "reparse" command logic to make it like counterparty-lib
+    * Pegged deps to specific versions
+    * Added ability to disable file logging for main log and tx log
 * v1.3.1 (2016-01-24)
     * Modify blockfeed logic to work with reorgs properly again with the undolog fix introduced in `counterparty-lib` 9.53.0.
     * Enhance blockfeed error recovery logic to make more robust and minimize/remove chance of blockfeed hangs.
