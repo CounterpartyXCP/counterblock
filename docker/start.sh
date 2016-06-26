@@ -5,8 +5,14 @@ if [ ! -d /counterblock/counterblock.egg-info ]; then
     cd /counterblock; python3 setup.py develop; cd /
 fi
 
-# Kick off the server, defaulting to the "server" subcommand
+# Launch, utilizing the SIGTERM/SIGINT propagation pattern from
+# http://veithen.github.io/2014/11/16/sigterm-propagation.html
 : ${PARAMS:=""}
 : ${COMMAND:="server"}
-/usr/local/bin/counterblock ${PARAMS} ${COMMAND}
-
+trap 'kill -TERM $PID' TERM INT
+/usr/local/bin/counterblock ${PARAMS} ${COMMAND} &
+PID=$!
+wait $PID
+trap - TERM INT
+wait $PID
+EXIT_STATUS=$?
