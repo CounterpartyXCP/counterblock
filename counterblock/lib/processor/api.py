@@ -366,11 +366,11 @@ def serve_api():
         if 'error' in result:
             if result['error'].get('data', None):
                 errorMsg = result['error']['data'].get('message', result['error']['message'])
+                if isinstance(errorMsg, bytes):
+                    errorMsg = str(errorMsg, 'utf-8')
             else:
                 errorMsg = json.dumps(result['error'])
-            raise Exception(errorMsg.encode('ascii', 'ignore') if errorMsg is not None else "UNKNOWN")
-            # decode out unicode for now (json-rpc lib was made for python 3.3 and does str(errorMessage) internally,
-            # which messes up w/ unicode under python 2.x)
+            raise Exception(errorMsg if errorMsg is not None else "UNKNOWN")
         return result['result']
 
     def _set_cors_headers(response):
@@ -509,7 +509,6 @@ def serve_api():
             response = flask.Response(obj_error.json.encode(), 200, mimetype='application/json')
             _set_cors_headers(response)
             return response
-
         rpc_response = jsonrpc.JSONRPCResponseManager.handle(request_json, API)
         rpc_response_json = json.dumps(rpc_response.data, default=util.json_dthandler).encode()
 
