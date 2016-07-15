@@ -232,6 +232,10 @@ def weighted_average(value_weight_list):
 
 
 def json_dthandler(obj):
+    #if bytes, convert to string
+    if isinstance(obj, bytes):
+        obj = str(obj, 'utf-8')
+
     if hasattr(obj, 'timetuple'):  # datetime object
         # give datetime objects to javascript as epoch ts in ms (i.e. * 1000)
         return int(calendar.timegm(obj.timetuple())) * 1000
