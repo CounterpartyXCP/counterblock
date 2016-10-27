@@ -1,7 +1,7 @@
 """
 Implements counterwallet enhanced asset info and betting feed support as a counterblock plugin
 
-Python 2.x, as counterblock is still python 2.x
+Python 3.x since v1.4.0
 """
 import os
 import sys
@@ -56,7 +56,7 @@ def sanitize_json_data(data):
 
 def get_feeds_by_source_addresses(addresses):
     conditions = {'source': {'$in': addresses}}
-    feeds = config.mongo_db.feeds.find(spec=conditions, projection={'_id': False})
+    feeds = config.mongo_db.feeds.find(conditions, projection={'_id': False})
     feeds_by_source = {}
     for feed in feeds:
         feeds_by_source[feed['source']] = feed
