@@ -51,23 +51,22 @@ def process_cp_blockfeed():
 
     def publish_mempool_tx():
         """fetch new tx from mempool"""
-        tx_hashes = []
         mempool_txs = config.mongo_db.mempool.find(projection={'tx_hash': True})
-        for mempool_tx in mempool_txs:
-            tx_hashes.append(str(mempool_tx['tx_hash']))
+        tx_hashes = {t['tx_hash'] for t in mempool_txs}
 
-        params = None
-        if len(tx_hashes) > 0:
-            params = {
-                'filters': [
-                    {'field': 'tx_hash', 'op': 'NOT IN', 'value': tx_hashes},
-                    {'field': 'category', 'op': 'IN', 'value': ['sends', 'btcpays', 'issuances', 'dividends']}
-                ],
-                'filterop': 'AND'
-            }
+        params = { # get latest 1000 entries from mempool
+            'order_by': 'timestamp',
+            'order_dir': 'DESC'
+        }
         new_txs = util.jsonrpc_api("get_mempool", params, abort_on_error=True)
+        num_skipped_tx = 0
         if new_txs:
             for new_tx in new_txs['result']:
+                # skip if it's already in our mempool table
+                if new_tx['tx_hash'] in tx_hashes:
+                    num_skipped_tx += 1
+                    continue
+
                 tx = {
                     'tx_hash': new_tx['tx_hash'],
                     'command': new_tx['command'],
@@ -76,7 +75,6 @@ def process_cp_blockfeed():
                     'timestamp': new_tx['timestamp'],
                     'viewed_in_block': config.state['my_latest_block']['block_index']
                 }
-
                 config.mongo_db.mempool.insert(tx)
                 del(tx['_id'])
                 tx['_category'] = tx['category']
@@ -95,6 +93,7 @@ def process_cp_blockfeed():
                         raise Exception(
                             "Message processor returned unknown code -- processor: '%s', result: '%s'" %
                             (function, result))
+        logger.info("Mempool refresh: {} entries retrieved from counterparty-server, {} new".format(len(new_txs['result']), len(new_txs['result']) - num_skipped_tx))
 
     def clean_mempool_tx():
         """clean mempool transactions older than MAX_REORG_NUM_BLOCKS blocks"""
