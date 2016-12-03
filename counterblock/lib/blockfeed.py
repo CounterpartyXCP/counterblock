@@ -205,7 +205,7 @@ def process_cp_blockfeed():
             try:
                 cp_running_info = util.jsonrpc_api("get_running_info", abort_on_error=True)['result']
             except Exception as e:
-                logger.warn("Cannot contact counterparty-server get_running_info: %s" % e)
+                logger.warn("Cannot contact counterparty-server (via get_running_info)")
                 time.sleep(3)
                 continue
 
