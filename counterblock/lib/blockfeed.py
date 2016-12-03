@@ -93,7 +93,7 @@ def process_cp_blockfeed():
                         raise Exception(
                             "Message processor returned unknown code -- processor: '%s', result: '%s'" %
                             (function, result))
-        logger.info("Mempool refresh: {} entries retrieved from counterparty-server, {} new".format(len(new_txs['result']), len(new_txs['result']) - num_skipped_tx))
+        logger.debug("Mempool refresh: {} entries retrieved from counterparty-server, {} new".format(len(new_txs['result']), len(new_txs['result']) - num_skipped_tx))
 
     def clean_mempool_tx():
         """clean mempool transactions older than MAX_REORG_NUM_BLOCKS blocks"""
