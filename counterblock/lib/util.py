@@ -260,10 +260,10 @@ def stream_fetch(urls, completed_callback, urls_group_size=50, urls_group_time_s
             else:
                 try:
                     # read up to max_fetch_size
-                    raw_data = r.iter_content(chunk_size=max_fetch_size)
+                    raw_data = next(r.iter_content(chunk_size=max_fetch_size))
                     if is_json:  # try to convert to JSON
                         try:
-                            data = json.loads(raw_data)
+                            data = json.loads(raw_data.decode('utf-8'))
                         except Exception as e:
                             data = (False, "Invalid JSON data: %s" % e)
                         else:
