@@ -515,7 +515,7 @@ def serve_api():
         # log the request data
         try:
             assert 'method' in request_data
-            tx_logger.info("TRANSACTION --- %s ||| REQUEST: %s ||| RESPONSE: %s" % (request_data['method'], request_json, rpc_response_json))
+            tx_logger.debug("TRANSACTION --- %s ||| REQUEST: %s ||| RESPONSE: %s" % (request_data['method'], request_json, rpc_response_json))
         except Exception as e:
             logger.info("Could not log transaction: Invalid format: %s" % e)
 
