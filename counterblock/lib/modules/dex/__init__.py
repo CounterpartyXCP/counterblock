@@ -591,11 +591,11 @@ def parse_trade_book(msg, msg_data):
             'quote_quantity_normalized': backward_quantity if order_match['forward_asset'] == base_asset else forward_quantity,
         }
         d = D(trade['quote_quantity_normalized']) / D(trade['base_quantity_normalized'])
-        d = d.quantize(EIGHT_PLACES, rounding=decimal.ROUND_HALF_EVEN, context=decimal.Context(prec=20))
+        d = d.quantize(EIGHT_PLACES, rounding=decimal.ROUND_HALF_EVEN, context=decimal.Context(prec=30))
         trade['unit_price'] = float(d)
 
         d = D(trade['base_quantity_normalized']) / D(trade['quote_quantity_normalized'])
-        d = d.quantize(EIGHT_PLACES, rounding=decimal.ROUND_HALF_EVEN, context=decimal.Context(prec=20))
+        d = d.quantize(EIGHT_PLACES, rounding=decimal.ROUND_HALF_EVEN, context=decimal.Context(prec=30))
         trade['unit_price_inverse'] = float(d)
 
         config.mongo_db.trades.insert(trade)
