@@ -235,6 +235,11 @@ def init_base(args):
     else:
         REDIS_ENABLE_APICACHE = False
 
+    global BLOCKTRAIL_API_KEY
+    BLOCKTRAIL_API_KEY = args.blocktrail_api_key or None
+    global BLOCKTRAIL_API_SECRET
+    BLOCKTRAIL_API_SECRET = args.blocktrail_api_secret or None
+
     ##############
     # THINGS WE SERVE
 

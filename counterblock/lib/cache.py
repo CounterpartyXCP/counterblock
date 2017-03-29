@@ -9,6 +9,8 @@ redis.connection.socket = gevent.socket  # make redis play well with gevent
 
 from counterblock.lib import config, util
 
+DEFAULT_REDIS_CACHE_PERIOD = 60  # in seconds
+
 logger = logging.getLogger(__name__)
 blockinfo_cache = {}
 
@@ -20,6 +22,20 @@ blockinfo_cache = {}
 def get_redis_connection():
     logger.info("Connecting to redis @ %s" % config.REDIS_CONNECT)
     return redis.StrictRedis(host=config.REDIS_CONNECT, port=config.REDIS_PORT, db=config.REDIS_DATABASE)
+
+
+def get_value(key):
+    if not config.REDIS_CLIENT:
+        return None
+    result = config.REDIS_CLIENT.get(key)
+    return json.loads(result.decode('utf8')) if result is not None else result
+
+
+def set_value(key, value, cache_period=DEFAULT_REDIS_CACHE_PERIOD):
+    if not config.REDIS_CLIENT:
+        return
+    config.REDIS_CLIENT.setex(key, cache_period, json.dumps(value))
+
 
 ##
 # NOT REDIS RELATED

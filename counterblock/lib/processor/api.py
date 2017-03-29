@@ -21,7 +21,7 @@ import flask
 import jsonrpc
 import pymongo
 
-from counterblock.lib import config, database, util, blockchain, blockfeed, messages
+from counterblock.lib import config, cache, database, util, blockchain, blockfeed, messages
 from counterblock.lib.processor import API
 
 API_MAX_LOG_SIZE = 10 * 1024 * 1024  # max log size of 20 MB before rotation (make configurable later)
@@ -83,6 +83,23 @@ def serve_api():
             results.append(result)
 
         return results
+
+    @API.add_method
+    def get_optimal_fee_per_kb():
+        fees = cache.get_value("FEE_PER_KB")
+        if not fees:
+            if config.BLOCKTRAIL_API_KEY:
+                # query blocktrail API
+                fees = util.get_url(
+                    "https://api.blocktrail.com/v1/BTC/fee-per-kb?api_key={}".format(config.BLOCKTRAIL_API_KEY),
+                    abort_on_error=True, is_json=True)
+            else:
+                # query bitcoind
+                fees = {}
+                fees['optimal'] = util.call_jsonrpc_api("fee_per_kb", {'nblocks': 3}, abort_on_error=True)['result']
+                fees['low_priority'] = util.call_jsonrpc_api("fee_per_kb", {'nblocks': 8}, abort_on_error=True)['result']
+            cache.set_value("FEE_PER_KB", fees, cache_period=60 * 5)  # cache for 5 minutes
+        return fees
 
     @API.add_method
     def get_chain_txns_status(txn_hashes):
@@ -358,6 +375,7 @@ def serve_api():
 
         if result is None:  # cache miss or cache disabled
             result = util.call_jsonrpc_api(method, params)
+            logger.debug("proxy_to_counterpartyd --- %s ||| REQUEST: %s ||| RESPONSE: %s" % (method, params, result))
             if config.REDIS_ENABLE_APICACHE:  # cache miss
                 assert config.REDIS_CLIENT
                 config.REDIS_CLIENT.setex(cache_key, DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD, json.dumps(result))

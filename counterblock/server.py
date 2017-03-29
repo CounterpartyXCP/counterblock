@@ -64,6 +64,9 @@ CONFIG_ARGS = [
     [('--redis-port',), {'type': int, 'help': 'the port used to connect to the redis server for caching (if enabled)'}],
     [('--redis-database',), {'type': int, 'help': 'the redis database ID (int) used to connect to the redis server for caching (if enabled)'}],
 
+    [('--blocktrail-api-key',), {'help': 'specify a valid blocktrail API key to allow for better fee estimation'}],
+    [('--blocktrail-api-secret',), {'help': 'specify a valid blocktrail API secret to allow for better fee estimation'}],
+
     # COUNTERBLOCK API
     [('--rpc-host',), {'help': 'the IP of the interface to bind to for providing JSON-RPC API access (0.0.0.0 for all interfaces)'}],
     [('--rpc-port',), {'type': int, 'help': 'port on which to provide the counterblockd JSON-RPC API'}],
