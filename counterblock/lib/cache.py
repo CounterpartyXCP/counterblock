@@ -17,8 +17,6 @@ blockinfo_cache = {}
 ##
 # REDIS-RELATED
 ##
-
-
 def get_redis_connection():
     logger.info("Connecting to redis @ %s" % config.REDIS_CONNECT)
     return redis.StrictRedis(host=config.REDIS_CONNECT, port=config.REDIS_PORT, db=config.REDIS_DATABASE)
@@ -26,12 +24,15 @@ def get_redis_connection():
 
 def get_value(key):
     if not config.REDIS_CLIENT:
+        logger.debug("Cache MISS: {}".format(key))
         return None
     result = config.REDIS_CLIENT.get(key)
+    logger.debug("Cache {}: {}".format('HIT' if result is not None else 'MISS', key))
     return json.loads(result.decode('utf8')) if result is not None else result
 
 
 def set_value(key, value, cache_period=DEFAULT_REDIS_CACHE_PERIOD):
+    logger.debug("Caching key {} -- period: {}".format(key, cache_period))
     if not config.REDIS_CLIENT:
         return
     config.REDIS_CLIENT.setex(key, cache_period, json.dumps(value))
@@ -40,8 +41,6 @@ def set_value(key, value, cache_period=DEFAULT_REDIS_CACHE_PERIOD):
 ##
 # NOT REDIS RELATED
 ##
-
-
 def get_block_info(block_index, prefetch=0, min_message_index=None):
     global blockinfo_cache
     if block_index in blockinfo_cache:
@@ -56,37 +55,3 @@ def get_block_info(block_index, prefetch=0, min_message_index=None):
     for block in blocks:
         blockinfo_cache[block['block_index']] = block
     return blockinfo_cache[block_index]
-
-
-def block_cache(func):
-    """decorator"""
-    def cached_function(*args, **kwargs):
-        sql = "SELECT block_index FROM blocks ORDER BY block_index DESC LIMIT 1"
-        block_index = util.call_jsonrpc_api('sql', {'query': sql, 'bindings': []})['result'][0]['block_index']
-        function_signature = hashlib.sha256((func.__name__ + str(args) + str(kwargs)).encode('utf-8')).hexdigest()
-
-        cached_result = config.mongo_db.counterblockd_cache.find_one({'block_index': block_index, 'function': function_signature})
-
-        if not cached_result or config.TESTNET:
-            # logger.info("generate cache ({}, {}, {})".format(func.__name__, block_index, function_signature))
-            try:
-                result = func(*args, **kwargs)
-                config.mongo_db.counterblockd_cache.insert({
-                    'block_index': block_index,
-                    'function': function_signature,
-                    'result': json.dumps(result)
-                })
-                return result
-            except Exception as e:
-                logger.exception(e)
-        else:
-            # logger.info("result from cache ({}, {}, {})".format(func.__name__, block_index, function_signature))
-            result = json.loads(cached_result['result'])
-            return result
-
-    return cached_function
-
-
-def clean_block_cache(block_index):
-    # logger.info("clean block cache lower than {}".format(block_index))
-    config.mongo_db.counterblockd_cache.remove({'block_index': {'$lt': block_index}})

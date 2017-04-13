@@ -59,7 +59,6 @@ CONFIG_ARGS = [
     [('--mongodb-user',), {'help': 'the optional username used to communicate with mongodb'}],
     [('--mongodb-password',), {'help': 'the optional password used to communicate with mongodb'}],
 
-    [('--redis-enable-apicache',), {'action': 'store_true', 'default': False, 'help': 'set to true to enable caching of API requests'}],
     [('--redis-connect',), {'help': 'the hostname of the redis server to use for caching (if enabled'}],
     [('--redis-port',), {'type': int, 'help': 'the port used to connect to the redis server for caching (if enabled)'}],
     [('--redis-database',), {'type': int, 'help': 'the redis database ID (int) used to connect to the redis server for caching (if enabled)'}],

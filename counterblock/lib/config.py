@@ -229,12 +229,6 @@ def init_base(args):
     except:
         raise Exception("Please specify a valid redis-database configuration parameter (between 0 and 16 inclusive)")
 
-    global REDIS_ENABLE_APICACHE
-    if args.redis_enable_apicache:
-        REDIS_ENABLE_APICACHE = args.redis_enable_apicache
-    else:
-        REDIS_ENABLE_APICACHE = False
-
     global BLOCKTRAIL_API_KEY
     BLOCKTRAIL_API_KEY = args.blocktrail_api_key or None
     global BLOCKTRAIL_API_SECRET

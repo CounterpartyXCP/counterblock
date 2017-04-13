@@ -58,7 +58,7 @@ def process_cp_blockfeed():
             'order_by': 'timestamp',
             'order_dir': 'DESC'
         }
-        new_txs = util.jsonrpc_api("get_mempool", params, abort_on_error=True)
+        new_txs = util.jsonrpc_api("get_mempool", params, abort_on_error=True, use_cache=False)
         num_skipped_tx = 0
         if new_txs:
             for new_tx in new_txs['result']:
@@ -203,9 +203,9 @@ def process_cp_blockfeed():
 
         if not autopilot or autopilot_runner == 0:
             try:
-                cp_running_info = util.jsonrpc_api("get_running_info", abort_on_error=True)['result']
+                cp_running_info = util.jsonrpc_api("get_running_info", abort_on_error=True, use_cache=False)['result']
             except Exception as e:
-                logger.warn("Cannot contact counterparty-server (via get_running_info)")
+                logger.warn("Cannot contact counterparty-server (via get_running_info): {}".format(e))
                 time.sleep(3)
                 continue
 
@@ -292,10 +292,6 @@ def process_cp_blockfeed():
                 logger.warn(str(e) + " Waiting 3 seconds before trying again...")
                 time.sleep(3)
                 continue
-
-            # clean api block cache
-            if config.state['cp_latest_block_index'] - cur_block_index <= config.MAX_REORG_NUM_BLOCKS:  # only when we are near the tip
-                cache.clean_block_cache(cur_block_index)
 
             try:
                 result = parse_block(block_data)

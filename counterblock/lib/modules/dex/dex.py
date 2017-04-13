@@ -3,6 +3,7 @@ import logging
 import decimal
 import base64
 import json
+import calendar
 import time
 
 from counterblock.lib import cache, config, util
@@ -156,7 +157,6 @@ def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None, include_
     return all_pairs
 
 
-@cache.block_cache
 def get_users_pairs(addresses=[], max_pairs=12, quote_assets=config.MARKET_LIST_QUOTE_ASSETS):
 
     top_pairs = []
@@ -222,7 +222,6 @@ def merge_same_price_orders(orders):
         return orders
 
 
-@cache.block_cache
 def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provided=0.95, max_fee_required=0.95):
 
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
@@ -325,7 +324,6 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
     return market_orders
 
 
-@cache.block_cache
 def get_market_trades(asset1, asset2, addresses=[], limit=50, supplies=None):
     limit = min(limit, 100)
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
@@ -466,8 +464,7 @@ def get_pair_price(base_asset, quote_asset, max_block_time=None, supplies=None):
 
 
 def get_price_movement(base_asset, quote_asset, supplies=None):
-
-    yesterday = int(time.time() - (24 * 60 * 60))
+    yesterday = int(calendar.timegm(config.state['my_latest_block']['block_time'].timetuple()) - (24 * 60 * 60))
     if not supplies:
         supplies = get_assets_supply([base_asset, quote_asset])
 
@@ -481,10 +478,9 @@ def get_price_movement(base_asset, quote_asset, supplies=None):
     return price, trend, price24h, progression
 
 
-@cache.block_cache
 def get_markets_list(quote_asset=None, order_by=None):
 
-    yesterday = int(time.time() - (24 * 60 * 60))
+    yesterday = int(calendar.timegm(config.state['my_latest_block']['block_time'].timetuple()) - (24 * 60 * 60))
     markets = []
     pairs = []
     currencies = ['XCP', 'XBTC'] if not quote_asset else [quote_asset]
@@ -539,10 +535,9 @@ def get_markets_list(quote_asset=None, order_by=None):
     return markets
 
 
-@cache.block_cache
 def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95):
 
-    yesterday = int(time.time() - (24 * 60 * 60))
+    yesterday = int(calendar.timegm(config.state['my_latest_block']['block_time'].timetuple()) - (24 * 60 * 60))
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
 
     supplies = get_assets_supply([base_asset, quote_asset])
