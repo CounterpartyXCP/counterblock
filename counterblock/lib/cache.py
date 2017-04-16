@@ -12,7 +12,7 @@ from counterblock.lib import config, util
 DEFAULT_REDIS_CACHE_PERIOD = 60  # in seconds
 
 logger = logging.getLogger(__name__)
-blockinfo_cache = {}
+block_info_cache = {}
 
 ##
 # REDIS-RELATED
@@ -42,16 +42,21 @@ def set_value(key, value, cache_period=DEFAULT_REDIS_CACHE_PERIOD):
 # NOT REDIS RELATED
 ##
 def get_block_info(block_index, prefetch=0, min_message_index=None):
-    global blockinfo_cache
-    if block_index in blockinfo_cache:
-        return blockinfo_cache[block_index]
+    global block_info_cache
+    if block_index in block_info_cache:
+        return block_info_cache[block_index]
 
-    blockinfo_cache.clear()
+    block_info_cache.clear()
     blocks = util.call_jsonrpc_api(
         'get_blocks',
         {'block_indexes': list(range(block_index, block_index + prefetch)),
          'min_message_index': min_message_index},
-        abort_on_error=True)['result']
+        abort_on_error=True, use_cache=False)['result']
     for block in blocks:
-        blockinfo_cache[block['block_index']] = block
-    return blockinfo_cache[block_index]
+        block_info_cache[block['block_index']] = block
+    return block_info_cache[block_index]
+
+
+def clear_block_info_cache():
+    global block_info_cache
+    block_info_cache.clear()

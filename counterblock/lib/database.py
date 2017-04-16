@@ -108,7 +108,7 @@ def rollback(max_block_index):
 
     config.state['last_message_index'] = -1
     config.state['caught_up'] = False
-    cache.blockinfo_cache.clear()
+    cache.clear_block_info_cache()
     config.state['my_latest_block'] = config.mongo_db.processed_blocks.find_one({"block_index": max_block_index}) or config.LATEST_BLOCK_INIT
 
     # call any rollback processors for any extension modules

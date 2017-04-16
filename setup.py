@@ -42,8 +42,8 @@ required_packages = [
     'flask==0.11.1',
     'json-rpc==1.10.3',
     'pytest==2.9.2',
-    'pycoin==0.62',
-    'python-bitcoinlib==0.5.1',
+    'pycoin==0.77',
+    'python-bitcoinlib==0.7.1-SNAPSHOT',
     'pymongo==3.2.2',
     'gevent==1.1.1',
     'greenlet==0.4.9',
@@ -61,6 +61,12 @@ required_packages = [
     'configobj==5.0.6',
     'repoze.lru==0.6'
 ]
+
+dependency_links = [
+    # TODO: remove this once https://github.com/petertodd/python-bitcoinlib/pull/112 is merged!
+    'git+https://github.com/VidaID/python-bitcoinlib.git@5cd34672d7085ca4d55693a1008101c02ceeb7e9#egg=python-bitcoinlib-0.7.1-SNAPSHOT'
+]
+
 
 setup_options = {
     'name': 'counterblock',
@@ -83,6 +89,7 @@ setup_options = {
     'zip_safe': False,
     'setup_requires': ['appdirs', ],
     'install_requires': required_packages,
+    'dependency_links': dependency_links,
     'include_package_data': True,
     'entry_points': {
         'console_scripts': [
