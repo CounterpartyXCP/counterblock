@@ -8,7 +8,7 @@ RUN apt-get update && apt-get -y install libjpeg8-dev libgmp-dev libzmq3-dev lib
 # Install
 COPY . /counterblock
 WORKDIR /counterblock
-RUN pip3 install --process-dependency-links -r requirements.txt
+RUN pip3 install -r requirements.txt
 RUN python3 setup.py develop
 
 COPY docker/server.conf /root/.config/counterblock/server.conf
