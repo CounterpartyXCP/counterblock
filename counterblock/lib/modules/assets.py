@@ -533,7 +533,7 @@ def parse_issuance(msg, msg_data):
                 'locked': True,
             },
                 "$push": {'_history': tracked_asset}}, upsert=False)
-        logger.info("Locking asset {}{}".format(msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data['asset_longname'] else ''))
+        logger.info("Locking asset {}{}".format(msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data.get('asset_longname', None) else ''))
     elif msg_data['transfer']:  # transfer asset
         assert tracked_asset is not None
         config.mongo_db.tracked_assets.update(
@@ -545,7 +545,7 @@ def parse_issuance(msg, msg_data):
                 'owner': msg_data['issuer'],
             },
                 "$push": {'_history': tracked_asset}}, upsert=False)
-        logger.info("Transferring asset {}{} to address {}".format(msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data['asset_longname'] else '', msg_data['issuer']))
+        logger.info("Transferring asset {}{} to address {}".format(msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data.get('asset_longname', None) else '', msg_data['issuer']))
     elif msg_data['quantity'] == 0 and tracked_asset is not None:  # change description
         config.mongo_db.tracked_assets.update(
             {'asset': msg_data['asset']},
@@ -557,7 +557,7 @@ def parse_issuance(msg, msg_data):
             },
                 "$push": {'_history': tracked_asset}}, upsert=False)
         modify_extended_asset_info(msg_data['asset'], msg_data['description'])
-        logger.info("Changing description for asset {}{} to '{}'".format(msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data['asset_longname'] else '', msg_data['description']))
+        logger.info("Changing description for asset {}{} to '{}'".format(msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data.get('asset_longname', None) else '', msg_data['description']))
     else:  # issue new asset or issue addition qty of an asset
         if not tracked_asset:  # new issuance
             tracked_asset = {
@@ -568,7 +568,7 @@ def parse_issuance(msg, msg_data):
                 # asset, the last one with _at_block == that block id in the history array is the
                 # final version for that asset at that block
                 'asset': msg_data['asset'],
-                'asset_longname': msg_data['asset_longname'], # for subassets, this is the full subasset name of the asset, e.g. PIZZA.DOMINOSBLA
+                'asset_longname': msg_data.get('asset_longname', None), # for subassets, this is the full subasset name of the asset, e.g. PIZZA.DOMINOSBLA
                 'owner': msg_data['issuer'],
                 'description': msg_data['description'],
                 'divisible': msg_data['divisible'],
@@ -578,7 +578,7 @@ def parse_issuance(msg, msg_data):
                 '_history': []  # to allow for block rollbacks
             }
             config.mongo_db.tracked_assets.insert(tracked_asset)
-            logger.info("Tracking new asset: {}{}".format(msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data['asset_longname'] else ''))
+            logger.info("Tracking new asset: {}{}".format(msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data.get('asset_longname', None) else ''))
             modify_extended_asset_info(msg_data['asset'], msg_data['description'])
         else:  # issuing additional of existing asset
             assert tracked_asset is not None
@@ -595,7 +595,7 @@ def parse_issuance(msg, msg_data):
                 },
                     "$push": {'_history': tracked_asset}}, upsert=False)
             logger.info("Adding additional {} quantity for asset {}{}".format(blockchain.normalize_quantity(msg_data['quantity'], msg_data['divisible']),
-                msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data['asset_longname'] else ''))
+                msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data.get('asset_longname', None) else ''))
     return True
 
 
