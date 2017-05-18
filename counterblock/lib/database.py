@@ -82,10 +82,11 @@ def reset_db_state():
     return app_config
 
 
-def reparse(quit_after=False):
+def init_reparse(quit_after=False):
     app_config = reset_db_state()
     config.state['my_latest_block'] = config.LATEST_BLOCK_INIT
 
+    config.IS_REPARSING = True
     if quit_after:
         config.QUIT_AFTER_CAUGHT_UP = True
 

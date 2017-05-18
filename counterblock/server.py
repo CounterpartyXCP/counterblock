@@ -119,6 +119,7 @@ def main():
     module.load_all()
 
     # Handle arguments
+    logger.info("counterblock command specified: {}".format(args.command))
     if args.command == 'enmod':
         module.toggle(args.module_path, True)
         sys.exit(0)
@@ -130,13 +131,14 @@ def main():
         sys.exit(0)
     elif args.command == 'reparse':
         startup.init_mongo()
-        database.reparse(quit_after=True)
+        database.init_reparse(quit_after=True)
     elif args.command == 'rollback':
         assert args.block_index >= 1
         startup.init_mongo()
         database.rollback(args.block_index)
         sys.exit(0)
 
+    assert args.command in ('server', 'reparse')
     logger.info("counterblock Version %s starting ..." % config.VERSION)
 
     # Run Startup Functions

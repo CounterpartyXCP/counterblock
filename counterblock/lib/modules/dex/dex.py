@@ -141,7 +141,6 @@ def get_pairs(quote_asset='XCP', exclude_pairs=[], max_pairs=12, from_time=None)
 
 
 def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None, include_currencies=[]):
-
     all_pairs = []
     currencies = include_currencies if len(include_currencies) > 0 else config.MARKET_LIST_QUOTE_ASSETS
 
@@ -158,7 +157,6 @@ def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None, include_
 
 
 def get_users_pairs(addresses=[], max_pairs=12, quote_assets=config.MARKET_LIST_QUOTE_ASSETS):
-
     top_pairs = []
     all_assets = []
     exclude_pairs = []
@@ -192,7 +190,7 @@ def get_users_pairs(addresses=[], max_pairs=12, quote_assets=config.MARKET_LIST_
         })
         all_assets += ['XCP', 'BTC']
 
-    top_pairs = top_pairs[:12]
+    top_pairs = top_pairs[:max_pairs]
     all_assets = list(set(all_assets))
     supplies = get_assets_supply(all_assets)
 
@@ -202,6 +200,10 @@ def get_users_pairs(addresses=[], max_pairs=12, quote_assets=config.MARKET_LIST_
         top_pairs[p]['trend'] = trend
         top_pairs[p]['progression'] = format(progression, ".2f")
         top_pairs[p]['price_24h'] = format(price24h, ".8f")
+
+        # add asset longnames too
+        top_pairs[p]['base_asset_longname'] = config.mongo_db.tracked_assets.find_one({'asset': top_pairs[p]['base_asset']})['asset_longname']
+        top_pairs[p]['quote_asset_longname'] = config.mongo_db.tracked_assets.find_one({'asset': top_pairs[p]['quote_asset']})['asset_longname']
 
     return top_pairs
 
@@ -479,7 +481,6 @@ def get_price_movement(base_asset, quote_asset, supplies=None):
 
 
 def get_markets_list(quote_asset=None, order_by=None):
-
     yesterday = int(calendar.timegm(config.state['my_latest_block']['block_time'].timetuple()) - (24 * 60 * 60))
     markets = []
     pairs = []
@@ -498,17 +499,22 @@ def get_markets_list(quote_asset=None, order_by=None):
     supplies = get_assets_supply(all_assets)
 
     asset_with_image = {}
-    if config.mongo_db:
-        infos = config.mongo_db.asset_extended_info.find({'asset': {'$in': all_assets}}, {'_id': 0}) or False
-        for info in infos:
-            if 'info_data' in info and 'valid_image' in info['info_data'] and info['info_data']['valid_image']:
-                asset_with_image[info['asset']] = True
+    infos = config.mongo_db.asset_extended_info.find({'asset': {'$in': all_assets}}, {'_id': 0})
+    for info in infos:
+        if 'info_data' in info and 'valid_image' in info['info_data'] and info['info_data']['valid_image']:
+            asset_with_image[info['asset']] = True
+    assets = config.mongo_db.tracked_assets.find({'asset': {'$in': all_assets}}, {'_id': 0})
+    longnames = {}
+    for e in assets:
+        longnames[e['asset']] = e['asset_longname']
 
     for pair in pairs:
         price, trend, price24h, progression = get_price_movement(pair['base_asset'], pair['quote_asset'], supplies=supplies)
         market = {}
         market['base_asset'] = pair['base_asset']
+        market['base_asset_longname'] = longnames.get(pair['base_asset'], pair['base_asset'])
         market['quote_asset'] = pair['quote_asset']
+        market['quote_asset_longname'] = longnames.get(pair['quote_asset'], pair['quote_asset'])
         market['volume'] = pair['quote_quantity'] if pair['pair'] in pair_with_volume else 0
         market['price'] = format(price, ".8f")
         market['trend'] = trend
