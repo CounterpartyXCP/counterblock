@@ -59,10 +59,12 @@ CONFIG_ARGS = [
     [('--mongodb-user',), {'help': 'the optional username used to communicate with mongodb'}],
     [('--mongodb-password',), {'help': 'the optional password used to communicate with mongodb'}],
 
-    [('--redis-enable-apicache',), {'action': 'store_true', 'default': False, 'help': 'set to true to enable caching of API requests'}],
     [('--redis-connect',), {'help': 'the hostname of the redis server to use for caching (if enabled'}],
     [('--redis-port',), {'type': int, 'help': 'the port used to connect to the redis server for caching (if enabled)'}],
     [('--redis-database',), {'type': int, 'help': 'the redis database ID (int) used to connect to the redis server for caching (if enabled)'}],
+
+    [('--blocktrail-api-key',), {'help': 'specify a valid blocktrail API key to allow for better fee estimation'}],
+    [('--blocktrail-api-secret',), {'help': 'specify a valid blocktrail API secret to allow for better fee estimation'}],
 
     # COUNTERBLOCK API
     [('--rpc-host',), {'help': 'the IP of the interface to bind to for providing JSON-RPC API access (0.0.0.0 for all interfaces)'}],
@@ -117,6 +119,7 @@ def main():
     module.load_all()
 
     # Handle arguments
+    logger.info("counterblock command specified: {}".format(args.command))
     if args.command == 'enmod':
         module.toggle(args.module_path, True)
         sys.exit(0)
@@ -128,13 +131,14 @@ def main():
         sys.exit(0)
     elif args.command == 'reparse':
         startup.init_mongo()
-        database.reparse(quit_after=True)
+        database.init_reparse(quit_after=True)
     elif args.command == 'rollback':
         assert args.block_index >= 1
         startup.init_mongo()
         database.rollback(args.block_index)
         sys.exit(0)
 
+    assert args.command in ('server', 'reparse')
     logger.info("counterblock Version %s starting ..." % config.VERSION)
 
     # Run Startup Functions

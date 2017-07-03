@@ -58,7 +58,7 @@ def process_cp_blockfeed():
             'order_by': 'timestamp',
             'order_dir': 'DESC'
         }
-        new_txs = util.jsonrpc_api("get_mempool", params, abort_on_error=True)
+        new_txs = util.jsonrpc_api("get_mempool", params, abort_on_error=True, use_cache=False)
         num_skipped_tx = 0
         if new_txs:
             for new_tx in new_txs['result']:
@@ -152,11 +152,17 @@ def process_cp_blockfeed():
 
         config.state['my_latest_block'] = new_block
 
+        if config.state['my_latest_block']['block_index'] % 10 == 0:  # every 10 blocks print status
+            root_logger = logging.getLogger()
+            root_logger.setLevel(logging.INFO)
         logger.info("Block: %i of %i [message height=%s]" % (
             config.state['my_latest_block']['block_index'],
             config.state['cp_backend_block_index']
             if config.state['cp_backend_block_index'] else '???',
             config.state['last_message_index'] if config.state['last_message_index'] != -1 else '???'))
+        if config.state['my_latest_block']['block_index'] % 10 == 0:  # every 10 blocks print status
+            root_logger.setLevel(logging.WARNING)
+
         return True
 
     # grab our stored preferences, and rebuild the database if necessary
@@ -171,7 +177,7 @@ def process_cp_blockfeed():
                 config.TESTNET))
         else:
             logger.warn("counterblockd database app_config collection doesn't exist. BUILDING FROM SCRATCH...")
-        app_config = database.reparse()
+        app_config = database.init_reparse()
     else:
         app_config = app_config[0]
         # get the last processed block out of mongo
@@ -189,6 +195,12 @@ def process_cp_blockfeed():
     autopilot_runner = 0
     iteration = 0
 
+    if config.IS_REPARSING:
+        reparse_start = time.time()
+        root_logger = logging.getLogger()
+        root_logger_level = root_logger.getEffectiveLevel()
+        root_logger.setLevel(logging.WARNING)
+
     # start polling counterparty-server for new blocks
     cp_running_info = None
     while True:
@@ -203,9 +215,9 @@ def process_cp_blockfeed():
 
         if not autopilot or autopilot_runner == 0:
             try:
-                cp_running_info = util.jsonrpc_api("get_running_info", abort_on_error=True)['result']
+                cp_running_info = util.jsonrpc_api("get_running_info", abort_on_error=True, use_cache=False)['result']
             except Exception as e:
-                logger.warn("Cannot contact counterparty-server (via get_running_info)")
+                logger.warn("Cannot contact counterparty-server (via get_running_info): {}".format(e))
                 time.sleep(3)
                 continue
 
@@ -293,10 +305,6 @@ def process_cp_blockfeed():
                 time.sleep(3)
                 continue
 
-            # clean api block cache
-            if config.state['cp_latest_block_index'] - cur_block_index <= config.MAX_REORG_NUM_BLOCKS:  # only when we are near the tip
-                cache.clean_block_cache(cur_block_index)
-
             try:
                 result = parse_block(block_data)
             except Exception as e:  # if anything bubbles up
@@ -326,6 +334,14 @@ def process_cp_blockfeed():
                 % config.MAX_REORG_NUM_BLOCKS)
             database.rollback(config.state['cp_latest_block_index'] - config.MAX_REORG_NUM_BLOCKS)
         else:
+            if config.IS_REPARSING:
+                # restore logging state
+                root_logger.setLevel(root_logger_level)
+                # print out how long the reparse took
+                reparse_end = time.time()
+                logger.info("Reparse took {:.3f} minutes.".format((reparse_end - reparse_start) / 60.0))
+                config.IS_REPARSING = False
+
             if config.QUIT_AFTER_CAUGHT_UP:
                 sys.exit(0)
 
