@@ -5,7 +5,7 @@
 ##
 VERSION = "1.4.0"  # should keep up with counterblockd repo's release tag
 
-DB_VERSION = 23  # a db version increment will cause counterblockd to rebuild its database off of counterpartyd
+DB_VERSION = 24  # a db version increment will cause counterblockd to rebuild its database off of counterpartyd
 
 UNIT = 100000000
 
@@ -83,8 +83,11 @@ def init_base(args):
     global LATEST_BLOCK_INIT
     LATEST_BLOCK_INIT = {'block_index': BLOCK_FIRST, 'block_time': None, 'block_hash': None}
 
+    # init variables used for reparse operations
+    global IS_REPARSING
+    IS_REPARSING = False
     global QUIT_AFTER_CAUGHT_UP
-    QUIT_AFTER_CAUGHT_UP = False  # used for reparse operations
+    QUIT_AFTER_CAUGHT_UP = False
 
     ##############
     # THINGS WE CONNECT TO
@@ -229,11 +232,10 @@ def init_base(args):
     except:
         raise Exception("Please specify a valid redis-database configuration parameter (between 0 and 16 inclusive)")
 
-    global REDIS_ENABLE_APICACHE
-    if args.redis_enable_apicache:
-        REDIS_ENABLE_APICACHE = args.redis_enable_apicache
-    else:
-        REDIS_ENABLE_APICACHE = False
+    global BLOCKTRAIL_API_KEY
+    BLOCKTRAIL_API_KEY = args.blocktrail_api_key or None
+    global BLOCKTRAIL_API_SECRET
+    BLOCKTRAIL_API_SECRET = args.blocktrail_api_secret or None
 
     ##############
     # THINGS WE SERVE

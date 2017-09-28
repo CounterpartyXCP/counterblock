@@ -3,6 +3,7 @@ import logging
 import decimal
 import base64
 import json
+import calendar
 import time
 
 from counterblock.lib import cache, config, util
@@ -140,7 +141,6 @@ def get_pairs(quote_asset='XCP', exclude_pairs=[], max_pairs=12, from_time=None)
 
 
 def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None, include_currencies=[]):
-
     all_pairs = []
     currencies = include_currencies if len(include_currencies) > 0 else config.MARKET_LIST_QUOTE_ASSETS
 
@@ -156,9 +156,7 @@ def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None, include_
     return all_pairs
 
 
-@cache.block_cache
 def get_users_pairs(addresses=[], max_pairs=12, quote_assets=config.MARKET_LIST_QUOTE_ASSETS):
-
     top_pairs = []
     all_assets = []
     exclude_pairs = []
@@ -192,7 +190,7 @@ def get_users_pairs(addresses=[], max_pairs=12, quote_assets=config.MARKET_LIST_
         })
         all_assets += ['XCP', 'BTC']
 
-    top_pairs = top_pairs[:12]
+    top_pairs = top_pairs[:max_pairs]
     all_assets = list(set(all_assets))
     supplies = get_assets_supply(all_assets)
 
@@ -202,6 +200,10 @@ def get_users_pairs(addresses=[], max_pairs=12, quote_assets=config.MARKET_LIST_
         top_pairs[p]['trend'] = trend
         top_pairs[p]['progression'] = format(progression, ".2f")
         top_pairs[p]['price_24h'] = format(price24h, ".8f")
+
+        # add asset longnames too
+        top_pairs[p]['base_asset_longname'] = config.mongo_db.tracked_assets.find_one({'asset': top_pairs[p]['base_asset']})['asset_longname']
+        top_pairs[p]['quote_asset_longname'] = config.mongo_db.tracked_assets.find_one({'asset': top_pairs[p]['quote_asset']})['asset_longname']
 
     return top_pairs
 
@@ -222,7 +224,6 @@ def merge_same_price_orders(orders):
         return orders
 
 
-@cache.block_cache
 def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provided=0.95, max_fee_required=0.95):
 
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
@@ -325,7 +326,6 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
     return market_orders
 
 
-@cache.block_cache
 def get_market_trades(asset1, asset2, addresses=[], limit=50, supplies=None):
     limit = min(limit, 100)
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
@@ -466,8 +466,7 @@ def get_pair_price(base_asset, quote_asset, max_block_time=None, supplies=None):
 
 
 def get_price_movement(base_asset, quote_asset, supplies=None):
-
-    yesterday = int(time.time() - (24 * 60 * 60))
+    yesterday = int(calendar.timegm(config.state['my_latest_block']['block_time'].timetuple()) - (24 * 60 * 60))
     if not supplies:
         supplies = get_assets_supply([base_asset, quote_asset])
 
@@ -481,10 +480,8 @@ def get_price_movement(base_asset, quote_asset, supplies=None):
     return price, trend, price24h, progression
 
 
-@cache.block_cache
 def get_markets_list(quote_asset=None, order_by=None):
-
-    yesterday = int(time.time() - (24 * 60 * 60))
+    yesterday = int(calendar.timegm(config.state['my_latest_block']['block_time'].timetuple()) - (24 * 60 * 60))
     markets = []
     pairs = []
     currencies = ['XCP', 'XBTC'] if not quote_asset else [quote_asset]
@@ -502,17 +499,22 @@ def get_markets_list(quote_asset=None, order_by=None):
     supplies = get_assets_supply(all_assets)
 
     asset_with_image = {}
-    if config.mongo_db:
-        infos = config.mongo_db.asset_extended_info.find({'asset': {'$in': all_assets}}, {'_id': 0}) or False
-        for info in infos:
-            if 'info_data' in info and 'valid_image' in info['info_data'] and info['info_data']['valid_image']:
-                asset_with_image[info['asset']] = True
+    infos = config.mongo_db.asset_extended_info.find({'asset': {'$in': all_assets}}, {'_id': 0})
+    for info in infos:
+        if 'info_data' in info and 'valid_image' in info['info_data'] and info['info_data']['valid_image']:
+            asset_with_image[info['asset']] = True
+    assets = config.mongo_db.tracked_assets.find({'asset': {'$in': all_assets}}, {'_id': 0})
+    longnames = {}
+    for e in assets:
+        longnames[e['asset']] = e['asset_longname']
 
     for pair in pairs:
         price, trend, price24h, progression = get_price_movement(pair['base_asset'], pair['quote_asset'], supplies=supplies)
         market = {}
         market['base_asset'] = pair['base_asset']
+        market['base_asset_longname'] = longnames.get(pair['base_asset'], pair['base_asset'])
         market['quote_asset'] = pair['quote_asset']
+        market['quote_asset_longname'] = longnames.get(pair['quote_asset'], pair['quote_asset'])
         market['volume'] = pair['quote_quantity'] if pair['pair'] in pair_with_volume else 0
         market['price'] = format(price, ".8f")
         market['trend'] = trend
@@ -539,10 +541,9 @@ def get_markets_list(quote_asset=None, order_by=None):
     return markets
 
 
-@cache.block_cache
 def get_market_details(asset1, asset2, min_fee_provided=0.95, max_fee_required=0.95):
 
-    yesterday = int(time.time() - (24 * 60 * 60))
+    yesterday = int(calendar.timegm(config.state['my_latest_block']['block_time'].timetuple()) - (24 * 60 * 60))
     base_asset, quote_asset = util.assets_to_asset_pair(asset1, asset2)
 
     supplies = get_assets_supply([base_asset, quote_asset])

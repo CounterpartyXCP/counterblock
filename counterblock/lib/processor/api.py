@@ -21,7 +21,7 @@ import flask
 import jsonrpc
 import pymongo
 
-from counterblock.lib import config, database, util, blockchain, blockfeed, messages
+from counterblock.lib import config, cache, database, util, blockchain, blockfeed, messages
 from counterblock.lib.processor import API
 
 API_MAX_LOG_SIZE = 10 * 1024 * 1024  # max log size of 20 MB before rotation (make configurable later)
@@ -38,7 +38,6 @@ def serve_api():
     # use counterblockd to not only pull useful data, but also load and store their own preferences, containing
     # whatever data they need
 
-    DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD = 60  # in seconds
     app = flask.Flask(__name__)
     assert config.mongo_db
     tx_logger = logging.getLogger("transaction_log")  # get transaction logger
@@ -83,6 +82,23 @@ def serve_api():
             results.append(result)
 
         return results
+
+    @API.add_method
+    def get_optimal_fee_per_kb():
+        fees = cache.get_value("FEE_PER_KB")
+        if not fees:
+            if config.BLOCKTRAIL_API_KEY:
+                # query blocktrail API
+                fees = util.get_url(
+                    "https://api.blocktrail.com/v1/BTC/fee-per-kb?api_key={}".format(config.BLOCKTRAIL_API_KEY),
+                    abort_on_error=True, is_json=True)
+            else:
+                # query bitcoind
+                fees = {}
+                fees['optimal'] = util.call_jsonrpc_api("fee_per_kb", {'nblocks': 3}, abort_on_error=True, use_cache=False)['result']
+                fees['low_priority'] = util.call_jsonrpc_api("fee_per_kb", {'nblocks': 8}, abort_on_error=True, use_cache=False)['result']
+            cache.set_value("FEE_PER_KB", fees, cache_period=60 * 5)  # cache for 5 minutes
+        return fees
 
     @API.add_method
     def get_chain_txns_status(txn_hashes):
@@ -343,25 +359,7 @@ def serve_api():
         result = None
         cache_key = None
 
-        if config.REDIS_ENABLE_APICACHE:  # check for a precached result and send that back instead
-            assert config.REDIS_CLIENT
-            cache_key = method + '||' + base64.b64encode(json.dumps(params).encode()).decode()
-            #^ must use encoding (e.g. base64) since redis doesn't allow spaces in its key names
-            # (also shortens the hashing key for better performance)
-            result = config.REDIS_CLIENT.get(cache_key)
-            if result:
-                try:
-                    result = json.loads(result)
-                except Exception as e:
-                    logging.warn("Error loading JSON from cache: %s, cached data: '%s'" % (e, result))
-                    result = None  # skip from reading from cache and just make the API call
-
-        if result is None:  # cache miss or cache disabled
-            result = util.call_jsonrpc_api(method, params)
-            if config.REDIS_ENABLE_APICACHE:  # cache miss
-                assert config.REDIS_CLIENT
-                config.REDIS_CLIENT.setex(cache_key, DEFAULT_COUNTERPARTYD_API_CACHE_PERIOD, json.dumps(result))
-                #^TODO: we may want to have different cache periods for different types of data
+        result = util.call_jsonrpc_api(method, params)
 
         if 'error' in result:
             if result['error'].get('data', None):
@@ -405,7 +403,7 @@ def serve_api():
         cp_s = time.time()
         cp_result_valid = True
         try:
-            cp_status = util.call_jsonrpc_api("get_running_info", abort_on_error=True)['result']
+            cp_status = util.call_jsonrpc_api("get_running_info", abort_on_error=True, use_cache=False)['result']
         except:
             cp_result_valid = False
         cp_e = time.time()

@@ -21,6 +21,14 @@ def decorate_message(message, for_txn_history=False):
         if message['_category'] in ['bet_expirations', 'order_expirations', 'bet_match_expirations', 'order_match_expirations']:
             message['_tx_index'] = 0  # add tx_index to all entries (so we can sort on it secondarily in history view), since these lack it
 
+    # include asset extended information (longname and divisible)
+    for attr in ('asset', 'get_asset', 'give_asset', 'forward_asset', 'backward_asset', 'dividend_asset'):
+        if attr not in message:
+            continue
+        asset_info = config.mongo_db.tracked_assets.find_one({'asset': message[attr]})
+        message['_{}_longname'.format(attr)] = asset_info['asset_longname'] if asset_info else None
+        message['_{}_divisible'.format(attr)] = asset_info['divisible'] if asset_info else None
+
     if message['_category'] in ['credits', 'debits']:
         # find the last balance change on record
         bal_change = config.mongo_db.balance_changes.find_one(
@@ -30,27 +38,11 @@ def decorate_message(message, for_txn_history=False):
         message['_balance'] = bal_change['new_balance'] if bal_change else None
         message['_balance_normalized'] = bal_change['new_balance_normalized'] if bal_change else None
 
-    if message['_category'] in ['orders', ] and message['_command'] == 'insert':
-        get_asset_info = config.mongo_db.tracked_assets.find_one({'asset': message['get_asset']})
-        give_asset_info = config.mongo_db.tracked_assets.find_one({'asset': message['give_asset']})
-        message['_get_asset_divisible'] = get_asset_info['divisible'] if get_asset_info else None
-        message['_give_asset_divisible'] = give_asset_info['divisible'] if give_asset_info else None
-
-    if message['_category'] in ['order_matches', ] and message['_command'] == 'insert':
-        forward_asset_info = config.mongo_db.tracked_assets.find_one({'asset': message['forward_asset']})
-        backward_asset_info = config.mongo_db.tracked_assets.find_one({'asset': message['backward_asset']})
-        message['_forward_asset_divisible'] = forward_asset_info['divisible'] if forward_asset_info else None
-        message['_backward_asset_divisible'] = backward_asset_info['divisible'] if backward_asset_info else None
-
     if message['_category'] in ['orders', 'order_matches', ]:
         message['_btc_below_dust_limit'] = (
             ('forward_asset' in message and message['forward_asset'] == config.BTC and message['forward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF)
             or ('backward_asset' in message and message['backward_asset'] == config.BTC and message['backward_quantity'] <= config.ORDER_BTC_DUST_LIMIT_CUTOFF)
         )
-
-    if message['_category'] in ['dividends', 'sends', ]:
-        asset_info = config.mongo_db.tracked_assets.find_one({'asset': message['asset']})
-        message['_divisible'] = asset_info['divisible'] if asset_info else None
 
     if message['_category'] in ['issuances', ]:
         message['_quantity_normalized'] = blockchain.normalize_quantity(message['quantity'], message['divisible'])

@@ -51,7 +51,7 @@ def load_all():
                     if params['enabled'] is True:
                         load_module(module)
                 except Exception as e:
-                    logger.warn("Failed to load Module %s. Reason: %s" % (module, e))
+                    raise Exception("Failed to load Module %s. Reason: %s" % (module, e))
         elif 'Processor' in key:
             try:
                 processor_functions = processor.__dict__[key]
