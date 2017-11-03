@@ -93,7 +93,6 @@ def listunspent(address):
             'txid': txo['txid'],
             'vout': txo['vout'],
             'ts': 0,
-            'scriptPubKey': txo['scriptPubKey'],
             'amount': str(txo['amount']),
             'confirmations': txo['confirmations'],
             'confirmationsFromCache': False
