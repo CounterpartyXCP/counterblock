@@ -293,6 +293,8 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
                     price = calculate_price(order['get_quantity'], order['give_quantity'], supplies[order['get_asset']][1], supplies[order['give_asset']][1], 'BUY')
                 except:
                     continue
+                if D(price) == 0:
+                    continue
                 market_order['type'] = 'BUY'
                 market_order['total'] = order['give_remaining']
                 market_order['amount'] = D(order['give_remaining']) / D(price)
