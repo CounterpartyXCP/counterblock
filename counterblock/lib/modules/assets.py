@@ -195,21 +195,21 @@ def get_escrowed_balances(addresses):
             FROM orders
             WHERE source IN ({}) AND status = ? AND give_asset != ?
             GROUP BY source_asset'''.format(addresses_holder)
-    bindings = addresses + ['open', 'BTC']
+    bindings = addresses + ['open', config.BTC]
     results = util.call_jsonrpc_api("sql", {'query': sql, 'bindings': bindings}, abort_on_error=True)['result']
 
     sql = '''SELECT (tx0_address || '_' || forward_asset) AS source_asset, tx0_address AS address, forward_asset AS asset, SUM(forward_quantity) AS quantity
              FROM order_matches
              WHERE tx0_address IN ({}) AND forward_asset != ? AND status = ?
              GROUP BY source_asset'''.format(addresses_holder)
-    bindings = addresses + ['BTC', 'pending']
+    bindings = addresses + [config.BTC, 'pending']
     results += util.call_jsonrpc_api("sql", {'query': sql, 'bindings': bindings}, abort_on_error=True)['result']
 
     sql = '''SELECT (tx1_address || '_' || backward_asset) AS source_asset, tx1_address AS address, backward_asset AS asset, SUM(backward_quantity) AS quantity
              FROM order_matches
              WHERE tx1_address IN ({}) AND backward_asset != ? AND status = ?
              GROUP BY source_asset'''.format(addresses_holder)
-    bindings = addresses + ['BTC', 'pending']
+    bindings = addresses + [config.BTC, 'pending']
     results += util.call_jsonrpc_api("sql", {'query': sql, 'bindings': bindings}, abort_on_error=True)['result']
 
     sql = '''SELECT source AS address, '{}' AS asset, SUM(wager_remaining) AS quantity
@@ -265,7 +265,7 @@ def get_assets_info(assetsList):
             if asset == config.BTC:
                 supply = blockchain.get_btc_supply(self.proxy, normalize=False)
             else:
-                supply = util.call_jsonrpc_api("get_supply", {'asset': 'XCP'}, abort_on_error=True)['result']
+                supply = util.call_jsonrpc_api("get_supply", {'asset': config.XCP}, abort_on_error=True)['result']
 
             assets_info.append({
                 'asset': asset,
