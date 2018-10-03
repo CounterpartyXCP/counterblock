@@ -377,6 +377,13 @@ def serve_api():
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
             response.headers['Access-Control-Allow-Headers'] = 'DNT,X-Mx-ReqToken,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type'
 
+    @app.route('/healthz', methods=['GET'])
+    def handle_healthz():
+        msg, code = 'Unhealthy', 503
+        if blockfeed.fuzzy_is_caught_up():
+            msg, code = 'Healthy', 200
+        return flask.Response(msg, code, mimetype='text/plain')
+
     @app.route('/', methods=["OPTIONS", ])
     @app.route('/api/', methods=["OPTIONS", ])
     def handle_options():
