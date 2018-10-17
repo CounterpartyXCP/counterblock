@@ -251,7 +251,7 @@ def create_armory_utx(unsigned_tx_hex, public_key_hex):
     port = ARMORY_UTXSVR_PORT_MAINNET
     if config.TESTNET:
         port = ARMORY_UTXSVR_PORT_TESTNET
-    else if config.REGTEST:
+    elif config.REGTEST:
         port = ARMORY_UTXSVR_PORT_REGTEST
     endpoint = "http://%s:%s/" % (module_config['ARMORY_UTXSVR_HOST'], port)
     params = {'unsigned_tx_hex': unsigned_tx_hex, 'public_key_hex': public_key_hex}
@@ -264,7 +264,7 @@ def convert_armory_signedtx_to_raw_hex(signed_tx_ascii):
     port = ARMORY_UTXSVR_PORT_MAINNET
     if config.TESTNET:
         port = ARMORY_UTXSVR_PORT_TESTNET
-    else if config.REGTEST:
+    elif config.REGTEST:
         port = ARMORY_UTXSVR_PORT_REGTEST
     endpoint = "http://%s:%s/" % (module_config['ARMORY_UTXSVR_HOST'], port)
     params = {'signed_tx_ascii': signed_tx_ascii}

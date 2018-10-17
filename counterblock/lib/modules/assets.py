@@ -135,7 +135,7 @@ def task_compile_extended_asset_info():
 def get_normalized_balances(addresses):
     """
     This call augments counterparty's get_balances with a normalized_quantity field. It also will include any owned
-    assets for an address, even if their balance is zero. 
+    assets for an address, even if their balance is zero.
     NOTE: Does not retrieve BTC balance. Use get_address_info for that.
     """
     if not isinstance(addresses, list):
@@ -168,7 +168,11 @@ def get_normalized_balances(addresses):
             divisible = asset_info['divisible']
         d['normalized_quantity'] = blockchain.normalize_quantity(d['quantity'], divisible)
         d['owner'] = (d['address'] + d['asset']) in isowner
-        d['asset_longname'] = asset_info['asset_longname']
+        try:
+            d['asset_longname'] = asset_info['asset_longname']
+        except TypeError as e:
+            d['asset_longname'] = d['asset']
+
         mappings[d['address'] + d['asset']] = d
         data.append(d)
 
@@ -447,7 +451,7 @@ def get_asset_history(asset, reverse=False):
 @API.add_method
 def get_balance_history(asset, addresses, normalize=True, start_ts=None, end_ts=None):
     """Retrieves the ordered balance history for a given address (or list of addresses) and asset pair, within the specified date range
-    @param normalize: If set to True, return quantities that (if the asset is divisible) have been divided by 100M (satoshi). 
+    @param normalize: If set to True, return quantities that (if the asset is divisible) have been divided by 100M (satoshi).
     @return: A list of tuples, with the first entry of each tuple being the block time (epoch TS), and the second being the new balance
      at that block time.
     """

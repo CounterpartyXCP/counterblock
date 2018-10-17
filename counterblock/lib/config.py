@@ -94,7 +94,7 @@ def init_base(args):
     if TESTNET:
         BLOCK_FIRST = 310000
     elif REGTEST:
-        BLOCK_FIRST = 100
+        BLOCK_FIRST = 101
     else:
         BLOCK_FIRST = 278270
 
