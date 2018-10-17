@@ -170,11 +170,12 @@ def process_cp_blockfeed():
     assert app_config.count() in [0, 1]
     if(app_config.count() == 0 or
        app_config[0]['db_version'] != config.DB_VERSION or
-       app_config[0]['running_testnet'] != config.TESTNET):
+       app_config[0]['running_testnet'] != config.TESTNET or
+       app_config[0]['running_regtest'] != config.REGTEST):
         if app_config.count():
-            logger.warn("counterblockd database version UPDATED (from %i to %i) or testnet setting changed (from %s to %s). REBUILDING FROM SCRATCH ..." % (
+            logger.warn("counterblockd database version UPDATED (from %i to %i) or testnet/regtest setting changed (from %s to %s, or %s to %s). REBUILDING FROM SCRATCH ..." % (
                 app_config[0]['db_version'], config.DB_VERSION, app_config[0]['running_testnet'],
-                config.TESTNET))
+                config.TESTNET, app_config[0]['running_regtest'], config.REGTEST))
         else:
             logger.warn("counterblockd database app_config collection doesn't exist. BUILDING FROM SCRATCH...")
         app_config = database.init_reparse()
@@ -228,7 +229,8 @@ def process_cp_blockfeed():
         # Checking appconfig against old running info (when batch-fetching) is redundant
         if    app_config['counterpartyd_db_version_major'] is None \
            or app_config['counterpartyd_db_version_minor'] is None \
-           or app_config['counterpartyd_running_testnet'] is None:
+           or app_config['counterpartyd_running_testnet'] is None \
+           or app_config['counterpartyd_running_regtest'] is None:
             logger.info("Updating version info from counterparty-server")
             updatePrefs = True
         elif cp_running_info['version_major'] != app_config['counterpartyd_db_version_major']:
@@ -249,12 +251,18 @@ def process_cp_blockfeed():
                 app_config['counterpartyd_running_testnet'], cp_running_info['running_testnet']))
             wipeState = True
             updatePrefs = True
+        elif cp_running_info.get('running_regtest', False) != app_config['counterpartyd_running_regtest']:
+            logger.warn("counterparty-server regtest setting change (from %s to %s). Wiping our state data." % (
+                app_config['counterpartyd_running_regtest'], cp_running_info['running_regtest']))
+            wipeState = True
+            updatePrefs = True
         if wipeState:
             app_config = database.reset_db_state()
         if updatePrefs:
             app_config['counterpartyd_db_version_major'] = cp_running_info['version_major']
             app_config['counterpartyd_db_version_minor'] = cp_running_info['version_minor']
             app_config['counterpartyd_running_testnet'] = cp_running_info['running_testnet']
+            app_config['counterpartyd_running_regtest'] = cp_running_info['running_regtest']
             config.mongo_db.app_config.update({}, app_config)
             # reset my latest block record
             config.state['my_latest_block'] = config.LATEST_BLOCK_INIT
