@@ -18,6 +18,7 @@ MULTISIG_DUST_SIZE = 5430 * 2
 ORDER_BTC_DUST_LIMIT_CUTOFF = MULTISIG_DUST_SIZE
 
 BTC = 'BTC'
+XBTC = 'XBTC'
 XCP = 'XCP'
 
 BTC_NAME = "Bitcoin"
@@ -25,12 +26,16 @@ XCP_NAME = "Counterparty"
 APP_NAME = "counterblock"
 COUNTERPARTY_APP_NAME = XCP_NAME.lower()
 
+BTC_TO_XCP = BTC + '/' + XCP
+XCP_TO_BTC = XCP + '/' + BTC
+
 MAX_REORG_NUM_BLOCKS = 10  # max reorg we'd likely ever see
 MAX_FORCED_REORG_NUM_BLOCKS = 20  # but let us go deeper when messages are out of sync
 
-QUOTE_ASSETS = ['BTC', 'XBTC', 'XCP']  # define the priority for quote asset
-MARKET_LIST_QUOTE_ASSETS = ['XCP', 'XBTC', 'BTC']  # define the order in the market list
+QUOTE_ASSETS = [BTC, XBTC, XCP, 'PEPECASH', 'BITCRYSTALS', 'FLDC', 'RUSTBITS', 'SCOTCOIN', 'DATABITS', 'BITCORN', 'MAFIACASH']  # define the priority for quote asset
+MARKET_LIST_QUOTE_ASSETS = [XCP, BTC]  # define the order in the market list
 
+DEFAULT_BACKEND_PORT_REGTEST = 28332
 DEFAULT_BACKEND_PORT_TESTNET = 18332
 DEFAULT_BACKEND_PORT = 8332
 
@@ -70,13 +75,26 @@ def init_base(args):
     else:
         TESTNET = False
 
+    global REGTEST
+    if args.regtest:
+        REGTEST = args.regtest
+    else:
+        REGTEST = False
+
     global net_path_part
-    net_path_part = '.testnet' if TESTNET else ''
+    if TESTNET:
+        net_path_part = '.testnet'
+    elif REGTEST:
+        net_path_part = '.regtest'
+    else:
+        net_path_part = ''
 
     # first block
     global BLOCK_FIRST
     if TESTNET:
         BLOCK_FIRST = 310000
+    elif REGTEST:
+        BLOCK_FIRST = 100
     else:
         BLOCK_FIRST = 278270
 
@@ -103,7 +121,12 @@ def init_base(args):
     if args.backend_port:
         BACKEND_PORT = args.backend_port
     else:
-        BACKEND_PORT = DEFAULT_BACKEND_PORT_TESTNET if TESTNET else DEFAULT_BACKEND_PORT
+        if TESTNET:
+            BACKEND_PORT = DEFAULT_BACKEND_PORT_TESTNET
+        elif REGTEST:
+            BACKEND_PORT = DEFAULT_BACKEND_PORT_REGTEST
+        else:
+            BACKEND_PORT = DEFAULT_BACKEND_PORT
     try:
         BACKEND_PORT = int(BACKEND_PORT)
         assert int(BACKEND_PORT) > 1 and int(BACKEND_PORT) < 65535
@@ -142,7 +165,12 @@ def init_base(args):
     if args.counterparty_port:
         COUNTERPARTY_PORT = args.counterparty_port
     else:
-        COUNTERPARTY_PORT = 14000 if TESTNET else 4000
+        if TESTNET:
+            COUNTERPARTY_PORT = 14000
+        elif REGTEST:
+            COUNTERPARTY_PORT = 24000
+        else:
+            COUNTERPARTY_PORT = 4000
     try:
         COUNTERPARTY_PORT = int(COUNTERPARTY_PORT)
         assert int(COUNTERPARTY_PORT) > 1 and int(COUNTERPARTY_PORT) < 65535
@@ -189,7 +217,12 @@ def init_base(args):
     if args.mongodb_database:
         MONGODB_DATABASE = args.mongodb_database
     else:
-        MONGODB_DATABASE = 'counterblockd_testnet' if TESTNET else 'counterblockd'
+        if TESTNET:
+            MONGODB_DATABASE = 'counterblockd_testnet'
+        elif REGTEST:
+            MONGODB_DATABASE = 'counterblockd_regtest'
+        else:
+            MONGODB_DATABASE = 'counterblockd'
 
     global MONGODB_USER
     if args.mongodb_user:
@@ -225,7 +258,12 @@ def init_base(args):
     if args.redis_database:
         REDIS_DATABASE = args.redis_database
     else:
-        REDIS_DATABASE = 1 if TESTNET else 0
+        if TESTNET:
+            REDIS_DATABASE = 1
+        elif REGTEST:
+            REDIS_DATABASE = 2
+        else:
+            REDIS_DATABASE = 0
     try:
         REDIS_DATABASE = int(REDIS_DATABASE)
         assert int(REDIS_DATABASE) >= 0 and int(REDIS_DATABASE) <= 16
@@ -250,7 +288,12 @@ def init_base(args):
     if args.rpc_port:
         RPC_PORT = args.rpc_port
     else:
-        RPC_PORT = 14100 if TESTNET else 4100
+        if TESTNET:
+            RPC_PORT = 14100
+        elif REGTEST:
+            RPC_PORT = 24100
+        else:
+            RPC_PORT = 4100
     try:
         RPC_PORT = int(RPC_PORT)
         assert int(RPC_PORT) > 1 and int(RPC_PORT) < 65535

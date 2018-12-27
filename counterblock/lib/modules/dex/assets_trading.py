@@ -87,7 +87,7 @@ def calc_price_change(open, close):
     return float((D(100) * (D(close) - D(open)) / D(open)))
 
 
-def get_price_primatives(start_dt=None, end_dt=None):
+def get_price_primitives(start_dt=None, end_dt=None):
     mps_xcp_btc = get_market_price_summary(config.XCP, config.BTC, start_dt=start_dt, end_dt=end_dt)
     xcp_btc_price = mps_xcp_btc['market_price'] if mps_xcp_btc else None  # == XCP/BTC
     btc_xcp_price = calc_inverse(mps_xcp_btc['market_price']) if mps_xcp_btc else None  # BTC/XCP
@@ -122,7 +122,7 @@ def get_asset_info(asset, at_dt=None):
         # BUG: this does not take end_dt (if specified) into account. however, the deviation won't be too big
         # as XCP doesn't deflate quickly at all, and shouldn't matter that much since there weren't any/much trades
         # before the end of the burn period (which is what is involved with how we use at_dt with currently)
-        asset_info['total_issued'] = util.call_jsonrpc_api("get_supply", {'asset': 'XCP'}, abort_on_error=True)['result']
+        asset_info['total_issued'] = util.call_jsonrpc_api("get_supply", {'asset': config.XCP}, abort_on_error=True)['result']
         asset_info['total_issued_normalized'] = blockchain.normalize_quantity(asset_info['total_issued'])
     if not asset_info:
         raise Exception("Invalid asset: %s" % asset)
@@ -481,7 +481,7 @@ def compile_asset_pair_market_info():
         pair_data[pair]['vol_quote'] = e['vol_quote']
 
     # compose price data, relative to BTC and XCP
-    mps_xcp_btc, xcp_btc_price, btc_xcp_price = get_price_primatives()
+    mps_xcp_btc, xcp_btc_price, btc_xcp_price = get_price_primitives()
     for pair, e in pair_data.items():
         base_asset, quote_asset = pair.split('/')
         _24h_vol_in_btc = None
@@ -555,7 +555,7 @@ def compile_asset_market_info():
         # all caught up -- call again in 10 minutes
         return True
 
-    mps_xcp_btc, xcp_btc_price, btc_xcp_price = get_price_primatives()
+    mps_xcp_btc, xcp_btc_price, btc_xcp_price = get_price_primitives()
     all_traded_assets = list(set(list([config.BTC, config.XCP]) + list(config.mongo_db.trades.find({}, {'quote_asset': 1, '_id': 0}).distinct('quote_asset'))))
 
     #######################
@@ -635,7 +635,7 @@ def compile_asset_market_info():
         # we'd rather process a later trade for a given asset, as the market price for that will take into account
         # the earlier trades on that same block for that asset, and we don't want/need multiple cap points per block
         assets_in_block = {}
-        mps_xcp_btc, xcp_btc_price, btc_xcp_price = get_price_primatives(end_dt=t_block['block_time'])
+        mps_xcp_btc, xcp_btc_price, btc_xcp_price = get_price_primitives(end_dt=t_block['block_time'])
         for t in reversed(t_block['trades']):
             assets = []
             if t['base_asset'] not in assets_in_block:

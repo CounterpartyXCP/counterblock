@@ -43,7 +43,7 @@ required_packages = [
     'json-rpc==1.10.3',
     'pytest==2.9.2',
     'pycoin==0.77',
-    'python-bitcoinlib==0.7.0',
+    #'python-bitcoinlib==0.10.1', <-- restore this when python-bitcoinlib 0.10.x with bech32 support is released
     'pymongo==3.2.2',
     'gevent==1.1.1',
     'greenlet==0.4.9',
@@ -102,4 +102,3 @@ if os.name == "nt":
     sys.exit("Windows installs not supported")
 
 setup(**setup_options)
-

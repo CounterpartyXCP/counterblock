@@ -36,6 +36,7 @@ CONFIG_ARGS = [
     # BASIC FLAGS
     [('-v', '--verbose'), {'dest': 'verbose', 'action': 'store_true', 'default': False, 'help': 'sets log level to DEBUG instead of WARNING'}],
     [('--testnet',), {'action': 'store_true', 'default': False, 'help': 'use {} testnet addresses and block numbers'.format(config.BTC_NAME)}],
+    [('--regtest',), {'action': 'store_true', 'default': False, 'help': 'use {} regtest addresses and block numbers'.format(config.BTC_NAME)}],
     [('--log-file',), {'nargs': '?', 'const': None, 'default': False, 'help': 'log to the specified file (specify option without filename to use the default location)'}],
     [('--log-size-kb',), {'help': 'maximum log file size, in kilobytes'}],
     [('--log-num-files',), {'help': 'maximum number of rotated log files'}],

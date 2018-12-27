@@ -61,7 +61,7 @@ def get_pairs_with_orders(addresses=[], max_pairs=12):
             'quote_asset': quote_asset,
             'my_order_count': my_pair['order_count']
         }
-        if my_pair['pair'] == 'BTC/XCP':  # XCP/BTC always in first
+        if my_pair['pair'] == config.BTC_TO_XCP:  # XCP/BTC always in first
             pairs_with_orders.insert(0, top_pair)
         else:
             pairs_with_orders.append(top_pair)
@@ -69,7 +69,7 @@ def get_pairs_with_orders(addresses=[], max_pairs=12):
     return pairs_with_orders
 
 
-def get_pairs(quote_asset='XCP', exclude_pairs=[], max_pairs=12, from_time=None):
+def get_pairs(quote_asset=config.XCP, exclude_pairs=[], max_pairs=12, from_time=None):
 
     bindings = []
 
@@ -148,7 +148,7 @@ def get_quotation_pairs(exclude_pairs=[], max_pairs=12, from_time=None, include_
         currency_pairs = get_pairs(quote_asset=currency, exclude_pairs=exclude_pairs, max_pairs=max_pairs, from_time=from_time)
         max_pairs = max_pairs - len(currency_pairs)
         for currency_pair in currency_pairs:
-            if currency_pair['pair'] == 'XCP/BTC':
+            if currency_pair['pair'] == config.XCP_TO_BTC:
                 all_pairs.insert(0, currency_pair)
             else:
                 all_pairs.append(currency_pair)
@@ -177,18 +177,18 @@ def get_users_pairs(addresses=[], max_pairs=12, quote_assets=config.MARKET_LIST_
                     'base_asset': currency_pair['base_asset'],
                     'quote_asset': currency_pair['quote_asset']
                 }
-                if currency_pair['pair'] == 'XCP/BTC':  # XCP/BTC always in first
+                if currency_pair['pair'] == config.XCP_TO_BTC:  # XCP/BTC always in first
                     top_pairs.insert(0, top_pair)
                 else:
                     top_pairs.append(top_pair)
                 all_assets += [currency_pair['base_asset'], currency_pair['quote_asset']]
 
-    if ('BTC' in quote_assets) and ('XCP/BTC' not in [p['base_asset'] + '/' + p['quote_asset'] for p in top_pairs]):
+    if (config.BTC in quote_assets) and (config.XCP_TO_BTC not in [p['base_asset'] + '/' + p['quote_asset'] for p in top_pairs]):
         top_pairs.insert(0, {
-            'base_asset': 'XCP',
-            'quote_asset': 'BTC'
+            'base_asset': config.XCP,
+            'quote_asset': config.BTC
         })
-        all_assets += ['XCP', 'BTC']
+        all_assets += [config.XCP, config.BTC]
 
     top_pairs = top_pairs[:max_pairs]
     all_assets = list(set(all_assets))
@@ -255,7 +255,7 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
         market_order = {}
 
         exclude = False
-        if order['give_asset'] == 'BTC':
+        if order['give_asset'] == config.BTC:
             try:
                 fee_provided = order['fee_provided'] / (order['give_quantity'] / 100)
                 market_order['fee_provided'] = format(D(order['fee_provided']) / (D(order['give_quantity']) / D(100)), '.2f')
@@ -264,7 +264,7 @@ def get_market_orders(asset1, asset2, addresses=[], supplies=None, min_fee_provi
 
             exclude = fee_provided < min_fee_provided
 
-        elif order['get_asset'] == 'BTC':
+        elif order['get_asset'] == config.BTC:
             try:
                 fee_required = order['fee_required'] / (order['get_quantity'] / 100)
                 market_order['fee_required'] = format(D(order['fee_required']) / (D(order['get_quantity']) / D(100)), '.2f')
@@ -402,13 +402,13 @@ def get_assets_supply(assets=[]):
 
     supplies = {}
 
-    if 'XCP' in assets:
-        supplies['XCP'] = (util.call_jsonrpc_api("get_supply", {'asset': 'XCP'})['result'], True)
-        assets.remove('XCP')
+    if config.XCP in assets:
+        supplies[config.XCP] = (util.call_jsonrpc_api("get_supply", {'asset': config.XCP})['result'], True)
+        assets.remove(config.XCP)
 
-    if 'BTC' in assets:
-        supplies['BTC'] = (0, True)
-        assets.remove('BTC')
+    if config.BTC in assets:
+        supplies[config.BTC] = (0, True)
+        assets.remove(config.BTC)
 
     if len(assets) > 0:
         sql = '''SELECT asset, SUM(quantity) AS supply, divisible FROM issuances 
@@ -486,7 +486,7 @@ def get_markets_list(quote_asset=None, order_by=None):
     yesterday = int(calendar.timegm(config.state['my_latest_block']['block_time'].timetuple()) - (24 * 60 * 60))
     markets = []
     pairs = []
-    currencies = ['XCP', 'XBTC'] if not quote_asset else [quote_asset]
+    currencies = [config.XCP, config.XBTC] if not quote_asset else [quote_asset]
 
     # pairs with volume last 24h
     pairs += get_quotation_pairs(exclude_pairs=[], max_pairs=500, from_time=yesterday, include_currencies=currencies)
@@ -527,7 +527,7 @@ def get_markets_list(quote_asset=None, order_by=None):
         market['quote_divisibility'] = supplies[pair['quote_asset']][1]
         market['market_cap'] = format(D(market['supply']) * D(market['price']), ".4f")
         market['with_image'] = True if pair['base_asset'] in asset_with_image else False
-        if market['base_asset'] == 'XCP' and market['quote_asset'] == 'BTC':
+        if market['base_asset'] == config.XCP and market['quote_asset'] == config.BTC:
             markets.insert(0, market)
         else:
             markets.append(market)

@@ -30,6 +30,7 @@ from counterblock.lib.processor import startup
 PREFERENCES_MAX_LENGTH = 100000  # in bytes, as expressed in JSON
 ARMORY_UTXSVR_PORT_MAINNET = 6590
 ARMORY_UTXSVR_PORT_TESTNET = 6591
+ARMORY_UTXSVR_PORT_REGTEST = 6592
 
 FUZZY_MAX_WALLET_MESSAGES_STORED = 1000
 
@@ -54,7 +55,7 @@ def _read_config():
         module_config['ARMORY_UTXSVR_HOST'] = configfile.get('Default', 'armory-utxsvr-host')
     else:
         module_config['ARMORY_UTXSVR_HOST'] = "127.0.0.1"
-    
+
     # email-related
     if configfile.has_option('Default', 'support-email'):
         module_config['SUPPORT_EMAIL'] = configfile.get('Default', 'support-email')
@@ -96,6 +97,7 @@ def is_ready():
         'cw_last_message_seq': config.state['cw_last_message_seq'],
         'block_height': config.state['cp_backend_block_index'],
         'testnet': config.TESTNET,
+        'regtest': config.REGTEST,
         'ip': ip,
         'country': country,
         'quote_assets': config.QUOTE_ASSETS,
@@ -125,10 +127,11 @@ def get_wallet_stats(start_ts=None, end_ts=None):
 
     num_wallets_mainnet = config.mongo_db.preferences.find({'network': 'mainnet'}).count()
     num_wallets_testnet = config.mongo_db.preferences.find({'network': 'testnet'}).count()
+    num_wallets_regtest = config.mongo_db.preferences.find({'network': 'regtest'}).count()
     num_wallets_unknown = config.mongo_db.preferences.find({'network': None}).count()
     wallet_stats = []
 
-    for net in ['mainnet', 'testnet']:
+    for net in ['mainnet', 'testnet', 'regtest']:
         filters = {
             "when": {
                 "$gte": datetime.datetime.utcfromtimestamp(start_ts)
@@ -159,6 +162,7 @@ def get_wallet_stats(start_ts=None, end_ts=None):
     return {
         'num_wallets_mainnet': num_wallets_mainnet,
         'num_wallets_testnet': num_wallets_testnet,
+        'num_wallets_regtest': num_wallets_regtest,
         'num_wallets_unknown': num_wallets_unknown,
         'wallet_stats': wallet_stats}
 
@@ -166,9 +170,9 @@ def get_wallet_stats(start_ts=None, end_ts=None):
 @API.add_method
 def get_preferences(wallet_id, for_login=False, network=None):
     """Gets stored wallet preferences
-    @param network: only required if for_login is specified. One of: 'mainnet' or 'testnet'
+    @param network: only required if for_login is specified. One of: 'mainnet', 'testnet' or 'regtest'
     """
-    if network not in (None, 'mainnet', 'testnet'):
+    if network not in (None, 'mainnet', 'testnet', 'regtest'):
         raise Exception("Invalid network parameter setting")
     if for_login and network is None:
         raise Exception("network parameter required if for_login is set")
@@ -197,9 +201,9 @@ def get_preferences(wallet_id, for_login=False, network=None):
 @API.add_method
 def store_preferences(wallet_id, preferences, for_login=False, network=None, referer=None):
     """Stores freeform wallet preferences
-    @param network: only required if for_login is specified. One of: 'mainnet' or 'testnet'
+    @param network: only required if for_login is specified. One of: 'mainnet', 'testnet' or 'regtest'
     """
-    if network not in (None, 'mainnet', 'testnet'):
+    if network not in (None, 'mainnet', 'testnet', 'regtest'):
         raise Exception("Invalid network parameter setting")
     if for_login and network is None:
         raise Exception("network parameter required if for_login is set")
@@ -244,8 +248,12 @@ def store_preferences(wallet_id, preferences, for_login=False, network=None, ref
 
 @API.add_method
 def create_armory_utx(unsigned_tx_hex, public_key_hex):
-    endpoint = "http://%s:%s/" % (module_config['ARMORY_UTXSVR_HOST'],
-        ARMORY_UTXSVR_PORT_MAINNET if not config.TESTNET else ARMORY_UTXSVR_PORT_TESTNET)
+    port = ARMORY_UTXSVR_PORT_MAINNET
+    if config.TESTNET:
+        port = ARMORY_UTXSVR_PORT_TESTNET
+    elif config.REGTEST:
+        port = ARMORY_UTXSVR_PORT_REGTEST
+    endpoint = "http://%s:%s/" % (module_config['ARMORY_UTXSVR_HOST'], port)
     params = {'unsigned_tx_hex': unsigned_tx_hex, 'public_key_hex': public_key_hex}
     utx_ascii = util.call_jsonrpc_api("serialize_unsigned_tx", params=params, endpoint=endpoint, abort_on_error=True)['result']
     return utx_ascii
@@ -253,8 +261,12 @@ def create_armory_utx(unsigned_tx_hex, public_key_hex):
 
 @API.add_method
 def convert_armory_signedtx_to_raw_hex(signed_tx_ascii):
-    endpoint = "http://%s:%s/" % (module_config['ARMORY_UTXSVR_HOST'],
-        ARMORY_UTXSVR_PORT_MAINNET if not config.TESTNET else ARMORY_UTXSVR_PORT_TESTNET)
+    port = ARMORY_UTXSVR_PORT_MAINNET
+    if config.TESTNET:
+        port = ARMORY_UTXSVR_PORT_TESTNET
+    elif config.REGTEST:
+        port = ARMORY_UTXSVR_PORT_REGTEST
+    endpoint = "http://%s:%s/" % (module_config['ARMORY_UTXSVR_HOST'], port)
     params = {'signed_tx_ascii': signed_tx_ascii}
     raw_tx_hex = util.call_jsonrpc_api("convert_signed_tx_to_raw_hex", params=params, endpoint=endpoint, abort_on_error=True)['result']
     return raw_tx_hex
@@ -349,7 +361,7 @@ def task_generate_wallet_stats():
     Every 30 minutes, from the login history, update and generate wallet stats
     """
     def gen_stats_for_network(network):
-        assert network in ('mainnet', 'testnet')
+        assert network in ('mainnet', 'testnet', 'regtest')
         # get the latest date in the stats table present
         now = datetime.datetime.utcnow()
         latest_stat = config.mongo_db.wallet_stats.find({'network': network}).sort('when', pymongo.DESCENDING).limit(1)
@@ -458,6 +470,7 @@ def task_generate_wallet_stats():
 
     gen_stats_for_network('mainnet')
     gen_stats_for_network('testnet')
+    gen_stats_for_network('regtest')
     start_task(task_generate_wallet_stats, delay=30 * 60)  # call again in 30 minutes
 
 
