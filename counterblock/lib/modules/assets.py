@@ -168,6 +168,7 @@ def get_normalized_balances(addresses):
             divisible = asset_info['divisible']
         d['normalized_quantity'] = blockchain.normalize_quantity(d['quantity'], divisible)
         d['owner'] = (d['address'] + d['asset']) in isowner
+
         try:
             d['asset_longname'] = asset_info['asset_longname']
         except TypeError as e:
