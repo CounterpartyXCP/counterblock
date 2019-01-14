@@ -95,8 +95,8 @@ def serve_api():
             else:
                 # query bitcoind
                 fees = {}
-                fees['optimal'] = util.call_jsonrpc_api("fee_per_kb", {'nblocks': 3}, abort_on_error=True, use_cache=False)['result']
-                fees['low_priority'] = util.call_jsonrpc_api("fee_per_kb", {'nblocks': 8}, abort_on_error=True, use_cache=False)['result']
+                fees['optimal'] = util.call_jsonrpc_api("fee_per_kb", {'conf_target': 3}, abort_on_error=True, use_cache=False)['result']
+                fees['low_priority'] = util.call_jsonrpc_api("fee_per_kb", {'conf_target': 8}, abort_on_error=True, use_cache=False)['result']
             cache.set_value("FEE_PER_KB", fees, cache_period=60 * 5)  # cache for 5 minutes
         return fees
 
