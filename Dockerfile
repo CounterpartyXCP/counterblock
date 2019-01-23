@@ -13,6 +13,8 @@ RUN python3 setup.py develop
 
 COPY docker/server.conf /root/.config/counterblock/server.conf
 COPY docker/modules.conf /root/.config/counterblock/modules.conf
+COPY docker/modules.conf /root/.config/counterblock/modules.testnet.conf
+COPY docker/modules.conf /root/.config/counterblock/modules.regtest.conf
 COPY docker/counterwallet.conf /root/.config/counterblock/counterwallet.conf
 COPY docker/start.sh /usr/local/bin/start.sh
 RUN chmod a+x /usr/local/bin/start.sh
