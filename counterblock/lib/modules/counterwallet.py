@@ -605,7 +605,7 @@ def init():
         if download:
             logger.info("Downloading GeoIP.dat")
             # TODO: replace with pythonic way to do this!
-            cmd = "cd '{}'; wget -N -q http://geolite.maxmind.com/download/geoip/database/GeoLiteCountry/GeoIP.dat.gz; gzip -dfq GeoIP.dat.gz".format(config.data_dir)
+            cmd = "cd '{}'; wget -N -q https://geolite.maxmind.com/download/geoip/database/GeoLite2-Country.tar.gz; gzip -dfq GeoIP.dat.gz".format(config.data_dir)
             util.subprocess_cmd(cmd)
         else:
             logger.info("GeoIP.dat database up to date. Not downloading.")
