@@ -33,3 +33,8 @@ $ counterblock --backend-password=rpc --counterparty-password=rpc server
 Further command line options are available via:
 
 * `$ counterblock --help`
+
+# License notices
+
+This product will download/use GeoLite2 data created by MaxMind, available from
+<a href="https://www.maxmind.com">https://www.maxmind.com</a>.
