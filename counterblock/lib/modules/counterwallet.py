@@ -90,7 +90,7 @@ def is_ready():
     if we actually return data from this function, it should always be true. (may change this behaviour later)"""
 
     ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
-    country = module_config['GEOIP'].country_code_by_addr(ip)
+    country = module_config['GEOIP'].city(ip).country.iso_code
     return {
         'caught_up': blockfeed.fuzzy_is_caught_up(),
         'last_message_index': config.state['last_message_index'],
@@ -109,7 +109,7 @@ def is_ready():
 def get_reflected_host_info():
     """Allows the requesting host to get some info about itself, such as its IP. Used for troubleshooting."""
     ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
-    country = module_config['GEOIP'].country_code_by_addr(ip)
+    country = module_config['GEOIP'].city(ip).country.iso_code
     return {
         'ip': ip,
         'cookie': flask.request.headers.get('Cookie', ''),
@@ -586,12 +586,13 @@ def init():
     logger.debug("cw_last_message_seq: {}".format(config.state['cw_last_message_seq']))
 
     # init GEOIP
-    import pygeoip
-    geoip_data_path = os.path.join(config.data_dir, 'GeoIP.dat')
+    import geoip2.database
+    mmdbName = 'GeoLite2-City.mmdb'
+    geoip_data_path = os.path.join(config.data_dir, mmdbName)
 
 
     def download_geoip_data():
-        logger.info("Checking/updating GeoIP.dat ...")
+        logger.info("Checking/updating {} ...".format(mmdbName))
         download = False
 
         if not os.path.isfile(geoip_data_path):
@@ -603,14 +604,14 @@ def init():
                 download = True
 
         if download:
-            logger.info("Downloading GeoIP.dat")
+            logger.info("Downloading {}".format(mmdbName))
             # TODO: replace with pythonic way to do this!
-            cmd = "cd '{}'; wget -N -q http://geolite.maxmind.com/download/geoip/database/GeoLiteCountry/GeoIP.dat.gz; gzip -dfq GeoIP.dat.gz".format(config.data_dir)
+            cmd = "cd '{}' && wget -N -q https://geolite.maxmind.com/download/geoip/database/GeoLite2-City.tar.gz && tar xzf GeoLite2-City.tar.gz && cp */GeoLite2-City.mmdb .".format(config.data_dir)
             util.subprocess_cmd(cmd)
         else:
-            logger.info("GeoIP.dat database up to date. Not downloading.")
+            logger.info("{} database up to date. Not downloading.".format(mmdbName))
     download_geoip_data()
-    module_config['GEOIP'] = pygeoip.GeoIP(geoip_data_path)
+    module_config['GEOIP'] = geoip2.database.Reader(geoip_data_path)
 
     if not module_config['SUPPORT_EMAIL']:
         logger.warn("Support email setting not set: To enable, please specify an email for the 'support-email' setting in your counterblockd.conf")
