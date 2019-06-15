@@ -504,7 +504,11 @@ def store_wallet_message(msg, msg_data, decorate=True):
 @MessageProcessor.subscribe(priority=CORE_FIRST_PRIORITY - 0.5)
 def handle_invalid(msg, msg_data):
     # don't process invalid messages, but do forward them along to clients
-    status = msg_data.get('status', 'valid').lower()
+    pre_status = msg_data.get('status', 'valid')
+    if type(pre_status) == str:
+        status = msg_data.get('status', 'valid').lower()
+    else:
+        status = str(pre_status)
     if status.startswith('invalid'):
         if config.state['cp_latest_block_index'] - config.state['my_latest_block']['block_index'] < config.MAX_REORG_NUM_BLOCKS:
             # forward along via message feed, except while we're catching up
