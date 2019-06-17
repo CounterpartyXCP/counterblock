@@ -3,12 +3,15 @@ FROM counterparty/base
 MAINTAINER Counterparty Developers <dev@counterparty.io>
 
 # Install extra counterblock deps
-RUN apt-get update && apt-get -y install libjpeg8-dev libgmp-dev libzmq3-dev libxml2-dev libxslt-dev zlib1g-dev libimage-exiftool-perl libevent-dev cython
+RUN apt-get update && apt-get -y upgrade && apt-get -y install libjpeg8-dev libgmp-dev libzmq3-dev libxml2-dev libxslt-dev zlib1g-dev libimage-exiftool-perl libevent-dev cython
 
 # Install
-COPY . /counterblock
+COPY requirements.txt /counterblock/
+COPY setup.py /counterblock/
+COPY ./counterblock/lib/config.py /counterblock/counterblock/lib/
 WORKDIR /counterblock
 RUN pip3 install -r requirements.txt
+COPY . /counterblock
 RUN python3 setup.py develop
 
 COPY docker/server.conf /root/.config/counterblock/server.conf

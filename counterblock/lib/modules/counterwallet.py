@@ -90,7 +90,10 @@ def is_ready():
     if we actually return data from this function, it should always be true. (may change this behaviour later)"""
 
     ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
-    country = module_config['GEOIP'].city(ip).country.iso_code
+    try:
+        country = module_config['GEOIP'].city(ip).country.iso_code
+    except Exception:
+        country = "unknown"
     return {
         'caught_up': blockfeed.fuzzy_is_caught_up(),
         'last_message_index': config.state['last_message_index'],
