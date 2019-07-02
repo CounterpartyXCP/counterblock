@@ -202,6 +202,25 @@ def serve_api():
                  }, abort_on_error=True)['result']
             #^ with filterop == 'or', we get all sends where this address was the source OR destination
 
+            address_dict['sweeps'] = util.call_jsonrpc_api(
+                "get_sweeps",
+                {'filters': [{'field': 'source', 'op': '==', 'value': address}, {'field': 'destination', 'op': '==', 'value': address}],
+                 'filterop': 'or',
+                 'order_by': 'block_index',
+                 'order_dir': 'asc',
+                 'start_block': start_block,
+                 'end_block': end_block,
+                 }, abort_on_error=True)['result']
+
+            address_dict['dispensers'] = util.call_jsonrpc_api(
+                "get_sweeps",
+                {'filters': [{'field': 'source', 'op': '==', 'value': address}],
+                 'order_by': 'block_index',
+                 'order_dir': 'asc',
+                 'start_block': start_block,
+                 'end_block': end_block,
+                 }, abort_on_error=True)['result']
+
             address_dict['orders'] = util.call_jsonrpc_api(
                 "get_orders",
                 {'filters': [{'field': 'source', 'op': '==', 'value': address}, ],
