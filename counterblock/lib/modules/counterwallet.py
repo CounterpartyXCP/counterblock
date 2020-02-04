@@ -617,8 +617,12 @@ def init():
             util.subprocess_cmd(cmd)
         else:
             logger.info("{} database up to date. Not downloading.".format(mmdbName))
+
     download_geoip_data()
-    module_config['GEOIP'] = geoip2.database.Reader(geoip_data_path)
+    try:
+        module_config['GEOIP'] = geoip2.database.Reader(geoip_data_path)
+    except FileNotFoundError as e:
+        logger.warn("GeoLite2-City.mmdb not found, download from https://maxmind.com/ the GeoLite2-City and put in {}".format(geoip_data_path))
 
     if not module_config['SUPPORT_EMAIL']:
         logger.warn("Support email setting not set: To enable, please specify an email for the 'support-email' setting in your counterblockd.conf")
