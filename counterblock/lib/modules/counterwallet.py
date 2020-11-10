@@ -91,7 +91,7 @@ def is_ready():
 
     ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
     try:
-        country = module_config['GEOIP'].city(ip).country.iso_code
+        country = module_config['GEOIP'].get(ip)['country']['iso_code']
     except Exception:
         country = "unknown"
     return {
@@ -112,7 +112,7 @@ def is_ready():
 def get_reflected_host_info():
     """Allows the requesting host to get some info about itself, such as its IP. Used for troubleshooting."""
     ip = flask.request.headers.get('X-Real-Ip', flask.request.remote_addr)
-    country = module_config['GEOIP'].city(ip).country.iso_code
+    country = module_config['GEOIP'].get(ip)['country']['iso_code']
     return {
         'ip': ip,
         'cookie': flask.request.headers.get('Cookie', ''),
@@ -593,7 +593,7 @@ def init():
     logger.debug("cw_last_message_seq: {}".format(config.state['cw_last_message_seq']))
 
     # init GEOIP
-    import geoip2.database
+    import maxminddb
     mmdbName = 'GeoLite2-City.mmdb'
     geoip_data_path = os.path.join(config.data_dir, mmdbName)
 
@@ -620,7 +620,7 @@ def init():
 
     download_geoip_data()
     try:
-        module_config['GEOIP'] = geoip2.database.Reader(geoip_data_path)
+        module_config['GEOIP'] = maxminddb.open_database(geoip_data_path)
     except FileNotFoundError as e:
         logger.warn("GeoLite2-City.mmdb not found, download from https://maxmind.com/ the GeoLite2-City and put in {}".format(geoip_data_path))
 

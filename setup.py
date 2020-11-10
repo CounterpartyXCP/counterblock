@@ -56,7 +56,7 @@ required_packages = [
     'strict_rfc3339==0.7',
     'rfc3987==1.3.6',
     'aniso8601==1.1.0',
-    'geoip2==2.9.0',
+    'maxminddb==2.0.3',
     'colorama==0.3.7',
     'configobj==5.0.6',
     'repoze.lru==0.6'
