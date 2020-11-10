@@ -620,7 +620,7 @@ def init():
 
     download_geoip_data()
     try:
-        module_config['GEOIP'] = maxminddb.open_database(geoip_data_path)
+        module_config['GEOIP'] = maxminddb.open_database(geoip_data_path, maxminddb.MODE_AUTO)
     except FileNotFoundError as e:
         logger.warn("GeoLite2-City.mmdb not found, download from https://maxmind.com/ the GeoLite2-City and put in {}".format(geoip_data_path))
 
