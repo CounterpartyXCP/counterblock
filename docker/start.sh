@@ -10,7 +10,7 @@ fi
 : ${PARAMS:=""}
 : ${COMMAND:="server"}
 trap 'kill -TERM $PID' TERM INT
-/usr/local/bin/counterblock ${PARAMS} ${COMMAND} &
+counterblock ${PARAMS} ${COMMAND} &
 PID=$!
 wait $PID
 trap - TERM INT
