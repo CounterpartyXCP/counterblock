@@ -37,4 +37,4 @@ Further command line options are available via:
 # License notices
 
 This product will download/use GeoLite2 data created by MaxMind, available from
-<a href="https://www.maxmind.com">https://www.maxmind.com</a>.
+<a href="https://dev.maxmind.com/geoip/geoip2/geolite2/">https://dev.maxmind.com/geoip/geoip2/geolite2/</a>. Under **Creative Commons Corporation Attribution-ShareAlike 4.0 International License** (the “Creative Commons License”)
