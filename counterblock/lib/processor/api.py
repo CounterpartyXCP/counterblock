@@ -213,7 +213,7 @@ def serve_api():
                  }, abort_on_error=True)['result']
 
             address_dict['dispensers'] = util.call_jsonrpc_api(
-                "get_sweeps",
+                "get_dispensers",
                 {'filters': [{'field': 'source', 'op': '==', 'value': address}],
                  'order_by': 'block_index',
                  'order_dir': 'asc',
