@@ -71,6 +71,8 @@ COPY requirements.txt /counterblock/
 COPY setup.py /counterblock/
 COPY ./counterblock/lib/config.py /counterblock/counterblock/lib/
 WORKDIR /counterblock
+RUN pip3 install --upgrade pip
+RUN pip3 install --upgrade -vv setuptools
 RUN pip3 install -r requirements.txt
 COPY . /counterblock
 RUN python3 setup.py develop
