@@ -14,7 +14,7 @@ MARKET_PRICE_DERIVE_NUM_POINTS = 8  # number of last trades over which to derive
 # FROM counterpartyd
 # NOTE: These constants must match those in counterparty-lib/counterpartylib/lib/config.py
 REGULAR_DUST_SIZE = 546
-MULTISIG_DUST_SIZE = 546
+MULTISIG_DUST_SIZE = 7800
 ORDER_BTC_DUST_LIMIT_CUTOFF = MULTISIG_DUST_SIZE
 
 BTC = 'BTC'
