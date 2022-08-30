@@ -12,9 +12,9 @@ UNIT = 100000000
 MARKET_PRICE_DERIVE_NUM_POINTS = 8  # number of last trades over which to derive the market price (via WVAP)
 
 # FROM counterpartyd
-# NOTE: These constants must match those in counterpartyd/lib/py
-REGULAR_DUST_SIZE = 5430
-MULTISIG_DUST_SIZE = 5430 * 2
+# NOTE: These constants must match those in counterparty-lib/counterpartylib/lib/config.py
+REGULAR_DUST_SIZE = 546
+MULTISIG_DUST_SIZE = 7800
 ORDER_BTC_DUST_LIMIT_CUTOFF = MULTISIG_DUST_SIZE
 
 BTC = 'BTC'
