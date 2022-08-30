@@ -21,7 +21,7 @@ import calendar
 import dateutil.parser
 
 from counterblock.lib import config, util, blockfeed, blockchain
-from counterblock.lib.modules import ASSETS_PRIORITY_PARSE_ISSUANCE, ASSETS_PRIORITY_BALANCE_CHANGE
+from counterblock.lib.modules import ASSETS_PRIORITY_PARSE_ISSUANCE, ASSETS_PRIORITY_PARSE_DESTRUCTION, ASSETS_PRIORITY_BALANCE_CHANGE
 from counterblock.lib.processor import MessageProcessor, MempoolMessageProcessor, BlockProcessor, StartUpProcessor, CaughtUpProcessor, RollbackProcessor, API, start_task
 
 ASSET_MAX_RETRY = 3
@@ -527,7 +527,7 @@ def parse_issuance(msg, msg_data):
         {'asset': msg_data['asset']}, {'_id': 0, '_history': 0})
     #^ pulls the tracked asset without the _id and history fields. This may be None
 
-    if msg_data['locked']:  # lock asset
+    if msg_data['locked'] and (tracked_asset is not None):  # lock asset
         assert tracked_asset is not None
         config.mongo_db.tracked_assets.update(
             {'asset': msg_data['asset']},
@@ -539,7 +539,7 @@ def parse_issuance(msg, msg_data):
             },
                 "$push": {'_history': tracked_asset}}, upsert=False)
         logger.info("Locking asset {}{}".format(msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data.get('asset_longname', None) else ''))
-    elif msg_data['transfer']:  # transfer asset
+    elif msg_data['transfer'] and (tracked_asset is not None):  # transfer asset
         assert tracked_asset is not None
         config.mongo_db.tracked_assets.update(
             {'asset': msg_data['asset']},
@@ -577,7 +577,7 @@ def parse_issuance(msg, msg_data):
                 'owner': msg_data['issuer'],
                 'description': msg_data['description'],
                 'divisible': msg_data['divisible'],
-                'locked': False,
+                'locked': msg_data['locked'],
                 'total_issued': int(msg_data['quantity']),
                 'total_issued_normalized': blockchain.normalize_quantity(msg_data['quantity'], msg_data['divisible']),
                 '_history': []  # to allow for block rollbacks
@@ -593,6 +593,7 @@ def parse_issuance(msg, msg_data):
                     '_at_block': cur_block_index,
                     '_at_block_time': cur_block['block_time_obj'],
                     '_change_type': 'issued_more',
+                    'divisible': msg_data['divisible'],                 
                 },
                     "$inc": {
                     'total_issued': msg_data['quantity'],
@@ -600,6 +601,37 @@ def parse_issuance(msg, msg_data):
                 },
                     "$push": {'_history': tracked_asset}}, upsert=False)
             logger.info("Adding additional {} quantity for asset {}{}".format(blockchain.normalize_quantity(msg_data['quantity'], msg_data['divisible']),
+                msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data.get('asset_longname', None) else ''))
+    return True
+
+@MessageProcessor.subscribe(priority=ASSETS_PRIORITY_PARSE_DESTRUCTION)
+def parse_destruction(msg, msg_data):
+    if msg['category'] != 'destructions':
+        return
+    if msg_data['status'] != 'valid':
+        return
+
+    cur_block_index = config.state['cur_block']['block_index']
+    cur_block = config.state['cur_block']
+
+    tracked_asset = config.mongo_db.tracked_assets.find_one(
+        {'asset': msg_data['asset']}, {'_id': 0, '_history': 0})
+    #^ pulls the tracked asset without the _id and history fields. This may be None
+
+    assert tracked_asset is not None
+    config.mongo_db.tracked_assets.update(
+        {'asset': msg_data['asset']},
+        {"$set": {
+            '_at_block': cur_block_index,
+            '_at_block_time': cur_block['block_time_obj'],
+            '_change_type': 'destruction',
+        },
+            "$inc": {
+            'total_issued': -msg_data['quantity'],
+            'total_issued_normalized': blockchain.normalize_quantity(-msg_data['quantity'], tracked_asset['divisible'])
+        },
+            "$push": {'_history': tracked_asset}}, upsert=False)
+    logger.info("Destroying {} quantity of asset {}{}".format(blockchain.normalize_quantity(msg_data['quantity'], tracked_asset['divisible']),
                 msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data.get('asset_longname', None) else ''))
     return True
 
