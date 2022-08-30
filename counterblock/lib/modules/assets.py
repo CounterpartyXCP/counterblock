@@ -539,7 +539,7 @@ def parse_issuance(msg, msg_data):
             },
                 "$push": {'_history': tracked_asset}}, upsert=False)
         logger.info("Locking asset {}{}".format(msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data.get('asset_longname', None) else ''))
-    elif msg_data['transfer']:  # transfer asset
+    elif msg_data['transfer'] and (tracked_asset is not None):  # transfer asset
         assert tracked_asset is not None
         config.mongo_db.tracked_assets.update(
             {'asset': msg_data['asset']},
