@@ -106,8 +106,19 @@ def process_cp_blockfeed():
 
         # out of order messages should not happen (anymore), but just to be sure
         if msg['message_index'] != config.state['last_message_index'] + 1 and config.state['last_message_index'] != -1:
-            raise Exception("Message index mismatch. Next message's message_index: %s, last_message_index: %s" % (
-                msg['message_index'], config.state['last_message_index']))
+            #the next is to catch the dispensers close delay messages which don't have a correlated block_index
+            messages_left = cache.get_messages_by_index(config.state['last_message_index'] + 1, msg['message_index'])
+            
+            for next_message_left in messages_left:
+                message_left_data = json.loads(next_message_left['bindings'])
+                
+                #If the message is dispenser closure
+                if next_message_left["command"] == "update" and next_message_left["category"] == "dispensers" and message_left_data["status"] == 10:
+                    parse_message(next_message_left)
+                else:    
+                    raise Exception("Message index mismatch. Next message's message_index: %s, last_message_index: %s" % (
+                        msg['message_index'], config.state['last_message_index']))
+            
 
         for function in MessageProcessor.active_functions():
             logger.debug('MessageProcessor: starting {}'.format(function['function']))

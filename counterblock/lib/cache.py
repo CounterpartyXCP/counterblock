@@ -57,6 +57,14 @@ def get_block_info(block_index, prefetch=0, min_message_index=None):
     return block_info_cache[block_index]
 
 
+def get_messages_by_index(from_index, to_index):
+    messages = util.call_jsonrpc_api(
+        'get_messages_by_index',
+        {'message_indexes': list(range(from_index, to_index))},
+        abort_on_error=True, use_cache=False)['result']
+    
+    return messages
+
 def clear_block_info_cache():
     global block_info_cache
     block_info_cache.clear()
