@@ -56,11 +56,6 @@ def serve_api():
         return config.state['cp_backend_block_index']
 
     @API.add_method
-    def get_insight_block_info(block_hash):
-        info = blockchain.getBlockInfo(block_hash)  # ('/api/block/' + block_hash + '/', abort_on_error=True)
-        return info
-
-    @API.add_method
     def get_chain_address_info(addresses, with_uxtos=True, with_last_txn_hashes=4):
         if not isinstance(addresses, list):
             raise Exception("addresses must be a list of addresses, even if it just contains one address")
