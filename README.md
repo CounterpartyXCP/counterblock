@@ -9,7 +9,12 @@ With its set of core-plugins, `counterblock` provides a more high-level data pro
 
 # Installation
 
-For a simple Docker-based install of the Counterparty software stack, see [this guide](http://counterparty.io/docs/federated_node/).
+For a simple Docker-based install of the Counterparty software stack, see [this guide](https://github.com/CounterpartyXCP/federatednode/docs/).
+
+# Documentation
+
+[Counterblock API](./docs/api.md)
+[Writing counterblock Plug-in Modules](./docs/modules.md)
 
 # Manual installation
 
